@@ -1,0 +1,226 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/maven-v4_0_0.xsd">
+
+    <modelVersion>4.0.0</modelVersion>
+    <packaging>pom</packaging>
+
+    <groupId>org.apache.cassandra</groupId>
+    <version>0.0.1-SNAPSHOT</version>
+    <artifactId>harry-parent</artifactId>
+
+    <name>Harry</name>
+
+    <modules>
+        <module>harry-core</module>
+        <module>harry-integration</module>
+        <module>harry-runner</module>
+    </modules>
+
+    <properties>
+        <javac.target>1.8</javac.target>
+        <harry.version>0.0.1-SNAPSHOT</harry.version>
+        <cassandra.version>4.0.0-SNAPSHOT</cassandra.version>
+        <dtest.version>0.0.4</dtest.version>
+        <jmh.version>1.11.3</jmh.version>
+        <argLine.common>
+            -server
+            -dsa -da -ea
+            -XX:+AggressiveOpts
+            -XX:+TieredCompilation
+            -XX:+UseBiasedLocking
+            -XX:+OptimizeStringConcat
+            -XX:+HeapDumpOnOutOfMemoryError
+
+            -Xms4g
+            -Xmx4g
+            -XX:MaxRAM=4g
+            <!-- -XX:MaxMetaspaceSize=512M -->
+            <!-- -XX:MetaspaceSize=512M -->
+            -XX:SoftRefLRUPolicyMSPerMB=0
+            -XX:MaxDirectMemorySize=2g
+
+            -XX:+HeapDumpOnOutOfMemoryError
+            -XX:-UseBiasedLocking
+            -XX:+UseTLAB
+            -XX:+ResizeTLAB
+            -XX:+UseNUMA
+            -XX:+PerfDisableSharedMem
+            -XX:+UseConcMarkSweepGC
+            -XX:+CMSParallelRemarkEnabled
+            -XX:SurvivorRatio=8
+            -XX:MaxTenuringThreshold=1
+            -XX:CMSInitiatingOccupancyFraction=75
+            -XX:+UseCMSInitiatingOccupancyOnly
+            -XX:CMSWaitDuration=10000
+            -XX:+CMSParallelInitialMarkEnabled
+            -XX:+CMSEdenChunksRecordAlways
+            -XX:+CMSClassUnloadingEnabled
+            -XX:+UseCondCardMark
+            -XX:OnOutOfMemoryError=kill
+
+            -Dcassandra.memtable_row_overhead_computation_step=100
+            -Djdk.attach.allowAttachSelf=true
+
+            --add-exports java.base/jdk.internal.misc=ALL-UNNAMED
+            --add-exports java.base/jdk.internal.ref=ALL-UNNAMED
+            --add-exports java.base/sun.nio.ch=ALL-UNNAMED
+            --add-exports java.management.rmi/com.sun.jmx.remote.internal.rmi=ALL-UNNAMED
+            --add-exports java.rmi/sun.rmi.registry=ALL-UNNAMED
+            --add-exports java.rmi/sun.rmi.server=ALL-UNNAMED
+            --add-exports java.sql/java.sql=ALL-UNNAMED
+            --add-opens java.base/java.lang.module=ALL-UNNAMED
+            --add-opens java.base/jdk.internal.loader=ALL-UNNAMED
+            --add-opens java.base/jdk.internal.ref=ALL-UNNAMED
+            --add-opens java.base/jdk.internal.reflect=ALL-UNNAMED
+            --add-opens java.base/jdk.internal.math=ALL-UNNAMED
+            --add-opens java.base/jdk.internal.module=ALL-UNNAMED
+            --add-opens java.base/jdk.internal.util.jar=ALL-UNNAMED
+            --add-opens jdk.management/com.sun.management.internal=ALL-UNNAMED
+
+            -Dcassandra.config=file://${session.executionRootDirectory}/test/conf/cassandra.yaml
+            -Dlog4j.configurationFile=file://${session.executionRootDirectory}/test/conf/log4j2-test.xml
+            -Dcassandra.test.logConfigPath=${session.executionRootDirectory}/test/conf/log4j2-dtest.xml
+            -Dcassandra.test.logConfigProperty=log4j.configurationFile
+        </argLine.common>
+    </properties>
+
+    <dependencyManagement>
+        <dependencies>
+
+
+            <dependency>
+                <groupId>org.apache.cassandra</groupId>
+                <artifactId>dtest-api</artifactId>
+                <version>${dtest.version}</version>
+           </dependency>
+
+            <dependency>
+                <groupId>org.apache.ant</groupId>
+                <artifactId>ant-junit</artifactId>
+                <version>1.9.7</version>
+            </dependency>
+
+            <dependency>
+                <groupId>com.google.guava</groupId>
+                <artifactId>guava</artifactId>
+                <version>27.0-jre</version>
+            </dependency>
+
+            <dependency>
+                <groupId>org.apache.cassandra</groupId>
+                <artifactId>cassandra-dtest-shaded</artifactId>
+                <version>${cassandra.version}</version>
+            </dependency>
+
+            <dependency>
+                <groupId>com.datastax.cassandra</groupId>
+                <artifactId>cassandra-driver-core</artifactId>
+                <version>3.6.0</version>
+            </dependency>
+
+            <dependency>
+                <groupId>org.apache.commons</groupId>
+                <artifactId>commons-lang3</artifactId>
+                <version>3.1</version>
+            </dependency>
+
+            <dependency>
+                <groupId>org.apache.commons</groupId>
+                <artifactId>commons-math3</artifactId>
+                <version>3.2</version>
+            </dependency>
+
+            <dependency>
+                <groupId>com.fasterxml.jackson.dataformat</groupId>
+                <artifactId>jackson-dataformat-yaml</artifactId>
+                <version>2.9.8</version>
+            </dependency>
+
+            <dependency>
+                <groupId>com.fasterxml.jackson.core</groupId>
+                <artifactId>jackson-databind</artifactId>
+                <version>2.9.8</version>
+            </dependency>
+
+            <dependency>
+                <groupId>com.fasterxml.jackson.core</groupId>
+                <artifactId>jackson-annotations</artifactId>
+                <version>2.9.8</version>
+            </dependency>
+
+            <dependency>
+                <groupId>junit</groupId>
+                <artifactId>junit</artifactId>
+                <version>4.12</version>
+            </dependency>
+
+            <dependency>
+                <groupId>org.hamcrest</groupId>
+                <artifactId>hamcrest-all</artifactId>
+                <version>1.3</version>
+            </dependency>
+        </dependencies>
+    </dependencyManagement>
+
+    <build>
+        <sourceDirectory>src/</sourceDirectory>
+        <testSourceDirectory>test/</testSourceDirectory>
+        <resources>
+            <resource>
+                <directory>resources</directory>
+            </resource>
+        </resources>
+        <testResources>
+            <testResource>
+                <directory>dev-resources</directory>
+            </testResource>
+            <testResource>
+                <directory>resources</directory>
+            </testResource>
+        </testResources>
+        <directory>target</directory>
+        <outputDirectory>target/classes</outputDirectory>
+
+        <plugins>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-compiler-plugin</artifactId>
+                <version>3.1</version>
+                <configuration>
+                    <compilerVersion>${javac.target}</compilerVersion>
+                    <source>${javac.target}</source>
+                    <target>${javac.target}</target>
+                </configuration>
+            </plugin>
+
+            <plugin>
+                <artifactId>maven-dependency-plugin</artifactId>
+                <executions>
+                    <execution>
+                        <phase>package</phase>
+                        <goals>
+                            <goal>copy-dependencies</goal>
+                        </goals>
+                        <configuration>
+                            <outputDirectory>${project.build.directory}/lib</outputDirectory>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <version>2.18.1</version>
+                <configuration>
+                    <includes>
+                        <include>**/*Test*.java</include>
+                    </includes>
+                    <runOrder>random</runOrder>
+                    <argLine>${argLine.common}</argLine>
+                </configuration>
+            </plugin>
+        </plugins>
+    </build>
+</project>

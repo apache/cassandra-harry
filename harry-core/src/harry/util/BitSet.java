@@ -1,0 +1,202 @@
+/*
+ *  Licensed to the Apache Software Foundation (ASF) under one
+ *  or more contributor license agreements.  See the NOTICE file
+ *  distributed with this work for additional information
+ *  regarding copyright ownership.  The ASF licenses this file
+ *  to you under the Apache License, Version 2.0 (the
+ *  "License"); you may not use this file except in compliance
+ *  with the License.  You may obtain a copy of the License at
+ *
+ *       http://www.apache.org/licenses/LICENSE-2.0
+ *
+ *  Unless required by applicable law or agreed to in writing, software
+ *  distributed under the License is distributed on an "AS IS" BASIS,
+ *  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ *  See the License for the specific language governing permissions and
+ *  limitations under the License.
+ */
+
+package harry.util;
+
+import java.util.function.IntConsumer;
+
+import harry.generators.Generator;
+import harry.generators.Surjections;
+
+public interface BitSet
+{
+    static long BITSET_STREAM_ID = 0x7670411362L;
+
+    static long bitMask(int bits)
+    {
+        if (bits <= 0)
+            return 0L;
+        else if (bits < 64)
+            return (1L << bits) - 1;
+        else
+            return -1L;
+    }
+
+    public static BitSet allSet(int bits)
+    {
+        return new BitSet64Bit(bitMask(bits), bits);
+    }
+
+    public static BitSet allUnset(int bits)
+    {
+        return new BitSet64Bit(0, bits);
+    }
+
+    public static BitSet create(long value, int bits)
+    {
+        return new BitSet64Bit(value, bits);
+    }
+
+    public void eachBit(BitConsumer iter);
+
+    public void eachSetBit(IntConsumer iter);
+
+    public void eachUnsetBit(IntConsumer iter);
+
+    public boolean allUnset();
+
+    public boolean allSet();
+
+    public void set(int idx);
+
+    public void unset(int idx);
+
+    public boolean isSet(int idx);
+
+    public static boolean isSet(long bits, int idx)
+    {
+        return (bits & (1L << idx)) != 0;
+    }
+
+    public int setCount();
+
+    public int size();
+
+    public BitSet clone(boolean invert);
+
+    public class BitSet64Bit implements BitSet
+    {
+        private long bits;
+        // TODO: use count to check out-of-bounds
+        private int count;
+
+        public BitSet64Bit(int count)
+        {
+            this(0, count);
+        }
+
+        public BitSet64Bit(long value, int count)
+        {
+            this.bits = value & bitMask(count);
+            this.count = count;
+        }
+
+        public boolean allUnset()
+        {
+            return bits == 0;
+        }
+
+        public boolean allSet()
+        {
+            return bits == bitMask(count);
+        }
+
+        public void eachBit(BitConsumer iter)
+        {
+            for (int i = 0; i < count; i++)
+                iter.consume(i, isSet(i));
+        }
+
+        public void eachSetBit(IntConsumer iter)
+        {
+            for (int i = 0; i < count; i++)
+            {
+                boolean isSet = isSet(i);
+                if (isSet)
+                    iter.accept(i);
+            }
+        }
+
+        public void eachUnsetBit(IntConsumer iter)
+        {
+            for (int i = 0; i < count; i++)
+            {
+                boolean isSet = isSet(i);
+                if (!isSet)
+                    iter.accept(i);
+            }
+        }
+
+        public void set(int idx)
+        {
+            this.bits |= (1L << idx);
+        }
+
+        public void unset(int idx)
+        {
+            this.bits &= ~(1L << idx);
+        }
+
+        public boolean isSet(int idx)
+        {
+            return BitSet.isSet(bits, idx);
+        }
+
+        public int setCount()
+        {
+            int count = 0;
+            for (int i = 0; i < size(); i++)
+            {
+                if (isSet(i))
+                    count++;
+            }
+            return count;
+        }
+
+        public int size()
+        {
+            return count;
+        }
+
+        public BitSet clone(boolean invert)
+        {
+            return new BitSet64Bit(invert ? ~bits & bitMask(count) : bits,
+                                   count);
+        }
+
+        public String toString()
+        {
+            String s = "";
+            for (int i = 0; i < size(); i++)
+            {
+                s += isSet(i) ? "set" : "unset";
+                if (i < (size() - 1))
+                    s += ", ";
+            }
+
+            return String.format("[%s]", s);
+        }
+    }
+
+    public interface BitConsumer
+    {
+        public void consume(int idx, boolean isSet);
+    }
+
+    public static Generator<BitSet> generator(int length)
+    {
+        return (rng) -> {
+            return BitSet.create(rng.next(), length);
+        };
+    }
+
+    public static Surjections.Surjection<BitSet> surjection(int length)
+    {
+        return generator(length).toSurjection(BITSET_STREAM_ID);
+    }
+}
