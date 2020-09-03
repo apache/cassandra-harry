@@ -19,7 +19,7 @@ generated from.
 Given a `long` _descriptor_ can be _inflated_ into some value:
   * value can be _deflated_ back to the descriptor it was generated from
   (in other words, generation is *invertible*)
-  * two inflated values will sort the same way ass two descriptors they
+  * two inflated values will sort the same way as two descriptors they
   were generated from (in other words, generation is *order-preserving*)
 
 These properties are also preserved for the composite values, such
@@ -43,13 +43,14 @@ timestamp, and vice versa.
 *System under test*: a Cassandra node or cluster. Default implementation is
 in_jvm (in-JVM DTest cluster). Harry also supports external clusters.
 
-*Model* is responsible for tracking logical timestamps that.
+*Model* is responsible for tracking logical timestamps that system under
+test was notified about.
 
 *Partition descriptor selector* controls how partitions are selected based on
 the current logical timestamp. The default implementation is a sliding window of
 partition descriptors that will visit one partition after the other in the
 window `slide_after_repeats` times. After that, it will retire one partition
-descriptor, and pick one instead of it.
+descriptor, and pick a new one.
 
 *Clustering descriptor selector* controls how clustering keys are picked within
 the partition: how many rows there can be in a partition, how many rows are
@@ -59,12 +60,13 @@ to occur.
 
 # Formal Relations Between Entities
 
-To be able to implement efficient models, we had to reduce the amount of state,
+To be able to implement efficient models, we had to reduce the amount of state
 required for validation to a minimum and try to operate on primitive data values
 most of the time. Any Harry run starts with a `seed`. Given the same
 configuration, and the same seed, we're able to make runs deterministic (in
 other words, records in two clusters created from the same seed are going to
-have different timestamps, but will be otherwise identical).
+have different real-time timestamps, but will be otherwise identical; logical
+time stamps will also be identical).
 
 Since it's clear how to generate things like random schemas, cluster
 configurations, etc., let's discuss how we're generating data, and why this type
@@ -115,7 +117,8 @@ entities. Hierarchically, the generation process looks as follows:
     in the modification batch.
   * `cd` is picked based on `(pd, lts)`, and `n`, a sequential number of the
     operation among all modification batches
-  * operation type used columns, and values for the modification are picked
+  * operation type (whether we're going to perform a write, delete, range delete, etc),
+    columns involved in this operation, and values for the modification are picked
     depending on the `pd`, `lts`, `m`, and `i`
 
 Most of this formalization is implemented in `OpSelectors`, and is relied upon
@@ -188,8 +191,8 @@ cd1, [vd1_2@rts2, vd2_1@rts1, vd3_2@rts2])`.
 
 Model in Harry ties the rest of the components together and allows us to check
 whether or not data returned by the cluster actually makes sense. The model
-relies on the clock since we have to convert real-time timestamps of the
-returned values back to logical timestamps, on descriptor selectors to pick the
+relies on the clock, since we have to convert real-time timestamps of the
+returned values back to logical timestamps, and on descriptor selectors to pick the
 right partition and rows.
 
 ## Visible Rows Checker
@@ -211,7 +214,6 @@ state, and validates entire partitions:
 
 ```
 void validatePartitionState(long validationLts, List<ResultSetRow> rows) {
-  long maxLtsForPd = pdSelector.maxLts(validationLts);
   long pd = pdSelector.pd(validationLts, schema);
 
   for (ResultSetRow row : rows) {
@@ -230,7 +232,7 @@ void validatePartitionState(long validationLts, List<ResultSetRow> rows) {
 
         if (!modelLtsIter.hasNext())
           throw new ValidationException(String.format("Model iterator is exhausted, could not verify %d lts for the row: \n%s %s",
-                                                       rowLts, row, query));
+                                                       rowLts, row));
 
         while (modelLtsIter.hasNext()) {
           long modelLts = modelLtsIter.nextLong();
@@ -285,12 +287,12 @@ With this component, and knowing that there can be no in-fight queries, we can
 validate data in the following way:
 
 ```
-public void validatePartitionState(long verificationLts, Iterator<ResultSetRow> actual, Query query) {
+public void validatePartitionState(Iterator<ResultSetRow> actual, Query query) {
   // find out up the highest completed logical timestamp
   long maxCompleteLts = tracker.maxComplete();
 
   // get the expected state from reconciler
-  Iterator<Reconciler.RowState> expected = reconciler.inflatePartitionState(query.pd, maxSeenLts, query).iterator(query.reverse);
+  Iterator<Reconciler.RowState> expected = reconciler.inflatePartitionState(query.pd, maxCompleteLts, query).iterator(query.reverse);
 
   // compare actual and expected rows one-by-one in-order
   while (actual.hasNext() && expected.hasNext()) {
@@ -337,7 +339,7 @@ we need to make sure we follow these rules:
   * every operation model _thinks_ should be invisible, has to be invisible
   * every operation model doesn't know the state of (i.e., it is still
     in-flight) can be _either_ visible _invisible_
-  * there can be no state in the database model is not aware of (in other words,
+  * there can be no state in the database that model is not aware of (in other words,
     we either can _explain_ how a row came to be, or we conclude that the row is
     erroneous)
 
@@ -439,14 +441,16 @@ git clone git@github.com:apache/cassandra.git
 cd cassandra
 ./build-shaded-dtest-jar.sh 4.0-beta4 4.0.0-SNAPSHOT
 cd ~/../harry/
-mvn package
+mvn package -DskipTests -nsu
+mvn dependency:copy-dependencies
+java -cp harry-runner/target/harry-runner-0.0.1-SNAPSHOT.jar:$(find harrry-runner/target/dependency/*.jar | tr -s '\n' ':'). harry.runner.HarryRunner
 ```
 
 `4.0-beta3` is a version of Cassandra which you can find in `build.xml`, and
 `4.0.0-SNAPSHOT` is a version of dtest jar that'll be installed under
 `org.apache.cassandra:cassandra-dtest-local` in your `~/.m2/repository`.
 
-Alternatively, you can use a docker container. For that just run:
+Alternatively, you can use a Docker container. For that just run:
 
 ```
 git clone git@github.com:apache/cassandra.git
@@ -508,7 +512,7 @@ Some things, even though are implemented, can be improved or optimized:
   * Harry shouldn't rely on java-driver for query generation
   * Exhaustive checker shouold use more precise information from data tracker, not
   just watermarks
-  * Decesion-making about _when_ we visit partitions and/or rows should be improved
+  * Decision-making about _when_ we visit partitions and/or rows should be improved
 
 This list of improvements is incomplete, and should only give the reader a rough
 idea about the state of the project. Main goal for the initial release was to make it
