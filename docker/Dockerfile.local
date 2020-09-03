@@ -1,0 +1,19 @@
+FROM adoptopenjdk/openjdk11
+
+MAINTAINER Apache Cassandra <dev@cassandra.apache.org>
+
+RUN mkdir -p /opt/harry/lib
+RUN mkdir -p /opt/harry/test
+RUN mkdir -p /opt/harry/logs
+RUN mkdir -p /cassandra/harry
+
+COPY ./harry-core/target/lib/* /opt/harry/lib/
+COPY ./harry-core/target/*.jar /opt/harry/lib/
+COPY ./harry-runner/target/lib/* /opt/harry/lib/
+COPY ./harry-runner/target/*.jar /opt/harry/
+COPY ./test/conf/logback-dtest.xml /opt/harry/test/conf/logback-dtest.xml
+COPY ./docker/run.sh /opt/harry/
+
+WORKDIR /opt/harry
+COPY ./docker/run-local.sh /opt/harry/
+ENTRYPOINT /opt/harry/run-local.sh
