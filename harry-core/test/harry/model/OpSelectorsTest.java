@@ -27,12 +27,16 @@ import java.util.Map;
 import java.util.Set;
 import java.util.TreeSet;
 import java.util.function.BiConsumer;
+import java.util.function.Supplier;
 
 import org.junit.Assert;
 import org.junit.Test;
 
 import harry.ddl.ColumnSpec;
+import harry.ddl.SchemaGenerators;
 import harry.ddl.SchemaSpec;
+import harry.generators.PcgRSUFast;
+import harry.generators.RandomGenerator;
 import harry.generators.Surjections;
 import harry.generators.distribution.Distribution;
 import harry.model.sut.NoOpSut;
@@ -157,11 +161,13 @@ public class OpSelectorsTest
     @Test
     public void ckSelectorTest()
     {
-        SchemaSpec schema = new SchemaSpec("ks", "tbl1",
-                                           Collections.singletonList(ColumnSpec.pk("pk1", ColumnSpec.asciiType)),
-                                           Collections.singletonList(ColumnSpec.ck("ck1", ColumnSpec.asciiType)),
-                                           Collections.singletonList(ColumnSpec.regularColumn("v1", ColumnSpec.asciiType)));
+        Supplier<SchemaSpec> gen = SchemaGenerators.progression(5);
+        for (int i = 0; i < 30; i++)
+            ckSelectorTest(gen.get());
+    }
 
+    public void ckSelectorTest(SchemaSpec schema)
+    {
         OpSelectors.Rng rng = new OpSelectors.PCGFast(1);
         OpSelectors.PdSelector pdSelector = new OpSelectors.DefaultPdSelector(rng, 10, 10);
         OpSelectors.DescriptorSelector ckSelector = new OpSelectors.DefaultDescriptorSelector(rng,
@@ -218,7 +224,9 @@ public class OpSelectorsTest
                                                                         }).get();
 
         for (int lts = 0; lts < 1000; lts++)
+        {
             partitionVisitor.visitPartition(lts);
+        }
 
         for (Collection<Long> value : partitionMap.values())
             Assert.assertEquals(10, value.size());

@@ -104,11 +104,6 @@ public class ColumnSpec<T>
         return type.generator().inflate(current);
     }
 
-    public long adjustEntropyDomain(long current)
-    {
-        return type.generator().adjustEntropyDomain(current);
-    }
-
     public long deflate(T value)
     {
         return type.generator().deflate(value);
@@ -162,7 +157,10 @@ public class ColumnSpec<T>
 
         public abstract Bijections.Bijection<T> generator();
 
-        public abstract int maxSize();
+        public int maxSize()
+        {
+            return generator().byteSize();
+        }
 
         public String toString()
         {
@@ -176,84 +174,56 @@ public class ColumnSpec<T>
         {
             return Bijections.INT8_GENERATOR;
         }
-
-        public int maxSize()
-        {
-            return Byte.BYTES;
-        }
     };
+
     public static final DataType<Short> int16Type = new DataType<Short>("smallint")
     {
         public Bijections.Bijection<Short> generator()
         {
             return Bijections.INT16_GENERATOR;
         }
-
-        public int maxSize()
-        {
-            return Short.BYTES;
-        }
     };
+
     public static final DataType<Integer> int32Type = new DataType<Integer>("int")
     {
         public Bijections.Bijection<Integer> generator()
         {
             return Bijections.INT32_GENERATOR;
         }
-
-        public int maxSize()
-        {
-            return Integer.BYTES;
-        }
     };
+
     public static final DataType<Long> int64Type = new DataType<Long>("bigint")
     {
         public Bijections.Bijection<Long> generator()
         {
             return Bijections.INT64_GENERATOR;
         }
-
-        public int maxSize()
-        {
-            return Long.BYTES;
-        }
     };
+
     public static final DataType<Boolean> booleanType = new DataType<Boolean>("boolean")
     {
         public Bijections.Bijection<Boolean> generator()
         {
             return Bijections.BOOLEAN_GENERATOR;
         }
-
-        public int maxSize()
-        {
-            return Byte.BYTES;
-        }
     };
+
     public static final DataType<Float> floatType = new DataType<Float>("float")
     {
         public Bijections.Bijection<Float> generator()
         {
             return Bijections.FLOAT_GENERATOR;
         }
-
-        public int maxSize()
-        {
-            return Float.BYTES;
-        }
     };
+
     public static final DataType<Double> doubleType = new DataType<Double>("double")
     {
         public Bijections.Bijection<Double> generator()
         {
             return Bijections.DOUBLE_GENERATOR;
         }
-
-        public int maxSize()
-        {
-            return Double.BYTES;
-        }
     };
+
     public static final DataType<String> asciiType = new DataType<String>("ascii")
     {
         private final Bijections.Bijection<String> gen = new StringBijection();
@@ -261,11 +231,6 @@ public class ColumnSpec<T>
         public Bijections.Bijection<String> generator()
         {
             return gen;
-        }
-
-        public int maxSize()
-        {
-            return Long.BYTES;
         }
     };
 
@@ -279,11 +244,6 @@ public class ColumnSpec<T>
             {
                 return gen;
             }
-
-            public int maxSize()
-            {
-                return Long.BYTES;
-            }
         };
     }
 
@@ -293,11 +253,6 @@ public class ColumnSpec<T>
         {
             return Bijections.UUID_GENERATOR;
         }
-
-        public int maxSize()
-        {
-            return Long.BYTES;
-        }
     };
 
     public static final DataType<Date> timestampType = new DataType<Date>("timestamp")
@@ -305,11 +260,6 @@ public class ColumnSpec<T>
         public Bijections.Bijection<Date> generator()
         {
             return Bijections.TIMESTAMP_GENERATOR;
-        }
-
-        public int maxSize()
-        {
-            return Long.BYTES;
         }
     };
 

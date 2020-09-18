@@ -132,6 +132,7 @@ public class QuerySelector
                 {
                     long v = sliced[i];
                     DataGenerators.KeyGenerator gen = schema.ckGenerator;
+                    ColumnSpec column = schema.clusteringKeys.get(i);
                     int idx = i;
                     LongSupplier maxSupplier = () -> gen.maxValue(idx);
                     LongSupplier minSupplier = () -> gen.minValue(idx);
@@ -145,8 +146,17 @@ public class QuerySelector
                     else if (i == nonEqFrom)
                     {
                         relations.add(Relation.relation(relationKind(isGt, isEquals), schema.clusteringKeys.get(i), v));
-                        minBound[i] = isGt ? v : minSupplier.getAsLong();
-                        maxBound[i] = isGt ? maxSupplier.getAsLong() : v;
+
+                        if (column.isReversed())
+                        {
+                            minBound[i] = isGt ? minSupplier.getAsLong() : v;
+                            maxBound[i] = isGt ? v : maxSupplier.getAsLong();
+                        }
+                        else
+                        {
+                            minBound[i] = isGt ? v : minSupplier.getAsLong();
+                            maxBound[i] = isGt ? maxSupplier.getAsLong() : v;
+                        }
                     }
                     else
                     {
@@ -155,13 +165,15 @@ public class QuerySelector
                             minBound[i] = minSupplier.getAsLong();
                             maxBound[i] = maxSupplier.getAsLong();
                         }
+                        else if (i > 0 && schema.clusteringKeys.get(i - 1).isReversed())
+                            maxBound[i] = minBound[i] = isGt ? minSupplier.getAsLong() : maxSupplier.getAsLong();
                         else
-                        {
-                            minBound[i] = !isGt ? minSupplier.getAsLong() : maxSupplier.getAsLong();
-                            maxBound[i] = isGt ? maxSupplier.getAsLong() : minSupplier.getAsLong();
-                        }
+                            maxBound[i] = minBound[i] = isGt ? maxSupplier.getAsLong() : minSupplier.getAsLong();
                     }
                 }
+
+                if (schema.clusteringKeys.get(nonEqFrom).isReversed())
+                    isGt = !isGt;
 
                 min = schema.ckGenerator.stitch(minBound);
                 max = schema.ckGenerator.stitch(maxBound);
@@ -229,14 +241,23 @@ public class QuerySelector
                         long maxLocked = Math.max(minBound[lock], maxBound[lock]);
 
                         relations.add(Relation.relation(relationKind(true, isMinEq), col, minLocked));
-                        minBound[i] = minLocked;
+
+                        minBound[i] = col.isReversed() ? maxLocked : minLocked;
                         relations.add(Relation.relation(relationKind(false, isMaxEq), col, maxLocked));
-                        maxBound[i] = maxLocked;
+                        maxBound[i] = col.isReversed() ? minLocked : maxLocked;
                     }
                     else
                     {
-                        minBound[i] = isMinEq ? schema.ckGenerator.minValue(i) : schema.ckGenerator.maxValue(i);
-                        maxBound[i] = isMaxEq ? schema.ckGenerator.maxValue(i) : schema.ckGenerator.minValue(i);
+                        if (i > 0 && schema.clusteringKeys.get(i - 1).isReversed())
+                        {
+                            minBound[i] = isMinEq ? schema.ckGenerator.maxValue(i) : schema.ckGenerator.minValue(i);
+                            maxBound[i] = isMaxEq ? schema.ckGenerator.minValue(i) : schema.ckGenerator.maxValue(i);
+                        }
+                        else
+                        {
+                            minBound[i] = isMinEq ? schema.ckGenerator.minValue(i) : schema.ckGenerator.maxValue(i);
+                            maxBound[i] = isMaxEq ? schema.ckGenerator.maxValue(i) : schema.ckGenerator.minValue(i);
+                        }
                     }
                 }
 

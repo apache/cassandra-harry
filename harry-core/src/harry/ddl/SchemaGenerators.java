@@ -169,9 +169,14 @@ public class SchemaGenerators
 
         public Builder partitionKeySpec(int minCols, int maxCols, ColumnSpec.DataType<?>... columnTypes)
         {
+            return partitionKeySpec(minCols, maxCols, Arrays.asList(columnTypes));
+        }
+
+        public Builder partitionKeySpec(int minCols, int maxCols, Collection<ColumnSpec.DataType<?>> columnTypes)
+        {
             this.minPks = minCols;
             this.maxPks = maxCols;
-            this.pkGenerator = columnSpecGenerator(Arrays.asList(columnTypes), "pk", ColumnSpec.Kind.PARTITION_KEY);
+            this.pkGenerator = columnSpecGenerator(columnTypes, "pk", ColumnSpec.Kind.PARTITION_KEY);
             return this;
         }
 
@@ -189,9 +194,14 @@ public class SchemaGenerators
 
         public Builder clusteringKeySpec(int minCols, int maxCols, ColumnSpec.DataType<?>... columnTypes)
         {
+            return clusteringKeySpec(minCols, maxCols, Arrays.asList(columnTypes));
+        }
+
+        public Builder clusteringKeySpec(int minCols, int maxCols, Collection<ColumnSpec.DataType<?>> columnTypes)
+        {
             this.minCks = minCols;
             this.maxCks = maxCols;
-            this.ckGenerator = columnSpecGenerator(Arrays.asList(columnTypes), "ck", ColumnSpec.Kind.CLUSTERING);
+            this.ckGenerator = columnSpecGenerator(columnTypes, "ck", ColumnSpec.Kind.CLUSTERING);
             return this;
         }
 
@@ -209,9 +219,14 @@ public class SchemaGenerators
 
         public Builder regularColumnSpec(int minCols, int maxCols, ColumnSpec.DataType<?>... columnTypes)
         {
+            return this.regularColumnSpec(minCols, maxCols, Arrays.asList(columnTypes));
+        }
+
+        public Builder regularColumnSpec(int minCols, int maxCols, Collection<ColumnSpec.DataType<?>> columnTypes)
+        {
             this.minRegular = minCols;
             this.maxRegular = maxCols;
-            this.regularGenerator = columnSpecGenerator(Arrays.asList(columnTypes), "regular", ColumnSpec.Kind.REGULAR);
+            this.regularGenerator = columnSpecGenerator(columnTypes, "regular", ColumnSpec.Kind.REGULAR);
             return this;
         }
 
@@ -291,5 +306,102 @@ public class SchemaGenerators
 //                                                                              ColumnSpec.doubleType,
                                   ColumnSpec.asciiType(5, 10))
                .surjection();
+    }
+
+    public static final String DEFAULT_KEYSPACE_NAME = "harry";
+    private static final String DEFAULT_PREFIX = "table_";
+    private static final AtomicInteger counter = new AtomicInteger();
+    private static final Supplier<String> tableNameSupplier = () -> DEFAULT_PREFIX + counter.getAndIncrement();
+
+    // simplest schema gen, nothing can go wrong with it
+    public static final Surjections.Surjection<SchemaSpec> longOnlySpecBuilder = new SchemaGenerators.Builder(DEFAULT_KEYSPACE_NAME, tableNameSupplier)
+                                                                                 .partitionKeySpec(1, 1, ColumnSpec.int64Type)
+                                                                                 .clusteringKeySpec(1, 1, ColumnSpec.int64Type)
+                                                                                 .regularColumnSpec(1, 10, ColumnSpec.int64Type)
+                                                                                 .surjection();
+
+    private static final ColumnSpec.DataType<String> simpleStringType = ColumnSpec.asciiType(4, 10);
+    private static final Surjections.Surjection<SchemaSpec> longAndStringSpecBuilder = new SchemaGenerators.Builder(DEFAULT_KEYSPACE_NAME, tableNameSupplier)
+                                                                                       .partitionKeySpec(2, 2, ColumnSpec.int64Type, simpleStringType)
+                                                                                       .clusteringKeySpec(2, 2, ColumnSpec.int64Type, simpleStringType)
+                                                                                       .regularColumnSpec(1, 10, ColumnSpec.int64Type, simpleStringType)
+                                                                                       .surjection();
+
+    public static final Surjections.Surjection<SchemaSpec> longOnlyWithReverseSpecBuilder = new SchemaGenerators.Builder(DEFAULT_KEYSPACE_NAME, tableNameSupplier)
+                                                                                            .partitionKeySpec(1, 1, ColumnSpec.int64Type)
+                                                                                            .clusteringKeySpec(1, 1, ColumnSpec.ReversedType.getInstance(ColumnSpec.int64Type))
+                                                                                            .regularColumnSpec(1, 10, ColumnSpec.int64Type)
+                                                                                            .surjection();
+
+    public static final Surjections.Surjection<SchemaSpec> longAndStringSpecWithReversedLongBuilder = new SchemaGenerators.Builder(DEFAULT_KEYSPACE_NAME, tableNameSupplier)
+                                                                                                      .partitionKeySpec(2, 2, ColumnSpec.int64Type, simpleStringType)
+                                                                                                      .clusteringKeySpec(2, 2, ColumnSpec.ReversedType.getInstance(ColumnSpec.int64Type), simpleStringType)
+                                                                                                      .regularColumnSpec(1, 10, ColumnSpec.int64Type, simpleStringType)
+                                                                                                      .surjection();
+
+    public static final Surjections.Surjection<SchemaSpec> longAndStringSpecWithReversedStringBuilder = new SchemaGenerators.Builder(DEFAULT_KEYSPACE_NAME, tableNameSupplier)
+                                                                                                        .partitionKeySpec(2, 2, ColumnSpec.int64Type, simpleStringType)
+                                                                                                        .clusteringKeySpec(2, 2, ColumnSpec.int64Type, ColumnSpec.ReversedType.getInstance(simpleStringType))
+                                                                                                        .regularColumnSpec(1, 10, ColumnSpec.int64Type, simpleStringType)
+                                                                                                        .surjection();
+
+    public static final Surjections.Surjection<SchemaSpec> longAndStringSpecWithReversedBothBuilder = new SchemaGenerators.Builder(DEFAULT_KEYSPACE_NAME, tableNameSupplier)
+                                                                                                      .partitionKeySpec(2, 2, ColumnSpec.int64Type, simpleStringType)
+                                                                                                      .clusteringKeySpec(2, 2, ColumnSpec.ReversedType.getInstance(ColumnSpec.int64Type), ColumnSpec.ReversedType.getInstance(simpleStringType))
+                                                                                                      .regularColumnSpec(1, 10, ColumnSpec.int64Type, simpleStringType)
+                                                                                                      .surjection();
+
+    public static final Surjections.Surjection<SchemaSpec> withAllFeaturesEnabled = new SchemaGenerators.Builder(DEFAULT_KEYSPACE_NAME, tableNameSupplier)
+                                                                                    .partitionKeySpec(1, 4, columnTypes)
+                                                                                    .clusteringKeySpec(1, 4, clusteringKeyTypes)
+                                                                                    .regularColumnSpec(1, 10, columnTypes)
+                                                                                    .surjection();
+
+    public static final Surjections.Surjection<SchemaSpec>[] PROGRESSIVE_GENERATORS = new Surjections.Surjection[]{
+    longOnlySpecBuilder,
+    longAndStringSpecBuilder,
+    longOnlyWithReverseSpecBuilder,
+    longAndStringSpecWithReversedLongBuilder,
+    longAndStringSpecWithReversedStringBuilder,
+    longAndStringSpecWithReversedBothBuilder,
+    withAllFeaturesEnabled
+    };
+    // Create schema generators that would produce tables starting with just a few features, progressing to use more
+    public static Supplier<SchemaSpec> progression(int switchAfter)
+    {
+        Supplier<SchemaSpec>[] generators = new Supplier[PROGRESSIVE_GENERATORS.length];
+        for (int i = 0; i < generators.length; i++)
+            generators[i] = PROGRESSIVE_GENERATORS[i].toSupplier();
+
+        return new Supplier<SchemaSpec>()
+        {
+            private final AtomicInteger counter = new AtomicInteger();
+            public SchemaSpec get()
+            {
+                int idx = (counter.getAndIncrement() / switchAfter) % generators.length;
+                SchemaSpec spec = generators[idx].get();
+                int tries = 100;
+                while ((spec.ckGenerator.byteSize() != Long.BYTES || spec.pkGenerator.byteSize() != Long.BYTES) && tries > 0)
+                {
+                    System.out.println("Skipping schema, since it doesn't have enough entropy bits available: " + spec.compile().cql());
+                    spec = generators[idx].get();
+                    tries--;
+                }
+
+                assert tries > 0 : String.format("Max number of tries exceeded on generator %d, can't generate a needed schema", idx);
+                return spec;
+            }
+
+
+        };
+    }
+
+    public static int DEFAULT_SWITCH_AFTER = 5;
+    public static int GENERATORS_COUNT = PROGRESSIVE_GENERATORS.length;
+    public static int DEFAULT_RUNS = DEFAULT_SWITCH_AFTER * PROGRESSIVE_GENERATORS.length;
+
+    public static Supplier<SchemaSpec> progression()
+    {
+        return progression(DEFAULT_SWITCH_AFTER); // would generate 30 tables before wrapping around
     }
 }

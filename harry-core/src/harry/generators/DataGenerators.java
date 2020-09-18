@@ -190,12 +190,12 @@ public class DataGenerators
             return 0;
         }
 
-        protected long minValueInternal(int idx)
+        public long minValue(int idx)
         {
             return 0;
         }
 
-        protected long maxValueInternal(int idx)
+        public long maxValue(int idx)
         {
             return 0;
         }
@@ -244,51 +244,19 @@ public class DataGenerators
 
         public long minValue()
         {
-            return columns.get(0).isReversed() ? maxForSize(byteSize()) : minForSize(byteSize());
+            return Bijections.minForSize(byteSize());
         }
 
         public long maxValue()
         {
-            return columns.get(0).isReversed() ? minForSize(byteSize()) : maxForSize(byteSize());
-        }
-
-        protected static long minForSize(int size)
-        {
-            long min = 1L << (size * Byte.SIZE - 1);
-
-            if (size < Long.BYTES)
-                min ^= Bytes.signMaskFor(size);
-
-            return min;
-        }
-
-        protected long maxForSize(int size)
-        {
-            long max = Bytes.bytePatternFor(size) >>> 1;
-
-            if (size < Long.BYTES)
-                max ^= Bytes.signMaskFor(size);
-
-            return max;
+            return Bijections.maxForSize(byteSize());
         }
 
         /**
          * Min value for a segment: 0, possibly with an inverted 0 sign for stitching.
-         * Similar thing can be achieved by
          */
-        public long minValue(int idx)
-        {
-            return columns.get(idx).isReversed() ? maxValueInternal(idx) : minValueInternal(idx);
-        }
-
-        public long maxValue(int idx)
-        {
-            return columns.get(idx).isReversed() ? minValueInternal(idx) : maxValueInternal(idx);
-        }
-
-        protected abstract long minValueInternal(int idx);
-
-        protected abstract long maxValueInternal(int idx);
+        public abstract long minValue(int idx);
+        public abstract long maxValue(int idx);
     }
 
     static class SinglePartKeyGenerator extends KeyGenerator
@@ -306,37 +274,50 @@ public class DataGenerators
 
         public long[] slice(long descriptor)
         {
-            long adjusted = adjustEntropyDomain(descriptor);
-            long[] res = new long[]{ adjusted };
-            assert adjusted == stitch(res);
-            return res;
+            if (shouldInvertSign())
+                descriptor ^= Bytes.signMaskFor(byteSize());
+
+            descriptor = adjustEntropyDomain(descriptor);
+            return new long[]{ descriptor };
         }
 
         public long stitch(long[] parts)
         {
-            return parts[0];
+            long descriptor = parts[0];
+
+            if (shouldInvertSign())
+                descriptor ^= Bytes.signMaskFor(byteSize());
+
+            return adjustEntropyDomain(descriptor);
         }
 
-        public long minValueInternal(int idx)
+        public long minValue(int idx)
         {
-            return minForSize(totalSize);
+            assert idx == 0;
+            return keyGen.minValue();
         }
 
-        public long maxValueInternal(int idx)
+        public long maxValue(int idx)
         {
-            return maxForSize(totalSize);
+            assert idx == 0;
+            return keyGen.maxValue();
         }
 
         public Object[] inflate(long descriptor)
         {
-            return new Object[]{ keyGen.inflate(descriptor) };
+            long[] sliced = slice(descriptor);
+            return new Object[]{ keyGen.inflate(sliced[0]) };
+        }
+
+        public boolean shouldInvertSign()
+        {
+            return totalSize != Long.BYTES && !keyGen.byteOrdered();
         }
 
         public long deflate(Object[] value)
         {
             long descriptor = keyGen.deflate(value[0]);
-            descriptor &= Bytes.bytePatternFor(totalSize);
-            return descriptor;
+            return stitch(new long[] { descriptor });
         }
 
         public int byteSize()
@@ -347,13 +328,6 @@ public class DataGenerators
         public int compare(long l, long r)
         {
             return Long.compare(l, r);
-        }
-
-        public long adjustEntropyDomain(long descriptor)
-        {
-            descriptor &= (Bytes.bytePatternFor(totalSize) >> 1);
-            descriptor = keyGen.adjustEntropyDomain(descriptor);
-            return descriptor;
         }
     }
 
@@ -386,32 +360,41 @@ public class DataGenerators
             return DataGenerators.inflateKey(columns, descriptor, slice(descriptor));
         }
 
-        public long adjustEntropyDomain(long descriptor)
-        {
-            // We can't simply trim the value here, mostly because of the values like
-            // long and double that can change the value during normalization in addition
-            // to trimming it.
-            return stitch(slice(descriptor));
-        }
-
         // Checks whether we need to invert a slice sign to preserve order of the sliced descriptor
         public boolean shouldInvertSign(int idx)
         {
-            int maxSliceSize = columns.get(idx).generator().byteSize();
+            Bijections.Bijection<?> gen = columns.get(idx).generator();
+
+            int maxSliceSize = gen.byteSize();
             int actualSliceSize = sizes[idx];
 
             if (idx == 0)
             {
-                // Signed representation of the first value would follow the sorting of the
-                // long value itself, which means that we have invert sign of the first piece if:
-                //    * not all entropy bytes are consumed
-                //    * we do not have enough entropy bytes to set the sign bit of the value
-                // TODO: I think maxPieceSize != pieceSize is not right here; it should be <= ???
-                return totalSize != Long.BYTES || maxSliceSize != actualSliceSize;
+                // We consume a sign of a descriptor (long, long), (int, int), etc.
+                if (totalSize == Long.BYTES)
+                {
+                    // if we use only 3 bytes for a 4-byte int, or 4 bytes for a 8-byte int,
+                    // they're effectively unsigned/byte-ordered, so their order won't match
+                    if (maxSliceSize > actualSliceSize)
+                        return true;
+                    // Since descriptor is signed, invert sign of all byte-ordered types, since
+                    // their order won't match
+                    else
+                        return gen.byteOrdered();
+                }
+                // We do not consume a sign of a descriptor (float, tinyint), (int, tinyint), etc,
+                // so we have to only invert signs of the values, since their order doesn't match.
+                else
+                {
+                    assert maxSliceSize == actualSliceSize;
+                    return !gen.byteOrdered();
+                }
             }
-
-            // We invert sign of all subsequent chunks if their signs match
-            return maxSliceSize == actualSliceSize;
+            else if (gen.byteOrdered())
+                return false;
+            else
+                // We invert sign of all subsequent chunks if they have enough entropy to have a sign bit set
+                return maxSliceSize == actualSliceSize;
         }
 
         public long[] slice(long descriptor)
@@ -423,12 +406,10 @@ public class DataGenerators
                 final int size = sizes[i];
                 long piece = descriptor >> ((pos - size) * Byte.SIZE);
 
-                piece &= Bytes.bytePatternFor(size);
-
                 if (shouldInvertSign(i))
                     piece ^= Bytes.signMaskFor(size);
 
-                piece = columns.get(i).adjustEntropyDomain(piece);
+                piece &= Bytes.bytePatternFor(size);
 
                 pieces[i] = piece;
                 pos -= size;
@@ -455,21 +436,22 @@ public class DataGenerators
             return stitched;
         }
 
-        protected long minValueInternal(int idx)
+
+        public long minValue(int idx)
         {
-            int size = sizes[idx];
-            long res = 0;
+            long res = columns.get(idx).generator().minValue();
+            // Inverting sign is important for range queries and RTs, since we're
+            // making boundaries that'll be stitched later.
             if (shouldInvertSign(idx))
-                res ^= Bytes.signMaskFor(size);
+                res ^= Bytes.signMaskFor(sizes[idx]);
             return res;
         }
 
-        protected long maxValueInternal(int idx)
+        public long maxValue(int idx)
         {
-            int size = sizes[idx];
-            long res = Bytes.bytePatternFor(size);
+            long res = columns.get(idx).generator().maxValue();
             if (shouldInvertSign(idx))
-                res ^= Bytes.signMaskFor(size);
+                res ^= Bytes.signMaskFor(sizes[idx]);
             return res;
         }
 

@@ -25,7 +25,9 @@ import java.util.function.Function;
 import com.google.common.annotations.VisibleForTesting;
 
 import harry.core.Configuration;
+import harry.ddl.ColumnSpec;
 import harry.ddl.SchemaSpec;
+import harry.generators.Bytes;
 import harry.generators.PCGFastPure;
 import harry.generators.RngUtils;
 import harry.generators.Surjections;
@@ -185,8 +187,9 @@ public interface OpSelectors
             {
                 if (mask.isSet(col))
                 {
-                    long vd = vd(pd, cd, lts, opId, col);
-                    vds[col] = schema.regularColumns.get(col).adjustEntropyDomain(vd);
+                    ColumnSpec spec = schema.regularColumns.get(col);
+                    long vd = vd(pd, cd, lts, opId, col) & Bytes.signMaskFor(spec.type.maxSize());
+                    vds[col] = vd;
                 }
                 else
                 {
@@ -278,7 +281,8 @@ public interface OpSelectors
 
         public long minLtsFor(long pd)
         {
-            return minLtsAt(rng.sequenceNumber(pd, PARTITION_DESCRIPTOR_STREAM_ID));
+            long sequenceNumber = rng.sequenceNumber(pd, PARTITION_DESCRIPTOR_STREAM_ID);
+            return minLtsAt(sequenceNumber);
         }
 
         public long positionFor(long lts)

@@ -20,6 +20,7 @@ package harry.reconciler;
 
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collection;
 import java.util.Iterator;
 import java.util.List;
 import java.util.NavigableMap;
@@ -62,7 +63,7 @@ public class Reconciler
         this.querySelector = querySelector;
     }
 
-    public PartitionState inflatePartitionState(long pd, long maxLts, Query query)
+    public PartitionState inflatePartitionState(final long pd, long maxLts, Query query)
     {
         List<Ranges.Range> ranges = new ArrayList<>();
         // TODO: we should think of a single-pass algorithm that would allow us to inflate all deletes and range deletes for a partition
@@ -82,6 +83,7 @@ public class Reconciler
         };
 
         long currentLts = pdSelector.minLtsFor(pd);
+
         while (currentLts <= maxLts && currentLts >= 0)
         {
             partitionVisitor.visitPartition(currentLts);
@@ -96,10 +98,13 @@ public class Reconciler
         {
             public void operation(long lts, long pd, long cd, long m, long opId)
             {
-                if (!query.match(cd) || rts.isShadowed(cd, lts))
+                OpSelectors.OperationKind opType = descriptorSelector.operationType(pd, lts, opId);
+
+                if (opType == OpSelectors.OperationKind.DELETE_ROW || opType == OpSelectors.OperationKind.DELETE_RANGE)
                     return;
 
-                OpSelectors.OperationKind opType = descriptorSelector.operationType(pd, lts, opId);
+                if (!query.match(cd) || rts.isShadowed(cd, lts))
+                    return;
 
                 if (opType == OpSelectors.OperationKind.WRITE)
                 {
@@ -207,6 +212,14 @@ public class Reconciler
                 return rows.descendingMap().values().iterator();
 
             return rows.values().iterator();
+        }
+
+        public Collection<RowState> rows(boolean reverse)
+        {
+            if (reverse)
+                return rows.descendingMap().values();
+
+            return rows.values();
         }
     }
 

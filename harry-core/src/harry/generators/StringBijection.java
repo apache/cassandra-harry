@@ -79,6 +79,7 @@ public class StringBijection implements Bijections.Bijection<String>
     public static int getByte(long l, int idx)
     {
         int b = (int) ((l >> (Long.BYTES - idx - 1) * Byte.SIZE) & 0xff);
+        // TODO: make use of `byteOrdered` to avoid flipping this bit
         if (idx == 0)
             b ^= 0x80;
         return b;
