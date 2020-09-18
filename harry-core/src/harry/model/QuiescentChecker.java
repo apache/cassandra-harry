@@ -19,7 +19,9 @@
 package harry.model;
 
 import java.util.Arrays;
+import java.util.Collection;
 import java.util.Iterator;
+import java.util.List;
 
 import com.google.common.annotations.VisibleForTesting;
 
@@ -67,8 +69,10 @@ public class QuiescentChecker implements Model
         assert maxCompeteLts == maxSeenLts : "Runner hasn't settled down yet. " +
                                              "Quiescent model can't be reliably used in such cases.";
 
-        Iterator<ResultSetRow> actual = SelectHelper.execute(sut, clock, query).iterator();
-        Iterator<Reconciler.RowState> expected = reconciler.inflatePartitionState(query.pd, maxSeenLts, query).iterator(query.reverse);
+        List<ResultSetRow> actualRows = SelectHelper.execute(sut, clock, query);
+        Iterator<ResultSetRow> actual = actualRows.iterator();
+        Collection<Reconciler.RowState> expectedRows = reconciler.inflatePartitionState(query.pd, maxSeenLts, query).rows(query.reverse);
+        Iterator<Reconciler.RowState> expected = expectedRows.iterator();
 
         while (actual.hasNext() && expected.hasNext())
         {
@@ -92,8 +96,12 @@ public class QuiescentChecker implements Model
 
         if (actual.hasNext() || expected.hasNext())
         {
-            throw new ValidationException("Expected results to have the same number of results, but %s result iterator has more results",
-                                          actual.hasNext() ? "actual" : "expected");
+            throw new ValidationException("Expected results to have the same number of results, but %s result iterator has more results." +
+                                          "\nExpected: %s" +
+                                          "\nActual:   %s",
+                                          actual.hasNext() ? "actual" : "expected",
+                                          expectedRows,
+                                          actualRows);
         }
     }
 

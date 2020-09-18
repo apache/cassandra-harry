@@ -29,7 +29,7 @@ public class TestRunner
 {
     private static final int CYCLES = 100;
 
-    private static final RandomGenerator rand = RandomGenerator.forTests(6371747244598697093L);
+    protected static final RandomGenerator rand = RandomGenerator.forTests(6371747244598697093L);
 
     public static <T1, T2> void test(Generator<T1> gen1,
                                      Generator<T2> gen2,

@@ -26,6 +26,8 @@ import java.util.function.Function;
 import java.util.function.LongFunction;
 import java.util.function.Supplier;
 
+import com.google.common.annotations.VisibleForTesting;
+
 public class Surjections
 {
     public static <T> Surjection<T> constant(Supplier<T> constant)
@@ -153,6 +155,13 @@ public class Surjections
                     return inflate(rng.next());
                 }
             };
+        }
+
+        @VisibleForTesting
+        default Supplier<T> toSupplier()
+        {
+            RandomGenerator rng = new PcgRSUFast(0, 0);
+            return () -> inflate(rng.next());
         }
     }
 }

@@ -21,6 +21,9 @@ package harry.corruptor;
 import java.util.HashSet;
 import java.util.Set;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import harry.data.ResultSetRow;
 import harry.ddl.SchemaSpec;
 import harry.model.OpSelectors;
@@ -31,6 +34,8 @@ import harry.runner.Query;
 
 public class AddExtraRowCorruptor implements QueryResponseCorruptor
 {
+    private static final Logger logger = LoggerFactory.getLogger(AddExtraRowCorruptor.class);
+
     private final SchemaSpec schema;
     private final OpSelectors.MonotonicClock clock;
     private final OpSelectors.DescriptorSelector descriptorSelector;
@@ -57,18 +62,20 @@ public class AddExtraRowCorruptor implements QueryResponseCorruptor
                 maxLts = Math.max(maxLts, row.lts[i]);
         }
 
-        if (cds.size() >= descriptorSelector.maxPartitionSize())
-            return false;
+        boolean partitionIsFull = cds.size() >= descriptorSelector.maxPartitionSize();
 
-        long cd;
         long attempt = 0;
-        do
+        long cd = descriptorSelector.randomCd(query.pd, attempt, schema);;
+        while (!query.match(cd) || cds.contains(cd))
         {
-            cd = descriptorSelector.randomCd(query.pd, attempt, schema);
+            if (partitionIsFull)
+                // We can't pick from the existing CDs, so let's try to come up with a new one that would match the query
+                cd += descriptorSelector.randomCd(query.pd, attempt, schema);
+            else
+                cd = descriptorSelector.randomCd(query.pd, attempt, schema);
             if (attempt++ == 1000)
                 return false;
         }
-        while (!query.match(cd) || cds.contains(cd));
 
         long[] vds = descriptorSelector.vds(query.pd, cd, maxLts, 0, schema);
 
@@ -76,6 +83,7 @@ public class AddExtraRowCorruptor implements QueryResponseCorruptor
         // still won't help since we can't use it anyways, since collisions between a
         // written value and tombstone are resolved in favour of tombstone, so we're
         // just going to take the next lts.
+        logger.info("Corrupting the resultset by writing a row with cd {}", cd);
         sut.execute(WriteHelper.inflateInsert(schema, query.pd, cd, vds, clock.rts(maxLts) + 1));
         return true;
     }

@@ -25,11 +25,11 @@ import java.util.Collections;
 import java.util.Comparator;
 import java.util.Iterator;
 import java.util.List;
-import java.util.Random;
 import java.util.function.BiConsumer;
 import java.util.function.Consumer;
 
 import org.junit.Assert;
+import org.junit.Ignore;
 import org.junit.Test;
 
 import harry.ddl.ColumnSpec;
@@ -38,7 +38,7 @@ import static harry.generators.Bijections.Bijection;
 
 public class DataGeneratorsTest
 {
-    private static final int RUNS = 500;
+    private static final int RUNS = 100;
     private static final RandomGenerator rand = RandomGenerator.forTests(1);
 
     @Test
@@ -74,7 +74,7 @@ public class DataGeneratorsTest
                           ColumnSpec.int32Type, ColumnSpec.int64Type);
         testRequiredBytes(sizes(4, 4),
                           ColumnSpec.int32Type, ColumnSpec.int32Type);
-        testRequiredBytes(sizes(4, 4),
+        testRequiredBytes(sizes(4, 3),
                           ColumnSpec.int32Type, ColumnSpec.floatType);
         testRequiredBytes(sizes(4, 4),
                           ColumnSpec.int64Type, ColumnSpec.int64Type);
@@ -162,36 +162,40 @@ public class DataGeneratorsTest
     {
         for (int i = 1; i < 5; i++)
         {
-            Iterator<ColumnSpec.DataType[]> iter = permutations(i,
-                                                                ColumnSpec.DataType.class,
-                                                                ColumnSpec.int8Type,
-                                                                ColumnSpec.asciiType,
-                                                                ColumnSpec.int16Type,
-                                                                ColumnSpec.int32Type,
-                                                                ColumnSpec.int64Type,
-                                                                ColumnSpec.floatType,
-                                                                ColumnSpec.doubleType
-            );
-            while (iter.hasNext())
+            for (boolean asReversed : new boolean[]{ false, true })
             {
-                ColumnSpec.DataType[] types = iter.next();
-                try
+                Iterator<ColumnSpec.DataType[]> iter = permutations(i,
+                                                                    ColumnSpec.DataType.class,
+                                                                    ColumnSpec.int8Type,
+                                                                    ColumnSpec.asciiType,
+                                                                    ColumnSpec.int16Type,
+                                                                    ColumnSpec.int32Type,
+                                                                    ColumnSpec.int64Type,
+                                                                    ColumnSpec.floatType,
+                                                                    ColumnSpec.doubleType
+                );
+
+                while (iter.hasNext())
                 {
-                    testKeyGenerators(true, types);
-                    testKeyGenerators( false, types);
-                }
-                catch (Throwable t)
-                {
-                    throw new AssertionError("Caught error for the type combination " + Arrays.toString(types) , t);
+                    ColumnSpec.DataType[] types = iter.next();
+                    try
+                    {
+                        testKeyGenerators(asReversed, types);
+                    }
+                    catch (Throwable t)
+                    {
+                        throw new AssertionError("Caught error for the type combination " + Arrays.toString(types), t);
+                    }
                 }
             }
         }
     }
 
-    @Test
+    @Ignore
+    @Test // this one is mostly useful when the above test fails and you need a quicker turnaround
     public void testSomeKeyGenerators()
     {
-        Iterator<ColumnSpec.DataType[]> iter = Collections.singletonList(new ColumnSpec.DataType[]{ ColumnSpec.asciiType, ColumnSpec.int64Type }).iterator();
+        Iterator<ColumnSpec.DataType[]> iter = Collections.singletonList(new ColumnSpec.DataType[]{ ColumnSpec.int32Type, ColumnSpec.int32Type }).iterator();
 
         while (iter.hasNext())
         {
@@ -222,7 +226,14 @@ public class DataGeneratorsTest
             // test some edge cases
             testKeyGenerators(0, 0, keyGenerator);
             testKeyGenerators(0xffffffffffffffffL, 0xffffffffffffffffL, keyGenerator);
+            testKeyGenerators(keyGenerator.minValue(), keyGenerator.maxValue(), keyGenerator);
+            testKeyGenerators(0, keyGenerator.minValue(), keyGenerator);
+            testKeyGenerators(0, keyGenerator.maxValue(), keyGenerator);
             long descriptor = rand.next();
+            testKeyGenerators(descriptor, 0, keyGenerator);
+            testKeyGenerators(descriptor, keyGenerator.minValue(), keyGenerator);
+            testKeyGenerators(descriptor, keyGenerator.maxValue(), keyGenerator);
+            testKeyGenerators(descriptor, 0xffffffffffffffffL, keyGenerator);
             testKeyGenerators(descriptor, descriptor + 1, keyGenerator);
             testKeyGenerators(descriptor, descriptor - 1, keyGenerator);
             testKeyGenerators(descriptor, descriptor, keyGenerator);
@@ -254,10 +265,13 @@ public class DataGeneratorsTest
                                keyGenerator.deflate(value1));
         assertDescriptorsEqual(descriptor2,
                                keyGenerator.deflate(value2));
-        Assert.assertEquals(String.format("%s (%s) and %s (%s) sort wrong",
+
+        Assert.assertEquals(String.format("%s %s %s and %s %s %s have different order. ",
                                           Arrays.toString(value1),
-                                          Long.toHexString(descriptor1),
+                                          toSignString(compare(value1, value2, keyGenerator.columns)),
                                           Arrays.toString(value2),
+                                          Long.toHexString(descriptor1),
+                                          toSignString(Long.compare(descriptor1, descriptor2)),
                                           Long.toHexString(descriptor2)),
                             normalize(Long.compare(descriptor1, descriptor2)),
                             compare(value1, value2, keyGenerator.columns));
@@ -293,6 +307,8 @@ public class DataGeneratorsTest
     {
         testInverse(Bijections.INT64_GENERATOR);
         testOrderPreserving(Bijections.INT64_GENERATOR);
+        testInverse(new Bijections.ReverseBijection(Bijections.INT64_GENERATOR));
+        testOrderPreserving(new Bijections.ReverseBijection(Bijections.INT64_GENERATOR), true);
     }
 
     @Test
@@ -332,6 +348,11 @@ public class DataGeneratorsTest
 
     public static <T extends Comparable> void testOrderPreserving(Bijection<T> gen)
     {
+        testOrderPreserving(gen, false);
+    }
+
+    public static <T extends Comparable> void testOrderPreserving(Bijection<T> gen, boolean reverse)
+    {
         test(gen, gen,
              (v1, v2) -> {
                  long v1Descriptor = gen.adjustEntropyDomain(v1.descriptor);
@@ -341,7 +362,7 @@ public class DataGeneratorsTest
                                                    Long.toHexString(v1Descriptor),
                                                    v2.value,
                                                    Long.toHexString(v2Descriptor)),
-                                     normalize(Long.compare(v1Descriptor, v2Descriptor)),
+                                     normalize(Long.compare(v1Descriptor, v2Descriptor)) * (reverse ? -1 : 1),
                                      normalize(v1.value.compareTo(v2.value)));
              });
     }
@@ -385,6 +406,14 @@ public class DataGeneratorsTest
     }
 
 
+    public static String toSignString(int l)
+    {
+        if (l == 0)
+            return "=";
+        else if (l > 0)
+            return ">";
+        return "<";
+    }
     public static int normalize(int l)
     {
         if (l == 0)
@@ -402,6 +431,7 @@ public class DataGeneratorsTest
         {
             Comparable comparableA = (Comparable) a[i];
             Comparable comparableB = (Comparable) b[i];
+
             int cmp = comparableA.compareTo(comparableB);
             if (cmp != 0)
             {
