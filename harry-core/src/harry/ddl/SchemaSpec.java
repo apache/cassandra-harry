@@ -32,6 +32,7 @@ import harry.operations.Relation;
 import harry.util.BitSet;
 
 // TODO: improve API of this class
+// TODO: forbid schemas where pk and cks don't add up to 64 bits (for now)
 public class SchemaSpec
 {
     public interface SchemaSpecFactory

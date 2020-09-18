@@ -105,7 +105,7 @@ public class DataTracker
     }
 
     @VisibleForTesting
-    void forceLts(long maxSeen, long maxComplete)
+    public void forceLts(long maxSeen, long maxComplete)
     {
         this.maxSeenLts.set(maxSeen);
         this.maxCompleteLts.set(maxComplete);

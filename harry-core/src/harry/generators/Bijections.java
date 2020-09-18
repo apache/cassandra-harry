@@ -49,6 +49,7 @@ public class Bijections
 
         long deflate(T value);
 
+        // TODO: byteSize is great, but you know what's better? Bit size! For example, for `boolean`, we only need a single bit.
         int byteSize();
 
         int compare(long l, long r);
@@ -57,6 +58,41 @@ public class Bijections
         {
             return descriptor & Bytes.bytePatternFor(byteSize());
         }
+
+        default long minValue()
+        {
+            return minForSize(byteSize());
+        }
+
+        default long maxValue()
+        {
+            return maxForSize(byteSize());
+        }
+
+        default boolean byteOrdered()
+        {
+            return false;
+        }
+    }
+
+    protected static long minForSize(int size)
+    {
+        long min = 1L << (size * Byte.SIZE - 1);
+
+        if (size < Long.BYTES)
+            min ^= Bytes.signMaskFor(size);
+
+        return min;
+    }
+
+    protected static long maxForSize(int size)
+    {
+        long max = Bytes.bytePatternFor(size) >>> 1;
+
+        if (size < Long.BYTES)
+            max ^= Bytes.signMaskFor(size);
+
+        return max;
     }
 
     // TODO: two points:
@@ -64,6 +100,11 @@ public class Bijections
     //   * since these data types are quite specialized, we do not strictly need complex interface for them, it might
     //     be easier to even create a special type for these. We need randomness source in cases of more complex generation,
     //     but not really here.
+
+    /**
+     * Reverse type is different from the regular one in that will generate values
+     * that will sort the order that is opposite to the order of descriptor.
+     */
     public static class ReverseBijection<T> implements Bijection<T>
     {
         private final Bijection<T> delegate;
@@ -75,12 +116,12 @@ public class Bijections
 
         public T inflate(long descriptor)
         {
-            return delegate.inflate(descriptor * -1);
+            return delegate.inflate(descriptor * -1 - 1);
         }
 
         public long deflate(T value)
         {
-            return -1 * delegate.deflate(value);
+            return -1 * (delegate.deflate(value) + 1);
         }
 
         public int byteSize()
@@ -91,12 +132,6 @@ public class Bijections
         public int compare(long l, long r)
         {
             return delegate.compare(r, l);
-        }
-
-        public long adjustEntropyDomain(long descriptor)
-        {
-            long pattern = Bytes.BYTES[byteSize() - 1];
-            return descriptor & (pattern >> 1);
         }
     }
 
@@ -219,7 +254,6 @@ public class Bijections
             return Byte.compare((byte) l, (byte) r);
         }
 
-        // TODO: this this right? Why +1?
         public long adjustEntropyDomain(long descriptor)
         {
             return (descriptor & 1) + 1;
@@ -228,6 +262,8 @@ public class Bijections
 
     public static class FloatGenerator implements Bijection<Float>
     {
+        private static final int SIZE = Float.BYTES - 1;
+
         public Float inflate(long current)
         {
             return inflatePrimitive(current);
@@ -235,16 +271,18 @@ public class Bijections
 
         protected float inflatePrimitive(long current)
         {
-            long tmp = current & 0xffffffffL;
-            tmp ^= ((tmp >> 31) & 0x7fffffffL);
-            return Float.intBitsToFloat((int) tmp);
+            return Float.intBitsToFloat((int) current);
         }
 
         public long deflate(Float value)
         {
-            int tmp = Float.floatToRawIntBits(value);
-            tmp ^= ((tmp >> 31) & 0x7fffffffL);
-            return tmp;
+            return Float.floatToRawIntBits(value);
+        }
+
+        // In other words, there's no way we can extend entropy to a sign
+        public boolean byteOrdered()
+        {
+            return true;
         }
 
         public int compare(long l, long r)
@@ -254,12 +292,7 @@ public class Bijections
 
         public int byteSize()
         {
-            return Float.BYTES;
-        }
-
-        public long adjustEntropyDomain(long descriptor)
-        {
-            return (~0x8F000000L & descriptor) & 0xffffffffL;
+            return SIZE;
         }
     }
 
@@ -267,17 +300,24 @@ public class Bijections
     {
         public float inflatePrimitive(long current)
         {
-            return super.inflatePrimitive(current) * -1;
+            return super.inflatePrimitive(current - 1) * -1;
         }
 
         public long deflate(Float value)
         {
-            return super.deflate(value * -1);
+            return super.deflate(value * -1 ) + 1;
+        }
+
+        public int compare(long l, long r)
+        {
+            return super.compare(r, l);
         }
     }
 
     public static class DoubleGenerator implements Bijection<Double>
     {
+        private static int SIZE = Double.BYTES - 1;
+
         public Double inflate(long current)
         {
             return inflatePrimitive(current);
@@ -285,15 +325,12 @@ public class Bijections
 
         protected double inflatePrimitive(long current)
         {
-            current = current ^ ((current >> 63) & 0x7fffffffffffffffL);
             return Double.longBitsToDouble(current);
         }
 
         public long deflate(Double value)
         {
-            long current = Double.doubleToRawLongBits(value);
-            current = current ^ ((current >> 63) & 0x7fffffffffffffffL);
-            return current;
+            return Double.doubleToRawLongBits(value);
         }
 
         public int compare(long l, long r)
@@ -303,26 +340,30 @@ public class Bijections
 
         public int byteSize()
         {
-            return Double.BYTES;
+            return SIZE;
         }
 
-        public long adjustEntropyDomain(long descriptor)
+        public boolean byteOrdered()
         {
-            return (~0x8F00000000000000L & descriptor);
+            return true;
         }
     }
-
 
     public static class ReverseDoubleGenerator extends DoubleGenerator
     {
         public double inflatePrimitive(long current)
         {
-            return super.inflatePrimitive(current) * -1;
+            return super.inflatePrimitive(current - 1) * -1;
         }
 
         public long deflate(Double value)
         {
-            return super.deflate(value * -1);
+            return super.deflate(value * -1) + 1;
+        }
+
+        public int compare(long l, long r)
+        {
+            return super.compare(r, l);
         }
     }
 
@@ -370,11 +411,6 @@ public class Bijections
         public int byteSize()
         {
             return Long.BYTES;
-        }
-
-        public long adjustEntropyDomain(long descriptor)
-        {
-            return descriptor & (Bytes.bytePatternFor(byteSize() >> 1));
         }
     }
 }

@@ -37,7 +37,6 @@ import harry.operations.Relation;
 import harry.util.Ranges;
 
 import static harry.model.ExhaustiveChecker.FORWARD_COMPARATOR;
-import static harry.model.ExhaustiveChecker.REVERSE_COMPARATOR;
 
 public abstract class Query
 {
@@ -192,7 +191,7 @@ public abstract class Query
                                     SchemaSpec schemaSpec)
         {
             super(kind, pd, reverse, allRelations, schemaSpec);
-            assert cdMin <= cdMax : String.format("%d should be <= %d\nAll relations: %s.\nReverse: %s", cdMin, cdMax, allRelations, reverse);
+            assert cdMin != cdMax || (minRelation.isInclusive() && maxRelation.isInclusive());
             this.cdMin = cdMin;
             this.cdMax = cdMax;
             this.minRelation = minRelation;
@@ -206,7 +205,7 @@ public abstract class Query
 
         public boolean match(long cd)
         {
-            ExhaustiveChecker.LongComparator cmp = schemaSpec.clusteringKeys.get(0).isReversed() ? REVERSE_COMPARATOR : FORWARD_COMPARATOR;
+            ExhaustiveChecker.LongComparator cmp = FORWARD_COMPARATOR;
             boolean res = minRelation.match(cmp, cd, cdMin) && maxRelation.match(cmp, cd, cdMax);
             if (!logger.isDebugEnabled())
                 return res;

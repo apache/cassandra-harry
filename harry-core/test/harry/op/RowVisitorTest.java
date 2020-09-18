@@ -19,14 +19,20 @@
 package harry.op;
 
 import java.util.function.Consumer;
+import java.util.function.Supplier;
 
 import org.junit.Assert;
+import org.junit.Before;
 import org.junit.Test;
 
 import harry.ddl.SchemaGenerators;
 import harry.ddl.SchemaSpec;
 import harry.generators.Generator;
+import harry.generators.PcgRSUFast;
+import harry.generators.RandomGenerator;
+import harry.generators.Surjections;
 import harry.generators.distribution.Distribution;
+import harry.model.OpSelectorsTest;
 import harry.runner.DefaultRowVisitor;
 import harry.model.clock.OffsetClock;
 import harry.model.OpSelectors;
@@ -40,14 +46,17 @@ import static harry.model.OpSelectors.DefaultDescriptorSelector.DEFAULT_OP_TYPE_
 
 public class RowVisitorTest extends CQLTester
 {
+    @Before
+    public void beforeTest() throws Throwable {
+        super.beforeTest();
+        schemaChange(String.format("CREATE KEYSPACE IF NOT EXISTS %s WITH replication = {'class': 'SimpleStrategy', 'replication_factor': '1'}", SchemaGenerators.DEFAULT_KEYSPACE_NAME));
+    }
+
     @Test
     public void rowWriteGeneratorTest()
     {
-        Generator<SchemaSpec> specGenerator = SchemaGenerators.schema(KEYSPACE)
-                                                              .partitionKeyColumnCount(1, 5)
-                                                              .clusteringColumnCount(1, 5)
-                                                              .regularColumnCount(2, 5)
-                                                              .generator();
+        Supplier<SchemaSpec> specGenerator = SchemaGenerators.progression(5);
+        RandomGenerator rand = RandomGenerator.forTests(6371747244598697093L);
 
         OpSelectors.Rng opRng = new OpSelectors.PCGFast(1);
         OpSelectors.DefaultDescriptorSelector descriptorSelector = new OpSelectors.DefaultDescriptorSelector(new OpSelectors.PCGFast(1L),
@@ -60,28 +69,26 @@ public class RowVisitorTest extends CQLTester
                                                                                                              new Distribution.ScaledDistribution(2, 30),
                                                                                                              100);
 
-        test(specGenerator,
-             (schema) -> {
-                 createTable(schema.compile().cql());
-                 return (rng) -> {
-                     DefaultRowVisitor visitor = new DefaultRowVisitor(schema,
-                                                                       new OffsetClock(10000),
-                                                                       descriptorSelector,
-                                                                       new QuerySelector(schema,
-                                                                                         new OpSelectors.DefaultPdSelector(opRng, 10, 10),
-                                                                                         descriptorSelector,
-                                                                                         opRng));
-                     long[] descriptors = rng.next(4);
+        for (int i = 0; i < SchemaGenerators.PROGRESSIVE_GENERATORS.length * 5; i++)
+        {
+            SchemaSpec schema = specGenerator.get();
+            createTable(schema.compile().cql());
 
-                     return visitor.write(Math.abs(descriptors[0]),
-                                          descriptors[1],
-                                          descriptors[2],
-                                          descriptors[3]);
-                 };
-             },
-             (Consumer<CompiledStatement>) this::execute);
+            DefaultRowVisitor visitor = new DefaultRowVisitor(schema,
+                                                              new OffsetClock(10000),
+                                                              descriptorSelector,
+                                                              new QuerySelector(schema,
+                                                                                new OpSelectors.DefaultPdSelector(opRng, 10, 10),
+                                                                                descriptorSelector,
+                                                                                opRng));
+            long[] descriptors = rand.next(4);
+
+            execute(visitor.write(Math.abs(descriptors[0]),
+                                  descriptors[1],
+                                  descriptors[2],
+                                  descriptors[3]));
+        }
     }
-
 
     public void execute(CompiledStatement statement)
     {
