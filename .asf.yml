@@ -1,0 +1,10 @@
+notifications:
+  commits:      commits@cassandra.apache.org
+  issues:       commits@cassandra.apache.org
+  pullrequests: pr@cassandra.apache.org
+
+github:
+  enabled_merge_buttons:
+    squash:  false
+    merge:   false
+    rebase:  true
