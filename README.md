@@ -499,7 +499,6 @@ Harry is by no means feature-complete. Main things that are missing are:
   * Runner and scheduler are rather rudimentary and require significant rework and proper scheduling
   * TTL is not supported
   * Some SELECT queries are not supported: `LIMIT`, `IN`, `GROUP BY`, token range queries
-  * Partition deletions are not implemented
   * Pagination is not implemented
 
 Some things, even though are implemented, can be improved or optimized:
@@ -510,7 +509,7 @@ Some things, even though are implemented, can be improved or optimized:
   off-heap data structure
   * Exhaustive checker can be significantly optimized
   * Harry shouldn't rely on java-driver for query generation
-  * Exhaustive checker shouold use more precise information from data tracker, not
+  * Exhaustive checker should use more precise information from data tracker, not
   just watermarks
   * Decision-making about _when_ we visit partitions and/or rows should be improved
 
