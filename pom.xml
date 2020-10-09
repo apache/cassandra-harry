@@ -39,6 +39,7 @@
         <javac.target>1.8</javac.target>
         <harry.version>0.0.1-SNAPSHOT</harry.version>
         <cassandra.version>4.0.0-SNAPSHOT</cassandra.version>
+        <jackson.version>2.11.3</jackson.version>
         <dtest.version>0.0.4</dtest.version>
         <jmh.version>1.11.3</jmh.version>
         <argLine.common>
@@ -152,19 +153,19 @@
             <dependency>
                 <groupId>com.fasterxml.jackson.dataformat</groupId>
                 <artifactId>jackson-dataformat-yaml</artifactId>
-                <version>2.9.8</version>
+                <version>${jackson.version}</version>
             </dependency>
 
             <dependency>
                 <groupId>com.fasterxml.jackson.core</groupId>
                 <artifactId>jackson-databind</artifactId>
-                <version>2.9.8</version>
+                <version>${jackson.version}</version>
             </dependency>
 
             <dependency>
                 <groupId>com.fasterxml.jackson.core</groupId>
                 <artifactId>jackson-annotations</artifactId>
-                <version>2.9.8</version>
+                <version>${jackson.version}</version>
             </dependency>
 
             <dependency>
