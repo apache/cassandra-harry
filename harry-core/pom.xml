@@ -59,18 +59,6 @@
         </dependency>
 
         <dependency>
-            <groupId>org.apache.cassandra</groupId>
-            <artifactId>cassandra-dtest-shaded</artifactId>
-            <scope>test</scope>
-        </dependency>
-
-        <dependency>
-            <groupId>org.apache.cassandra</groupId>
-            <artifactId>dtest-api</artifactId>
-            <scope>test</scope>
-        </dependency>
-
-        <dependency>
             <groupId>junit</groupId>
             <artifactId>junit</artifactId>
             <scope>test</scope>
