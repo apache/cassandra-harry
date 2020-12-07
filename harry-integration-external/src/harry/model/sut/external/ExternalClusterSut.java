@@ -16,15 +16,13 @@
  *  limitations under the License.
  */
 
-package harry.model.sut;
+package harry.model.sut.external;
 
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.Executor;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
-import java.util.function.Consumer;
 
 import com.google.common.util.concurrent.FutureCallback;
 import com.google.common.util.concurrent.Futures;
@@ -36,6 +34,7 @@ import com.datastax.driver.core.QueryOptions;
 import com.datastax.driver.core.ResultSet;
 import com.datastax.driver.core.Row;
 import com.datastax.driver.core.Session;
+import harry.model.sut.SystemUnderTest;
 
 public class ExternalClusterSut implements SystemUnderTest
 {

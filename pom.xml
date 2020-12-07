@@ -32,15 +32,16 @@
     <modules>
         <module>harry-core</module>
         <module>harry-integration</module>
+        <module>harry-integration-external</module>
         <module>harry-runner</module>
     </modules>
 
     <properties>
         <javac.target>1.8</javac.target>
         <harry.version>0.0.1-SNAPSHOT</harry.version>
-        <cassandra.version>4.0.0-SNAPSHOT</cassandra.version>
+        <cassandra.version>4.0.1-SNAPSHOT</cassandra.version>
         <jackson.version>2.11.3</jackson.version>
-        <dtest.version>0.0.4</dtest.version>
+        <dtest.version>0.0.6</dtest.version>
         <jmh.version>1.11.3</jmh.version>
         <argLine.common>
             -server
@@ -98,8 +99,8 @@
             --add-opens jdk.management/com.sun.management.internal=ALL-UNNAMED
 
             -Dcassandra.config=file://${session.executionRootDirectory}/test/conf/cassandra.yaml
-            -Dlog4j.configurationFile=file://${session.executionRootDirectory}/test/conf/log4j2-test.xml
-            -Dcassandra.test.logConfigPath=${session.executionRootDirectory}/test/conf/log4j2-dtest.xml
+            -Dlog4j.configurationFile=file://${session.executionRootDirectory}/test/conf/logback-dtest.xml
+            -Dcassandra.test.logConfigPath=${session.executionRootDirectory}/test/conf/logback-dtest.xml
             -Dcassandra.test.logConfigProperty=log4j.configurationFile
         </argLine.common>
     </properties>

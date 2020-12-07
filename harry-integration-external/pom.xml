@@ -29,24 +29,14 @@
         <artifactId>harry-parent</artifactId>
     </parent>
 
-    <artifactId>harry-integration</artifactId>
-    <name>Harry Integration - InJVM</name>
+    <artifactId>harry-integration-external</artifactId>
+    <name>Harry Integration - External</name>
 
     <dependencies>
         <dependency>
             <groupId>org.apache.cassandra</groupId>
             <artifactId>harry-core</artifactId>
 	    <version>${project.parent.version}</version>
-        </dependency>
-
-        <dependency>
-            <groupId>org.apache.cassandra</groupId>
-            <artifactId>cassandra-dtest-shaded</artifactId>
-        </dependency>
-
-        <dependency>
-            <groupId>org.apache.cassandra</groupId>
-            <artifactId>dtest-api</artifactId>
         </dependency>
 
         <dependency>

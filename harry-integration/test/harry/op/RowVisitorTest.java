@@ -18,7 +18,6 @@
 
 package harry.op;
 
-import java.util.function.Consumer;
 import java.util.function.Supplier;
 
 import org.junit.Assert;
@@ -27,12 +26,8 @@ import org.junit.Test;
 
 import harry.ddl.SchemaGenerators;
 import harry.ddl.SchemaSpec;
-import harry.generators.Generator;
-import harry.generators.PcgRSUFast;
 import harry.generators.RandomGenerator;
-import harry.generators.Surjections;
 import harry.generators.distribution.Distribution;
-import harry.model.OpSelectorsTest;
 import harry.runner.DefaultRowVisitor;
 import harry.model.clock.OffsetClock;
 import harry.model.OpSelectors;
