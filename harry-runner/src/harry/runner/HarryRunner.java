@@ -18,6 +18,7 @@
 
 package harry.runner;
 
+import java.io.File;
 import java.util.Random;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ScheduledExecutorService;
@@ -36,21 +37,13 @@ import harry.corruptor.HideValueCorruptor;
 import harry.corruptor.QueryResponseCorruptor;
 import harry.model.ExhaustiveChecker;
 import harry.model.OpSelectors;
-import harry.model.sut.InJvmSut;
-import org.apache.cassandra.distributed.impl.IsolatedExecutor;
-import org.apache.cassandra.distributed.test.TestBaseImpl;
 
-public class HarryRunner extends TestBaseImpl
+public interface HarryRunner
 {
 
-    private static final Logger logger = LoggerFactory.getLogger(HarryRunner.class);
+    Logger logger = LoggerFactory.getLogger(HarryRunner.class);
 
-    static
-    {
-        KEYSPACE = "harry";
-    }
-
-    public void runWithInJvmDtest() throws Throwable
+    default void run(Configuration.SutConfiguration sutConfig) throws Throwable
     {
         System.setProperty("cassandra.disable_tcactive_openssl", "true");
         System.setProperty("relocated.shaded.io.netty.transport.noNative", "true");
@@ -63,9 +56,7 @@ public class HarryRunner extends TestBaseImpl
 
         long seed = System.currentTimeMillis();
         configuration.setSeed(seed)
-                     .setSUT(new InJvmSut.InJvmSutConfiguration(3,
-                                                                10,
-                                                                System.getProperty("harry.root", "/tmp/cassandra/harry/") + System.currentTimeMillis()))
+                     .setSUT(sutConfig)
                      .setPartitionDescriptorSelector(new Configuration.DefaultPDSelectorConfiguration(10, 100))
                      .setClusteringDescriptorSelector((builder) -> {
                          builder.setNumberOfModificationsDistribution(new Configuration.ConstantDistributionConfig(10))
@@ -107,7 +98,8 @@ public class HarryRunner extends TestBaseImpl
                 return a;
             }).get(run.snapshot.run_time_unit.toSeconds(run.snapshot.run_time) + 30,
                    TimeUnit.SECONDS);
-            ((Throwable) result).printStackTrace();
+            if (result instanceof Throwable)
+                ((Throwable) result).printStackTrace();
 
         }
         catch (Throwable e)
@@ -140,7 +132,7 @@ public class HarryRunner extends TestBaseImpl
         }
     }
 
-    public void tryRun(IsolatedExecutor.ThrowingRunnable runnable)
+    default void tryRun(ThrowingRunnable runnable)
     {
         try
         {
@@ -190,15 +182,4 @@ public class HarryRunner extends TestBaseImpl
         }, 30, 1, TimeUnit.SECONDS);
     }
 
-    public static void main(String[] args)
-    {
-        try
-        {
-            new HarryRunner().runWithInJvmDtest();
-        }
-        catch (Throwable t)
-        {
-            t.printStackTrace();
-        }
-    }
 }
