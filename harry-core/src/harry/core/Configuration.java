@@ -160,9 +160,14 @@ public class Configuration
 
     public static Configuration fromFile(String path)
     {
+        return fromFile(new File(path));
+    }
+
+    public static Configuration fromFile(File file)
+    {
         try
         {
-            return mapper.readValue(new File(path), Configuration.class);
+            return mapper.readValue(file, Configuration.class);
         }
         catch (Throwable t)
         {
