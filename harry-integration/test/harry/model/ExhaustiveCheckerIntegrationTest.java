@@ -22,6 +22,7 @@ import java.util.concurrent.CompletableFuture;
 import java.util.function.Consumer;
 
 import org.junit.Assert;
+import org.junit.Ignore;
 import org.junit.Test;
 
 import harry.core.Configuration;
@@ -122,6 +123,7 @@ public class ExhaustiveCheckerIntegrationTest extends IntegrationTestBase
 
 
     @Test
+    @Ignore
     public void testDetectsOverwrittenRow()
     {
         negativeTest((run) -> {
