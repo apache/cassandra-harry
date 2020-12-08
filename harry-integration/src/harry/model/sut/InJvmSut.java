@@ -39,7 +39,7 @@ import org.apache.cassandra.distributed.api.ConsistencyLevel;
 
 public class InJvmSut implements SystemUnderTest
 {
-    public static void init()
+    public static void registerSubtypes()
     {
         Configuration.registerSubtypes(InJvmSutConfiguration.class);
     }

@@ -35,7 +35,7 @@ import java.util.concurrent.TimeUnit;
 
 public class ExternalClusterSut implements SystemUnderTest
 {
-    public static void registerSubtype()
+    public static void registerSubtypes()
     {
         Configuration.registerSubtypes(ExternalSutConfiguration.class);
     }
