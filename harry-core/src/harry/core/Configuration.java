@@ -68,6 +68,7 @@ public class Configuration
                                   .disable(YAMLGenerator.Feature.CANONICAL_OUTPUT)
                                   .enable(YAMLGenerator.Feature.INDENT_ARRAYS));
         mapper.registerSubtypes(Configuration.DebugApproximateMonotonicClockConfiguration.class);
+        mapper.registerSubtypes(Configuration.ApproximateMonotonicClockConfiguration.class);
         mapper.registerSubtypes(Configuration.ConcurrentRunnerConfig.class);
 
         mapper.registerSubtypes(Configuration.ExhaustiveCheckerConfig.class);

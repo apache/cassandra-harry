@@ -19,6 +19,7 @@
 package harry.runner;
 
 import java.io.File;
+import java.io.FileNotFoundException;
 import java.util.Random;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ScheduledExecutorService;
@@ -43,7 +44,7 @@ public interface HarryRunner
 
     Logger logger = LoggerFactory.getLogger(HarryRunner.class);
 
-    default void run(Configuration.SutConfiguration sutConfig) throws Throwable
+    default void run(Configuration configuration) throws Throwable
     {
         System.setProperty("cassandra.disable_tcactive_openssl", "true");
         System.setProperty("relocated.shaded.io.netty.transport.noNative", "true");
@@ -52,35 +53,7 @@ public interface HarryRunner
         ScheduledThreadPoolExecutor executor = new ScheduledThreadPoolExecutor(1);
         executor.setRemoveOnCancelPolicy(true);
 
-        Configuration.ConfigurationBuilder configuration = new Configuration.ConfigurationBuilder();
-
-        long seed = System.currentTimeMillis();
-        configuration.setSeed(seed)
-                     .setSUT(sutConfig)
-                     .setPartitionDescriptorSelector(new Configuration.DefaultPDSelectorConfiguration(10, 100))
-                     .setClusteringDescriptorSelector((builder) -> {
-                         builder.setNumberOfModificationsDistribution(new Configuration.ConstantDistributionConfig(10))
-                                .setRowsPerModificationDistribution(new Configuration.ConstantDistributionConfig(10))
-                                .setMaxPartitionSize(100)
-                                .setOperationKindWeights(new Configuration.OperationKindSelectorBuilder()
-                                                         .addWeight(OpSelectors.OperationKind.DELETE_ROW, 1)
-                                                         .addWeight(OpSelectors.OperationKind.DELETE_COLUMN, 1)
-                                                         .addWeight(OpSelectors.OperationKind.DELETE_RANGE, 1)
-                                                         .addWeight(OpSelectors.OperationKind.WRITE, 97)
-                                                         .build());
-                     })
-                     .setRowVisitor(new Configuration.DefaultRowVisitorConfiguration())
-                     .setClock(new Configuration.ApproximateMonotonicClockConfiguration((int) TimeUnit.HOURS.toSeconds(2) + 100,
-                                                                                        1,
-                                                                                        TimeUnit.SECONDS))
-                     .setRunTime(2, TimeUnit.HOURS)
-                     .setCreateSchema(true)
-                     .setTruncateTable(false)
-                     .setDropSchema(false)
-                     .setModel(ExhaustiveChecker::new)
-                     .setRunner(new Configuration.ConcurrentRunnerConfig(1, 1, 1));
-
-        Runner runner = configuration.build().createRunner();
+        Runner runner = configuration.createRunner();
         Run run = runner.getRun();
 
         CompletableFuture progress = runner.initAndStartAll();
@@ -142,6 +115,28 @@ public interface HarryRunner
         {
             logger.error("Encountered an error while shutting down, ignoring.", t);
         }
+    }
+
+    /**
+     * Parses the command-line args and returns a File for the configuration YAML.
+     * @param args Command-line args.
+     * @return Configuration YAML file.
+     * @throws Exception If file is not found or cannot be read.
+     */
+    default File loadConfig(String[] args) throws Exception {
+        if (args == null || args.length == 0) {
+            throw new Exception("Harry config YAML not provided.");
+        }
+
+        File configFile =  new File(args[0]);
+        if (!configFile.exists()) {
+            throw new FileNotFoundException(configFile.getAbsolutePath());
+        }
+        if (!configFile.canRead()) {
+            throw new Exception("Cannot read config file, check your permissions on " + configFile.getAbsolutePath());
+        }
+
+        return configFile;
     }
 
     /**

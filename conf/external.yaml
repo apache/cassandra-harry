@@ -30,10 +30,10 @@ truncate_table: false
 # be taken to map a real-time timestamp from the value retrieved from the database in order
 # to map it back to the logical timestamp of the operation that wrote this value.
 clock:
-  debug_approximate_monotonic:
-    historySize: 7300
-    epochPeriod: 1
-    epochTimeUnit: "SECONDS"
+  approximate_monotonic:
+    history_size: 7300
+    epoch_length: 1
+    epoch_time_unit: "SECONDS"
 
 # Runner is a is a component that schedules operations that change the cluster (system under test)
 # and model state.
@@ -89,3 +89,7 @@ clustering_descriptor_selector:
       DELETE_COLUMN: 1
     column_mask_bitsets: null
     max_partition_size: 100
+
+# Default Row Visitor
+row_visitor:
+  default: {}
