@@ -72,9 +72,9 @@ while true; do
        --add-opens java.base/jdk.internal.util.jar=ALL-UNNAMED \
        --add-opens jdk.management/com.sun.management.internal=ALL-UNNAMED \
        -Dorg.apache.cassandra.test.logback.configurationFile=file:///opt/harry/test/conf/logback-dtest.xml \
-       -cp /opt/harry/lib/*:/opt/harry/harry-runner-0.0.1-SNAPSHOT.jar \
+       -cp /opt/harry/lib/*:/opt/harry/harry-integration-0.0.1-SNAPSHOT.jar \
        -Dharry.root=${HARRY_DIR} \
-       harry.runner.HarryRunner
+       harry.runner.HarryRunnerJvm
 
    if [ $? -ne 0 ]; then
       if [ -e "failure.dump" ]; then
