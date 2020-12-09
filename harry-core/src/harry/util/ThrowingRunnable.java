@@ -1,4 +1,4 @@
-package harry.runner;
+package harry.util;
 
 public interface ThrowingRunnable {
     void run() throws Throwable;
