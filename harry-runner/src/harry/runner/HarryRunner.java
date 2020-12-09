@@ -72,7 +72,7 @@ public interface HarryRunner
             }).get(run.snapshot.run_time_unit.toSeconds(run.snapshot.run_time) + 30,
                    TimeUnit.SECONDS);
             if (result instanceof Throwable)
-                ((Throwable) result).printStackTrace();
+                logger.error("Execution failed", result);
 
         }
         catch (Throwable e)
