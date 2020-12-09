@@ -429,40 +429,40 @@ public class Configuration
     @JsonTypeName("debug_approximate_monotonic")
     public static class DebugApproximateMonotonicClockConfiguration implements ClockConfiguration
     {
-        public final long startTimeMicros;
-        public final int historySize;
+        public final long start_time_micros;
+        public final int history_size;
         public final long[] history;
         public final long lts;
         public final int idx;
-        public final long epochPeriod;
-        public final TimeUnit epochTimeUnit;
+        public final long epoch_period;
+        public final TimeUnit epoch_time_unit;
 
         @JsonCreator
-        public DebugApproximateMonotonicClockConfiguration(@JsonProperty("start_time_micros") long startTimeMicros,
-                                                           @JsonProperty("history_size") int historySize,
+        public DebugApproximateMonotonicClockConfiguration(@JsonProperty("start_time_micros") long start_time_micros,
+                                                           @JsonProperty("history_size") int history_size,
                                                            @JsonProperty("history") long[] history,
                                                            @JsonProperty("lts") long lts,
                                                            @JsonProperty("idx") int idx,
-                                                           @JsonProperty("epoch_period") long epochPeriod,
-                                                           @JsonProperty("epoch_time_unit") TimeUnit epochTimeUnit)
+                                                           @JsonProperty("epoch_period") long epoch_period,
+                                                           @JsonProperty("epoch_time_unit") TimeUnit epoch_time_unit)
         {
-            this.startTimeMicros = startTimeMicros;
-            this.historySize = historySize;
+            this.start_time_micros = start_time_micros;
+            this.history_size = history_size;
             this.history = history;
             this.lts = lts;
             this.idx = idx;
-            this.epochPeriod = epochPeriod;
-            this.epochTimeUnit = epochTimeUnit;
+            this.epoch_period = epoch_period;
+            this.epoch_time_unit = epoch_time_unit;
         }
 
         public OpSelectors.MonotonicClock make()
         {
-            return ApproximateMonotonicClock.forDebug(startTimeMicros,
-                                                      historySize,
+            return ApproximateMonotonicClock.forDebug(start_time_micros,
+                                                      history_size,
                                                       lts,
                                                       idx,
-                                                      epochPeriod,
-                                                      epochTimeUnit,
+                                                      epoch_period,
+                                                      epoch_time_unit,
                                                       history);
         }
     }
