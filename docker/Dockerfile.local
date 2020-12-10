@@ -25,8 +25,6 @@ RUN mkdir -p /cassandra/harry
 
 COPY ./harry-core/target/lib/* /opt/harry/lib/
 COPY ./harry-core/target/*.jar /opt/harry/lib/
-COPY ./harry-runner/target/lib/* /opt/harry/lib/
-COPY ./harry-runner/target/*.jar /opt/harry/lib/
 COPY ./harry-integration/target/lib/ /opt/harry/lib/
 COPY ./harry-integration/target/*.jar /opt/harry/
 COPY ./test/conf/logback-dtest.xml /opt/harry/test/conf/logback-dtest.xml
