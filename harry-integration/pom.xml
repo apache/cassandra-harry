@@ -41,12 +41,6 @@
 
         <dependency>
             <groupId>org.apache.cassandra</groupId>
-            <artifactId>harry-runner</artifactId>
-            <version>${project.parent.version}</version>
-        </dependency>
-
-        <dependency>
-            <groupId>org.apache.cassandra</groupId>
             <artifactId>cassandra-dtest-shaded</artifactId>
         </dependency>
 
