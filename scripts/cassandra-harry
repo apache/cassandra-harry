@@ -1,0 +1,9 @@
+#!/bin/sh
+
+if [ "x$HARRY_HOME" == 'x' ]; then
+    HARRY_HOME=~/cassandra-harry
+fi
+
+java -Dlogback.configurationFile=$HARRY_HOME/test/conf/logback-dtest.xml \
+     -jar $HARRY_HOME/harry-integration-external/target/harry-integration-external-0.0.1-SNAPSHOT.jar \
+     $HARRY_HOME/conf/external.yaml
