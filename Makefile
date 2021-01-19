@@ -28,3 +28,7 @@ run: img
 
 run-last:
 	docker run -v `pwd`/shared:/shared -it ${DOCKER_REPO}:latest-local
+
+standalone:
+	rm -fr shared/*
+	mvn clean && mvn package -DskipTests -P standalone

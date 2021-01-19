@@ -42,13 +42,26 @@
     <version>0.0.1-SNAPSHOT</version>
 
     <name>Harry</name>
-
-    <modules>
-        <module>harry-core</module>
-        <module>harry-integration</module>
-        <module>harry-integration-external</module>
-    </modules>
-
+    <profiles>
+        <profile>
+            <id>default</id>
+            <activation>
+               <activeByDefault>true</activeByDefault>
+            </activation>
+            <modules>
+                <module>harry-core</module>
+                <module>harry-integration</module>
+                <module>harry-integration-external</module>
+            </modules>
+        </profile>
+        <profile>
+            <id>standalone</id>
+            <modules>
+                <module>harry-core</module>
+                <module>harry-integration-external</module>
+            </modules>
+        </profile>
+    </profiles>
     <properties>
         <javac.target>1.8</javac.target>
         <harry.version>0.0.1-SNAPSHOT</harry.version>
