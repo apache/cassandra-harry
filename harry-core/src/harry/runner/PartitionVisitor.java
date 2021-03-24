@@ -18,9 +18,14 @@
 
 package harry.runner;
 
+import harry.core.Run;
+
 public interface PartitionVisitor
 {
     void visitPartition(long lts);
-
-    void shutdown();
+    public void shutdown() throws InterruptedException;
+    public interface PartitionVisitorFactory
+    {
+        public PartitionVisitor make(Run run);
+    }
 }

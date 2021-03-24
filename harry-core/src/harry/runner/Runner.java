@@ -23,11 +23,10 @@ import java.io.File;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.OutputStreamWriter;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CopyOnWriteArrayList;
-import java.util.concurrent.ExecutionException;
-import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
@@ -43,8 +42,6 @@ import harry.model.OpSelectors;
 
 public abstract class Runner
 {
-    public static final Object[] EMPTY_BINDINGS = {};
-
     private static final Logger logger = LoggerFactory.getLogger(Runner.class);
 
     protected final Run run;
@@ -53,10 +50,10 @@ public abstract class Runner
     //  since we have multiple concurrent checkers running
     protected final CopyOnWriteArrayList<Throwable> errors;
 
-    public Runner(Run run)
+    public Runner(Run run, Configuration config)
     {
         this.run = run;
-        this.config = run.snapshot;
+        this.config = config;
         this.errors = new CopyOnWriteArrayList<>();
     }
 
@@ -70,12 +67,11 @@ public abstract class Runner
         if (config.create_schema)
         {
             // TODO: make RF configurable or make keyspace DDL configurable
-            run.sut.execute("CREATE KEYSPACE " + run.schemaSpec.keyspace + " WITH replication = {'class': 'SimpleStrategy', 'replication_factor': 3};");
+            run.sut.schemaChange("CREATE KEYSPACE " + run.schemaSpec.keyspace + " WITH replication = {'class': 'SimpleStrategy', 'replication_factor': 3};");
 
-            run.sut.execute(String.format("DROP TABLE IF EXISTS %s.%s;",
+            run.sut.schemaChange(String.format("DROP TABLE IF EXISTS %s.%s;",
                                           run.schemaSpec.keyspace,
-                                          run.schemaSpec.table),
-                            EMPTY_BINDINGS);
+                                          run.schemaSpec.table));
             String schema = run.schemaSpec.compile().cql();
             logger.info("Creating table: " + schema);
             run.sut.schemaChange(schema);
@@ -83,10 +79,9 @@ public abstract class Runner
 
         if (config.truncate_table)
         {
-            run.sut.execute(String.format("truncate %s.%s;",
-                                          run.schemaSpec.keyspace,
-                                          run.schemaSpec.table),
-                            EMPTY_BINDINGS);
+            run.sut.schemaChange(String.format("truncate %s.%s;",
+                                               run.schemaSpec.keyspace,
+                                               run.schemaSpec.table));
         }
     }
 
@@ -112,7 +107,7 @@ public abstract class Runner
     protected void maybeReportErrors()
     {
         if (!errors.isEmpty())
-            dumpStateToFile(run, errors);
+            dumpStateToFile(run, config, errors);
     }
 
     public abstract CompletableFuture initAndStartAll() throws InterruptedException;
@@ -140,20 +135,21 @@ public abstract class Runner
     {
         private final ScheduledExecutorService executor;
         private final ScheduledExecutorService shutdownExceutor;
-        private final int checkRecentAfter;
-        private final int checkAllAfter;
+        private final List<PartitionVisitor> partitionVisitors;
+        private final Configuration config;
 
         public SequentialRunner(Run run,
-                                int roundRobinValidatorThreads,
-                                int checkRecentAfter,
-                                int checkAllAfter)
+                                Configuration config,
+                                List<? extends PartitionVisitor.PartitionVisitorFactory> partitionVisitorFactories)
         {
-            super(run);
+            super(run, config);
 
-            this.executor = Executors.newScheduledThreadPool(roundRobinValidatorThreads + 1);
+            this.executor = Executors.newSingleThreadScheduledExecutor();
             this.shutdownExceutor = Executors.newSingleThreadScheduledExecutor();
-            this.checkAllAfter = checkAllAfter;
-            this.checkRecentAfter = checkRecentAfter;
+            this.config = config;
+            this.partitionVisitors = new ArrayList<>();
+            for (PartitionVisitor.PartitionVisitorFactory factory : partitionVisitorFactories)
+                partitionVisitors.add(factory.make(run));
         }
 
         public CompletableFuture initAndStartAll()
@@ -166,12 +162,12 @@ public abstract class Runner
                 logger.info("Completed");
                 // TODO: wait for the last full validation?
                 future.complete(null);
-            }, run.snapshot.run_time, run.snapshot.run_time_unit);
+            }, config.run_time, config.run_time_unit);
 
             executor.submit(reportThrowable(() -> {
                                                 try
                                                 {
-                                                    run(run.visitorFactory.get(), run.clock,
+                                                    run(partitionVisitors, run.clock,
                                                         () -> Thread.currentThread().isInterrupted() || future.isDone());
                                                 }
                                                 catch (Throwable t)
@@ -184,19 +180,15 @@ public abstract class Runner
             return future;
         }
 
-        void run(PartitionVisitor visitor,
+        void run(List<PartitionVisitor> visitors,
                  OpSelectors.MonotonicClock clock,
-                 BooleanSupplier exitCondition) throws ExecutionException, InterruptedException
+                 BooleanSupplier exitCondition)
         {
             while (!exitCondition.getAsBoolean())
             {
                 long lts = clock.nextLts();
-                visitor.visitPartition(lts);
-                if (lts % checkRecentAfter == 0)
-                    run.validator.validateRecentPartitions(100);
-
-                if (lts % checkAllAfter == 0)
-                    run.validator.validateAllPartitions(executor, exitCondition, 10).get();
+                for (PartitionVisitor partitionVisitor : visitors)
+                    partitionVisitor.visitPartition(lts);
             }
         }
 
@@ -215,105 +207,89 @@ public abstract class Runner
 
     public static interface RunnerFactory
     {
-        public Runner make(Run run);
+        public Runner make(Run run, Configuration config);
     }
 
     // TODO: this requires some significant improvement
     public static class ConcurrentRunner extends Runner
     {
         private final ScheduledExecutorService executor;
-        private final ScheduledExecutorService shutdownExceutor;
+        private final ScheduledExecutorService shutdownExecutor;
+        private final List<? extends PartitionVisitor.PartitionVisitorFactory> partitionVisitorFactories;
+        private final List<PartitionVisitor> allVisitors;
 
-        private final int writerThreads;
-        private final int roundRobinValidators;
-        private final int recentPartitionValidators;
+        private final int concurrency;
         private final long runTime;
         private final TimeUnit runTimeUnit;
 
         public ConcurrentRunner(Run run,
-                                int writerThreads,
-                                int roundRobinValidators,
-                                int recentPartitionValidators)
+                                Configuration config,
+                                int concurrency,
+                                List<? extends PartitionVisitor.PartitionVisitorFactory> partitionVisitorFactories)
         {
-            super(run);
-            this.writerThreads = writerThreads;
-            this.roundRobinValidators = roundRobinValidators;
-            this.recentPartitionValidators = recentPartitionValidators;
-            this.runTime = run.snapshot.run_time;
-            this.runTimeUnit = run.snapshot.run_time_unit;
-            this.executor = Executors.newScheduledThreadPool(this.writerThreads + this.roundRobinValidators + this.recentPartitionValidators);
-            this.shutdownExceutor = Executors.newSingleThreadScheduledExecutor();
+            super(run, config);
+            this.concurrency = concurrency;
+            this.runTime = config.run_time;
+            this.runTimeUnit = config.run_time_unit;
+            // TODO: configure concurrency
+            this.executor = Executors.newScheduledThreadPool(concurrency);
+            this.shutdownExecutor = Executors.newSingleThreadScheduledExecutor();
+            this.partitionVisitorFactories = partitionVisitorFactories;
+            this.allVisitors = new CopyOnWriteArrayList<>();
         }
 
-        public CompletableFuture initAndStartAll() throws InterruptedException
+        public CompletableFuture initAndStartAll()
         {
             init();
             CompletableFuture future = new CompletableFuture();
             future.whenComplete((a, b) -> maybeReportErrors());
 
-            shutdownExceutor.schedule(() -> {
+            shutdownExecutor.schedule(() -> {
                 logger.info("Completed");
                 // TODO: wait for the last full validation?
                 future.complete(null);
             }, runTime, runTimeUnit);
 
             BooleanSupplier exitCondition = () -> Thread.currentThread().isInterrupted() || future.isDone();
-            for (int i = 0; i < writerThreads; i++)
+            for (int i = 0; i < concurrency; i++)
             {
-                executor.submit(reportThrowable(() -> run(run.visitorFactory.get(), run.clock, exitCondition),
+                List<PartitionVisitor> partitionVisitors = new ArrayList<>();
+                executor.submit(reportThrowable(() -> {
+
+                                                    for (PartitionVisitor.PartitionVisitorFactory factory : partitionVisitorFactories)
+                                                    {
+                                                        partitionVisitors.add(factory.make(run));
+                                                    }
+                                                    allVisitors.addAll(partitionVisitors);
+                                                    run(partitionVisitors, run.clock, exitCondition);
+                                                },
                                                 future));
-            }
 
-            scheduleValidateAllPartitions(run.validator, executor, future, roundRobinValidators);
-
-            // N threads to validate recently written partitions
-            for (int i = 0; i < recentPartitionValidators; i++)
-            {
-                executor.scheduleWithFixedDelay(reportThrowable(() -> {
-                    // TODO: make recent partitions configurable
-                    run.validator.validateRecentPartitions(100);
-                }, future), 1000, 1, TimeUnit.MILLISECONDS);
             }
 
             return future;
         }
 
-        void run(PartitionVisitor visitor,
+        void run(List<PartitionVisitor> visitors,
                  OpSelectors.MonotonicClock clock,
                  BooleanSupplier exitCondition)
         {
             while (!exitCondition.getAsBoolean())
             {
                 long lts = clock.nextLts();
-                visitor.visitPartition(lts);
+                for (PartitionVisitor visitor : visitors)
+                    visitor.visitPartition(lts);
             }
-        }
-
-        void scheduleValidateAllPartitions(Validator validator, ExecutorService executor, CompletableFuture future, int roundRobinValidators)
-        {
-            validator.validateAllPartitions(executor, () -> Thread.currentThread().isInterrupted() || future.isDone(),
-                                            roundRobinValidators)
-                     .handle((v, err) -> {
-                         if (err != null)
-                         {
-                             errors.add(err);
-                             if (!future.isDone())
-                                 future.completeExceptionally(err);
-                         }
-
-                         if (Thread.currentThread().isInterrupted() || future.isDone())
-                             return null;
-
-                         scheduleValidateAllPartitions(validator, executor, future, roundRobinValidators);
-                         return null;
-                     });
         }
 
         public void shutdown() throws InterruptedException
         {
             logger.info("Shutting down...");
-            shutdownExceutor.shutdownNow();
-            shutdownExceutor.awaitTermination(1, TimeUnit.MINUTES);
+            for (PartitionVisitor visitor : allVisitors)
+                visitor.shutdown();
+
+            shutdownExecutor.shutdownNow();
+            shutdownExecutor.awaitTermination(1, TimeUnit.MINUTES);
 
             executor.shutdownNow();
             executor.awaitTermination(1, TimeUnit.MINUTES);
@@ -346,7 +322,7 @@ public abstract class Runner
         bw.newLine();
     }
 
-    private static void dumpStateToFile(Run run, List<Throwable> t)
+    private static void dumpStateToFile(Run run, Configuration config, List<Throwable> t)
     {
         try
         {
@@ -361,14 +337,14 @@ public abstract class Runner
                 bw.flush();
             }
 
-            File config = new File("run.yaml");
-            Configuration.ConfigurationBuilder builder = run.snapshot.unbuild();
+            File file = new File("run.yaml");
+            Configuration.ConfigurationBuilder builder = config.unbuild();
 
             // overrride stateful components
             builder.setClock(run.clock.toConfig());
-            builder.setModel(run.model.toConfig());
+            builder.setDataTracker(run.tracker.toConfig());
 
-            try (BufferedWriter bw = new BufferedWriter(new OutputStreamWriter(new FileOutputStream(config))))
+            try (BufferedWriter bw = new BufferedWriter(new OutputStreamWriter(new FileOutputStream(file))))
             {
                 bw.write(Configuration.toYamlString(builder.build()));
                 bw.flush();

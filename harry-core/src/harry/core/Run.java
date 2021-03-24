@@ -18,56 +18,62 @@
 
 package harry.core;
 
-import java.util.function.Supplier;
-
 import harry.ddl.SchemaSpec;
-import harry.model.Model;
 import harry.model.OpSelectors;
 import harry.model.sut.SystemUnderTest;
-import harry.runner.PartitionVisitor;
-import harry.runner.RowVisitor;
-import harry.runner.Validator;
+import harry.runner.DataTracker;
+import harry.runner.QueryGenerator;
 
 public class Run
 {
     public final OpSelectors.Rng rng;
     public final OpSelectors.MonotonicClock clock;
     public final OpSelectors.PdSelector pdSelector;
-
     public final OpSelectors.DescriptorSelector descriptorSelector;
+    public final QueryGenerator rangeSelector;
 
     public final SchemaSpec schemaSpec;
-    public final Model model;
+    public final DataTracker tracker;
     public final SystemUnderTest sut;
-    public final Validator validator;
-    public final RowVisitor rowVisitor;
-    public final Supplier<PartitionVisitor> visitorFactory;
 
-    public final Configuration snapshot;
+    public final MetricReporter metricReporter;
 
-    Run(OpSelectors.Rng rng,
-        OpSelectors.MonotonicClock clock,
-        OpSelectors.PdSelector pdSelector,
-        OpSelectors.DescriptorSelector descriptorSelector,
 
-        SchemaSpec schemaSpec,
-        Model model,
-        SystemUnderTest sut,
-        Validator validator,
-        RowVisitor rowVisitor,
-        Supplier<PartitionVisitor> visitorFactory,
-        Configuration snapshot)
+    public Run(OpSelectors.Rng rng,
+               OpSelectors.MonotonicClock clock,
+               OpSelectors.PdSelector pdSelector,
+               OpSelectors.DescriptorSelector descriptorSelector,
+
+               SchemaSpec schemaSpec,
+               DataTracker tracker,
+               SystemUnderTest sut,
+               MetricReporter metricReporter)
     {
+        this(rng, clock, pdSelector, descriptorSelector,
+             new QueryGenerator(schemaSpec, pdSelector, descriptorSelector, rng),
+             schemaSpec, tracker, sut, metricReporter);
+    }
+
+    private Run(OpSelectors.Rng rng,
+                OpSelectors.MonotonicClock clock,
+                OpSelectors.PdSelector pdSelector,
+                OpSelectors.DescriptorSelector descriptorSelector,
+                QueryGenerator rangeSelector,
+
+                SchemaSpec schemaSpec,
+                DataTracker tracker,
+                SystemUnderTest sut,
+                MetricReporter metricReporter)
+    {
+
         this.rng = rng;
         this.clock = clock;
         this.pdSelector = pdSelector;
         this.descriptorSelector = descriptorSelector;
+        this.rangeSelector = rangeSelector;
         this.schemaSpec = schemaSpec;
-        this.model = model;
+        this.tracker = tracker;
         this.sut = sut;
-        this.validator = validator;
-        this.rowVisitor = rowVisitor;
-        this.visitorFactory = visitorFactory;
-        this.snapshot = snapshot;
+        this.metricReporter = metricReporter;
     }
 }

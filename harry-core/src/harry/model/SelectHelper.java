@@ -117,7 +117,7 @@ public class SelectHelper
     public static List<ResultSetRow> execute(SystemUnderTest sut, OpSelectors.MonotonicClock clock, Query query)
     {
         CompiledStatement compiled = query.toSelectStatement();
-        Object[][] objects = sut.execute(compiled.cql(), compiled.bindings());
+        Object[][] objects = sut.execute(compiled.cql(), SystemUnderTest.ConsistencyLevel.QUORUM, compiled.bindings());
         List<ResultSetRow> result = new ArrayList<>();
         for (Object[] obj : objects)
             result.add(resultSetToRow(query.schemaSpec, clock, obj));

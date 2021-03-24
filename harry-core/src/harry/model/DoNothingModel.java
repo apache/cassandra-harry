@@ -23,11 +23,7 @@ import harry.runner.Query;
 
 public class DoNothingModel implements Model
 {
-    public void recordEvent(long lts, boolean quorumAchieved)
-    {
-    }
-
-    public void validatePartitionState(long verificationLts, Query query)
+    public void validate(Query query)
     {
     }
 

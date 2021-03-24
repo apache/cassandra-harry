@@ -19,10 +19,9 @@
 package harry.model;
 
 import java.util.concurrent.CompletableFuture;
-import java.util.function.Consumer;
+import java.util.function.Supplier;
 
 import org.junit.Assert;
-import org.junit.Ignore;
 import org.junit.Test;
 
 import harry.core.Configuration;
@@ -33,34 +32,40 @@ import harry.corruptor.HideRowCorruptor;
 import harry.corruptor.HideValueCorruptor;
 import harry.corruptor.QueryResponseCorruptor;
 import harry.corruptor.QueryResponseCorruptor.SimpleQueryResponseCorruptor;
-import harry.generators.Surjections;
-import harry.generators.distribution.Distribution;
+import harry.ddl.SchemaGenerators;
+import harry.model.sut.InJvmSut;
 import harry.model.sut.SystemUnderTest;
+import harry.runner.MutatingPartitionVisitor;
+import harry.runner.MutatingRowVisitor;
 import harry.runner.PartitionVisitor;
 import harry.runner.Query;
-import harry.runner.Validator;
-import org.apache.cassandra.distributed.api.ConsistencyLevel;
+import harry.runner.SinglePartitionValidator;
 
-public class ExhaustiveCheckerIntegrationTest extends IntegrationTestBase
+public class ExhaustiveCheckerIntegrationTest extends ModelTestBase
 {
     @Test
     public void testVerifyPartitionState()
     {
-        Configuration config = sharedConfiguration(1).build();
-        Run run = config.createRun();
-        run.sut.schemaChange(run.schemaSpec.compile().cql());
+        Supplier<Configuration.ConfigurationBuilder> gen = sharedConfiguration();
 
-        OpSelectors.MonotonicClock clock = run.clock;
-        Validator validator = run.validator;
-        PartitionVisitor partitionVisitor = run.visitorFactory.get();
-
-        for (int i = 0; i < 2000; i++)
+        for (int cnt = 0; cnt < SchemaGenerators.DEFAULT_RUNS; cnt++)
         {
-            long lts = clock.nextLts();
-            partitionVisitor.visitPartition(lts);
-        }
+            Configuration config = gen.get().build();
+            Run run = config.createRun();
+            run.sut.schemaChange(run.schemaSpec.compile().cql());
+            OpSelectors.MonotonicClock clock = run.clock;
 
-        validator.validatePartition(0);
+            SinglePartitionValidator validator = new SinglePartitionValidator(100, run, modelConfiguration());
+            PartitionVisitor partitionVisitor = new MutatingPartitionVisitor(run, MutatingRowVisitor::new);
+
+            for (int i = 0; i < 2000; i++)
+            {
+                long lts = clock.nextLts();
+                partitionVisitor.visitPartition(lts);
+            }
+
+            validator.visitPartition(0);
+        }
     }
 
     @Test
@@ -71,13 +76,13 @@ public class ExhaustiveCheckerIntegrationTest extends IntegrationTestBase
                                                                                                    run.clock,
                                                                                                    HideRowCorruptor::new);
 
-                         Assert.assertTrue(corruptor.maybeCorrupt(Query.selectPartition(run.schemaSpec,
-                                                                                        run.pdSelector.pd(0, run.schemaSpec),
-                                                                                        false),
-                                                                  run.sut));
+                         return corruptor.maybeCorrupt(Query.selectPartition(run.schemaSpec,
+                                                                             run.pdSelector.pd(0, run.schemaSpec),
+                                                                             false),
+                                                       run.sut);
                      },
-                     (t) -> Assert.assertTrue(String.format("Throwable: %s\nCause: %s", t, t.getCause()),
-                                              t.getCause() != null &&t.getCause().toString().contains(OpSelectors.OperationKind.WRITE.toString())));
+                     (t, run) -> Assert.assertTrue(String.format("Throwable: %s\nCause: %s", t, t.getCause()),
+                                                   t.getCause() != null && t.getCause().toString().contains(OpSelectors.OperationKind.WRITE.toString())));
     }
 
     @Test
@@ -88,18 +93,21 @@ public class ExhaustiveCheckerIntegrationTest extends IntegrationTestBase
                                                                                      run.clock,
                                                                                      run.descriptorSelector);
 
-                         Assert.assertTrue(corruptor.maybeCorrupt(Query.selectPartition(run.schemaSpec,
-                                                                                        run.pdSelector.pd(0, run.schemaSpec),
-                                                                                        false),
-                                                                  run.sut));
+                         return corruptor.maybeCorrupt(Query.selectPartition(run.schemaSpec,
+                                                                             run.pdSelector.pd(0, run.schemaSpec),
+                                                                             false),
+                                                       run.sut);
                      },
-                     (t) -> {
+                     (t, run) -> {
                          Assert.assertTrue(String.format("Throwable: %s\nCause: %s", t, t.getCause()),
-                                              // TODO: this is not entirely correct. Right now, after registering a deletion followed by no writes,
-                                              // we would continue going back in time and checking other operations, even though we don't have to do this.
-                                              t.getCause().getMessage().contains("Modification should have been visible but was not") ||
-                                              t.getCause().getMessage().contains("Observed unvalidated rows") ||
-                                              t.getCause() != null && t.getCause().getMessage().contains("was never written"));
+                                           // TODO: this is not entirely correct. Right now, after registering a deletion followed by no writes,
+                                           // we would continue going back in time and checking other operations, even though we don't have to do this.
+                                           t.getCause().getMessage().contains("Modification should have been visible but was not") ||
+                                           // TODO: this is not entirely correct, either. This row is, in fact, present in both dataset _and_
+                                           // in the model, it's just there might be _another_ row right in front of it.
+                                           t.getCause().getMessage().contains("expected row not to be visible") ||
+                                           t.getCause().getMessage().contains("Observed unvalidated rows") ||
+                                           t.getCause() != null && t.getCause().getMessage().contains("was never written"));
                      });
     }
 
@@ -112,18 +120,17 @@ public class ExhaustiveCheckerIntegrationTest extends IntegrationTestBase
                                                                                                    run.clock,
                                                                                                    HideValueCorruptor::new);
 
-                         Assert.assertTrue(corruptor.maybeCorrupt(Query.selectPartition(run.schemaSpec,
-                                                                                        run.pdSelector.pd(0, run.schemaSpec),
-                                                                                        false),
-                                                                  run.sut));
+                         return corruptor.maybeCorrupt(Query.selectPartition(run.schemaSpec,
+                                                                             run.pdSelector.pd(0, run.schemaSpec),
+                                                                             false),
+                                                       run.sut);
                      },
-                     (t) -> Assert.assertTrue(String.format("Throwable: %s\nCause: %s", t, t.getCause()),
-                                              t.getCause() != null && t.getCause().getMessage().contains("Modification should have been visible but was not")));
+                     (t, run) -> Assert.assertTrue(String.format("Throwable: %s\nCause: %s", t, t.getCause()),
+                                                   t.getCause() != null && t.getCause().getMessage().contains("Modification should have been visible but was not")));
     }
 
 
     @Test
-    @Ignore
     public void testDetectsOverwrittenRow()
     {
         negativeTest((run) -> {
@@ -131,89 +138,61 @@ public class ExhaustiveCheckerIntegrationTest extends IntegrationTestBase
                                                                                                    run.clock,
                                                                                                    ChangeValueCorruptor::new);
 
-                         Assert.assertTrue(corruptor.maybeCorrupt(Query.selectPartition(run.schemaSpec,
-                                                                                        run.pdSelector.pd(0, run.schemaSpec),
-                                                                                        false),
-                                                                  run.sut));
+                         return corruptor.maybeCorrupt(Query.selectPartition(run.schemaSpec,
+                                                                             run.pdSelector.pd(0, run.schemaSpec),
+                                                                             false),
+                                                       run.sut);
                      },
-                     (t) -> Assert.assertTrue(String.format("Throwable: %s\nCause: %s", t, t.getCause()),
-                                              t.getCause() != null && t.getCause().getMessage().contains("Modification should have been visible but was not.")));
-    }
-
-
-    static void negativeTest(Consumer<Run> corrupt, Consumer<Throwable> validate)
-    {
-        Configuration config = sharedConfiguration()
-                               .setClusteringDescriptorSelector((rng, schemaSpec) -> {
-                                   return new OpSelectors.DefaultDescriptorSelector(rng,
-                                                                                    new OpSelectors.ColumnSelectorBuilder().forAll(schemaSpec.regularColumns.size()).build(),
-                                                                                    Surjections.pick(OpSelectors.OperationKind.DELETE_COLUMN,
-                                                                                                     OpSelectors.OperationKind.DELETE_ROW,
-                                                                                                     OpSelectors.OperationKind.WRITE),
-                                                                                    new Distribution.ConstantDistribution(10),
-                                                                                    new Distribution.ConstantDistribution(10),
-                                                                                    100);
-                               })
-                               .build();
-        Run run = config.createRun();
-        run.sut.schemaChange(run.schemaSpec.compile().cql());
-        OpSelectors.MonotonicClock clock = run.clock;
-        Validator validator = run.validator;
-        PartitionVisitor partitionVisitor = run.visitorFactory.get();
-
-        for (int i = 0; i < 200; i++)
-        {
-            long lts = clock.nextLts();
-            partitionVisitor.visitPartition(lts);
-        }
-
-        corrupt.accept(run);
-
-        try
-        {
-            validator.validatePartition(0);
-            Assert.fail("Should've thrown");
-        }
-        catch (Throwable t)
-        {
-            validate.accept(t);
-        }
+                     (t, run) -> Assert.assertTrue(String.format("Throwable: %s\nCause: %s", t, t.getCause()),
+                                                   t.getCause() != null && t.getCause().getMessage().contains("Modification should have been visible but was not.")));
     }
 
     @Test
     public void testLocalOnlyExecution()
     {
         LocalOnlySut localOnlySut = new LocalOnlySut();
-        Configuration config = sharedConfiguration()
-                               .setClusteringDescriptorSelector((builder) -> {
-                                   builder.setOperationKindWeights(new Configuration.OperationKindSelectorBuilder()
-                                                                   .addWeight(OpSelectors.OperationKind.DELETE_ROW, 80)
-                                                                   .addWeight(OpSelectors.OperationKind.DELETE_COLUMN, 10)
-                                                                   .addWeight(OpSelectors.OperationKind.WRITE, 10)
-                                                                   .build());
-                               })
-                               .setSUT(() -> localOnlySut)
-                               .build();
 
-        Run run = config.createRun();
-        run.sut.schemaChange(run.schemaSpec.compile().cql());
+        Supplier<Configuration.ConfigurationBuilder> gen = sharedConfiguration();
 
-        OpSelectors.MonotonicClock clock = run.clock;
-        Validator validator = run.validator;
-        PartitionVisitor partitionVisitor = run.visitorFactory.get();
+        for (int cnt = 0; cnt < SchemaGenerators.DEFAULT_RUNS; cnt++)
+        {
+            Configuration config = gen.get()
+                                   .setClusteringDescriptorSelector((builder) -> {
+                                       builder.setOperationKindWeights(new Configuration.OperationKindSelectorBuilder()
+                                                                       .addWeight(OpSelectors.OperationKind.DELETE_ROW, 80)
+                                                                       .addWeight(OpSelectors.OperationKind.DELETE_COLUMN, 10)
+                                                                       .addWeight(OpSelectors.OperationKind.WRITE, 10)
+                                                                       .build());
+                                   })
+                                   .setSUT(() -> localOnlySut)
+                                   .build();
 
-        localOnlySut.localOnly(() -> {
-            for (int i = 0; i < 5; i++)
-            {
-                long lts = clock.nextLts();
-                partitionVisitor.visitPartition(lts);
-            }
-        });
+            Run run = config.createRun();
+            run.sut.schemaChange(run.schemaSpec.compile().cql());
 
-        validator.validatePartition(0);
+            OpSelectors.MonotonicClock clock = run.clock;
+
+            PartitionVisitor partitionVisitor = new MutatingPartitionVisitor(run, MutatingRowVisitor::new);
+
+            localOnlySut.localOnly(() -> {
+                for (int i = 0; i < 5; i++)
+                {
+                    long lts = clock.nextLts();
+                    partitionVisitor.visitPartition(lts);
+                }
+            });
+
+            SinglePartitionValidator validator = new SinglePartitionValidator(100, run, ExhaustiveChecker::new);
+            validator.visitPartition(0);
+        }
     }
 
-    private static class LocalOnlySut implements SystemUnderTest
+    Configuration.ModelConfiguration modelConfiguration()
+    {
+        return new Configuration.ExhaustiveCheckerConfig();
+    }
+
+    public static class LocalOnlySut implements SystemUnderTest
     {
         private boolean localOnly = false;
         private int counter = 0;
@@ -233,17 +212,17 @@ public class ExhaustiveCheckerIntegrationTest extends IntegrationTestBase
             cluster.schemaChange(statement);
         }
 
-        public Object[][] execute(String statement, Object... bindings)
+        public Object[][] execute(String statement, ConsistencyLevel cl, Object... bindings)
         {
             if (localOnly)
                 return cluster.get((counter++) % cluster.size() + 1).executeInternal(statement, bindings);
             else
-                return cluster.coordinator((counter++) % cluster.size() + 1).execute(statement, ConsistencyLevel.ALL, bindings);
+                return cluster.coordinator((counter++) % cluster.size() + 1).execute(statement, InJvmSut.toApiCl(ConsistencyLevel.ALL), bindings);
         }
 
-        public CompletableFuture<Object[][]> executeAsync(String statement, Object... bindings)
+        public CompletableFuture<Object[][]> executeAsync(String statement, ConsistencyLevel cl, Object... bindings)
         {
-            return CompletableFuture.supplyAsync(() -> execute(statement, bindings));
+            return CompletableFuture.supplyAsync(() -> execute(statement, cl, bindings));
         }
 
         public void localOnly(Runnable r)

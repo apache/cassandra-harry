@@ -91,13 +91,14 @@ public abstract class AbstractPartitionVisitor implements PartitionVisitor
 
     protected void operation(long lts, long pd, long cd, long m, long opId)
     {
+
     }
 
     protected void afterBatch(long lts, long pd, long m)
     {
     }
 
-    public void shutdown()
+    public void shutdown() throws InterruptedException
     {
     }
 }

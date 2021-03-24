@@ -31,6 +31,8 @@ import harry.generators.Surjections;
 
 public class SurjectionsTest
 {
+    private static int RUNS = 1000000;
+
     @Test
     public void weightedTest()
     {
@@ -42,7 +44,7 @@ public class SurjectionsTest
         Map<String, Integer> frequencies = new HashMap<>();
         RandomGenerator rng = new PcgRSUFast(System.currentTimeMillis(), 0);
 
-        for (int i = 0; i < 1000000; i++)
+        for (int i = 0; i < RUNS; i++)
         {
             String s = gen.inflate(rng.next());
             frequencies.compute(s, (s1, i1) -> {

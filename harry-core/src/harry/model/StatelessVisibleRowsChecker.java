@@ -22,11 +22,12 @@ import java.util.List;
 import java.util.function.Supplier;
 
 import harry.core.Configuration;
+import harry.core.Run;
 import harry.data.ResultSetRow;
 import harry.ddl.SchemaSpec;
 import harry.model.sut.SystemUnderTest;
 import harry.runner.Query;
-import harry.runner.QuerySelector;
+import harry.runner.QueryGenerator;
 
 import static harry.model.VisibleRowsChecker.descendingIterator;
 
@@ -43,29 +44,18 @@ public class StatelessVisibleRowsChecker implements Model
 
     protected final SchemaSpec schema;
 
-    public StatelessVisibleRowsChecker(SchemaSpec schema,
-                                       OpSelectors.PdSelector pdSelector,
-                                       OpSelectors.DescriptorSelector descriptorSelector,
-                                       OpSelectors.MonotonicClock clock,
-                                       QuerySelector querySelector,
-                                       SystemUnderTest sut)
+    public StatelessVisibleRowsChecker(Run run)
     {
-        this.pdSelector = pdSelector;
-        this.descriptorSelector = descriptorSelector;
-        this.schema = schema;
-        this.clock = clock;
-        this.sut = sut;
+        this.pdSelector = run.pdSelector;
+        this.descriptorSelector = run.descriptorSelector;
+        this.schema = run.schemaSpec;
+        this.clock = run.clock;
+        this.sut = run.sut;
     }
 
-    public void recordEvent(long lts, boolean quorumAchieved)
+    public void validate(Query query)
     {
-        //no-op
-    }
-
-    public void validatePartitionState(long validationLts, Query query)
-    {
-        validatePartitionState(validationLts,
-                               query,
+        validatePartitionState(query,
                                () -> SelectHelper.execute(sut, clock, query));
     }
 
@@ -74,17 +64,17 @@ public class StatelessVisibleRowsChecker implements Model
         throw new RuntimeException("not implemented");
     }
 
-    void validatePartitionState(long validationLts, Query query, Supplier<List<ResultSetRow>> rowsSupplier)
+    void validatePartitionState(Query query, Supplier<List<ResultSetRow>> rowsSupplier)
     {
         // we ignore Query here, since our criteria for checking in this model is presence of the row in the resultset
-        long pd = pdSelector.pd(validationLts, schema);
+        long pd = query.pd;
 
         List<ResultSetRow> rows = rowsSupplier.get();
 
         for (ResultSetRow row : rows)
         {
             VisibleRowsChecker.LongIterator rowLtsIter = descendingIterator(row.lts);
-            VisibleRowsChecker.LongIterator modelLtsIter = descendingIterator(pdSelector, validationLts);
+            VisibleRowsChecker.LongIterator modelLtsIter = descendingIterator(pdSelector, pd);
 
             outer:
             while (rowLtsIter.hasNext())

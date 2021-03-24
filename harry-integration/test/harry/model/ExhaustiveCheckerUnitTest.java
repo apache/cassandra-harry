@@ -26,13 +26,15 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.function.Supplier;
 
 import org.junit.Assert;
 import org.junit.Test;
 
 import harry.core.Configuration;
 import harry.core.Run;
-import harry.model.sut.NoOpSut;
+import harry.ddl.SchemaGenerators;
+import harry.model.sut.SystemUnderTest;
 import harry.operations.CompiledStatement;
 import harry.runner.PartitionVisitor;
 import harry.runner.Query;
@@ -43,55 +45,58 @@ public class ExhaustiveCheckerUnitTest
     @Test
     public void testOperationConsistency()
     {
-        LoggingRowVisitor rowVisitor = new LoggingRowVisitor();
+        Supplier<Configuration.ConfigurationBuilder> gen = IntegrationTestBase.sharedConfiguration();
 
-        Configuration config = IntegrationTestBase.sharedConfiguration()
-                                                  .setPartitionDescriptorSelector(new Configuration.DefaultPDSelectorConfiguration(10, 10))
-                                                  .setClusteringDescriptorSelector((builder) -> {
-                                                      builder.setOperationKindWeights(new Configuration.OperationKindSelectorBuilder()
-                                                                                      .addWeight(OpSelectors.OperationKind.DELETE_ROW, 33)
-                                                                                      .addWeight(OpSelectors.OperationKind.DELETE_COLUMN, 33)
-                                                                                      .addWeight(OpSelectors.OperationKind.WRITE, 34)
-                                                                                      .build());
-                                                  })
-                                                  .setRowVisitor((a_, b_, c_, d_) -> rowVisitor)
-                                                  .setSUT(NoOpSut::new)
-                                                  .setCreateSchema(true)
-                                                  .build();
-
-        Run run = config.createRun();
-
-        ExhaustiveChecker checker = (ExhaustiveChecker) run.model;
-
-        int iterations = 10;
-        PartitionVisitor partitionVisitor = run.visitorFactory.get();
-        for (int i = 0; i < iterations; i++)
-            partitionVisitor.visitPartition(i);
-
-        for (List<ExhaustiveChecker.Operation> value : rowVisitor.executed.values())
-            Collections.sort(value);
-
-        for (int lts = 0; lts < iterations; lts++)
+        for (int cnt = 0; cnt < SchemaGenerators.DEFAULT_RUNS; cnt++)
         {
-            // TODO: turn query into interface to make it easier to deal with here
-            for (Collection<ExhaustiveChecker.Operation> modelOps : checker.inflatePartitionState(lts,
-                                                                                                  (iterations - 1),
-                                                                                                  Query.selectPartition(run.schemaSpec,
-                                                                                                                        run.pdSelector.pd(lts),
-                                                                                                                        false))
-                                                                           .operations.values())
+            LoggingRowVisitor rowVisitor = new LoggingRowVisitor();
+            Configuration config = gen.get()
+                                      .setPartitionDescriptorSelector(new Configuration.DefaultPDSelectorConfiguration(10, 10))
+                                      .setClusteringDescriptorSelector((builder) -> {
+                                          builder.setOperationKindWeights(new Configuration.OperationKindSelectorBuilder()
+                                                                          .addWeight(OpSelectors.OperationKind.DELETE_ROW, 33)
+                                                                          .addWeight(OpSelectors.OperationKind.DELETE_COLUMN, 33)
+                                                                          .addWeight(OpSelectors.OperationKind.WRITE, 34)
+                                                                          .build());
+                                      })
+                                      .setSUT(() -> SystemUnderTest.NO_OP)
+                                      .setCreateSchema(true)
+                                      .build();
+
+            Run run = config.createRun();
+
+            ExhaustiveChecker checker = new ExhaustiveChecker(run);
+
+            PartitionVisitor visitor = new Configuration.MutatingPartitionVisitorConfiguation((r) -> rowVisitor).make(run);
+            int iterations = 10;
+
+            for (int i = 0; i < iterations; i++)
+                visitor.visitPartition(i);
+
+            for (List<ExhaustiveChecker.Operation> value : rowVisitor.executed.values())
+                Collections.sort(value);
+
+            for (int lts = 0; lts < iterations; lts++)
             {
-                ExhaustiveChecker.Operation op = modelOps.iterator().next();
-                List<ExhaustiveChecker.Operation> executedOps = rowVisitor.executed.get(new Pair(op.pd, op.cd));
-                Iterator<ExhaustiveChecker.Operation> modelIterator = modelOps.iterator();
-                Iterator<ExhaustiveChecker.Operation> executedIterator = executedOps.iterator();
-                while (modelIterator.hasNext() && executedIterator.hasNext())
+                // TODO: turn query into interface to make it easier to deal with here
+                for (Collection<ExhaustiveChecker.Operation> modelOps : checker.inflatePartitionState(iterations - 1,
+                                                                                                      Query.selectPartition(run.schemaSpec,
+                                                                                                                            run.pdSelector.pd(lts),
+                                                                                                                            false))
+                                                                        .operations.values())
                 {
+                    ExhaustiveChecker.Operation op = modelOps.iterator().next();
+                    List<ExhaustiveChecker.Operation> executedOps = rowVisitor.executed.get(new Pair(op.pd, op.cd));
+                    Iterator<ExhaustiveChecker.Operation> modelIterator = modelOps.iterator();
+                    Iterator<ExhaustiveChecker.Operation> executedIterator = executedOps.iterator();
+                    while (modelIterator.hasNext() && executedIterator.hasNext())
+                    {
+                        Assert.assertEquals(String.format("\n%s\n%s", modelOps, executedOps),
+                                            executedIterator.next(), modelIterator.next());
+                    }
                     Assert.assertEquals(String.format("\n%s\n%s", modelOps, executedOps),
-                                        executedIterator.next(), modelIterator.next());
+                                        modelIterator.hasNext(), executedIterator.hasNext());
                 }
-                Assert.assertEquals(String.format("\n%s\n%s", modelOps, executedOps),
-                                    modelIterator.hasNext(), executedIterator.hasNext());
             }
         }
     }
@@ -128,6 +133,11 @@ public class ExhaustiveCheckerUnitTest
         }
 
         public CompiledStatement deleteRange(long lts, long pd, long opId)
+        {
+            return null;
+        }
+
+        public CompiledStatement deleteSlice(long lts, long pd, long opId)
         {
             return null;
         }

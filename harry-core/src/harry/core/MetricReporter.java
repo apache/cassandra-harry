@@ -16,24 +16,34 @@
  *  limitations under the License.
  */
 
-package harry.runner;
+package harry.core;
 
-import harry.core.Configuration;
-import harry.model.sut.InJvmSut;
+public interface MetricReporter
+{
+    void columnDelete();
+    void rowDelete();
+    void insert();
+    void rangeDelete();
 
-import java.io.File;
+    void validatePartition();
+    void validateRandomQuery();
 
-public class HarryRunnerJvm extends org.apache.cassandra.distributed.test.TestBaseImpl implements HarryRunner {
-
-    public static void main(String[] args) throws Throwable {
-        InJvmSut.registerSubtypes();
-
-        HarryRunnerJvm runner = new HarryRunnerJvm();
-        File configFile = runner.loadConfig(args);
-
-        Configuration configuration = Configuration.fromFile(configFile);
-        runner.run(configuration);
+    interface MetricReporterFactory
+    {
+        MetricReporter make();
     }
 
+    MetricReporter NO_OP = new NoOpMetricReporter();
 
+    class NoOpMetricReporter implements MetricReporter
+    {
+        private NoOpMetricReporter() {}
+
+        public void columnDelete(){}
+        public void rowDelete(){}
+        public void insert(){}
+        public void rangeDelete(){}
+        public void validatePartition(){}
+        public void validateRandomQuery(){}
+    }
 }

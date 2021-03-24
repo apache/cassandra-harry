@@ -33,7 +33,7 @@ public class Reproduce extends TestBaseImpl
 
     public void runWithInJvmDtest() throws Throwable
     {
-        InJvmSut.registerSubtypes();
+        InJvmSut.init();
 
         System.setProperty("cassandra.disable_tcactive_openssl", "true");
         System.setProperty("relocated.shaded.io.netty.transport.noNative", "true");
@@ -46,7 +46,7 @@ public class Reproduce extends TestBaseImpl
 
         try
         {
-            run.validator.validatePartition(0L);
+//            run.validator.validatePartition(0L);
         }
         catch(Throwable t)
         {

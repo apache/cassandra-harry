@@ -24,15 +24,19 @@ import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
 
+import harry.core.MetricReporter;
+import harry.core.Run;
 import harry.ddl.SchemaGenerators;
 import harry.ddl.SchemaSpec;
 import harry.generators.RandomGenerator;
 import harry.generators.distribution.Distribution;
-import harry.runner.DefaultRowVisitor;
+import harry.model.sut.SystemUnderTest;
+import harry.runner.DataTracker;
+import harry.runner.MutatingRowVisitor;
 import harry.model.clock.OffsetClock;
 import harry.model.OpSelectors;
 import harry.operations.CompiledStatement;
-import harry.runner.QuerySelector;
+import harry.runner.QueryGenerator;
 import harry.util.BitSet;
 import org.apache.cassandra.cql3.CQLTester;
 
@@ -50,32 +54,37 @@ public class RowVisitorTest extends CQLTester
     @Test
     public void rowWriteGeneratorTest()
     {
-        Supplier<SchemaSpec> specGenerator = SchemaGenerators.progression(5);
+        Supplier<SchemaSpec> specGenerator = SchemaGenerators.progression(SchemaGenerators.DEFAULT_SWITCH_AFTER);
         RandomGenerator rand = RandomGenerator.forTests(6371747244598697093L);
 
-        OpSelectors.Rng opRng = new OpSelectors.PCGFast(1);
-        OpSelectors.DefaultDescriptorSelector descriptorSelector = new OpSelectors.DefaultDescriptorSelector(new OpSelectors.PCGFast(1L),
-                                                                                                             OpSelectors.columnSelectorBuilder().forAll(BitSet.create(0b001, 3),
-                                                                                                                                                        BitSet.create(0b011, 3),
-                                                                                                                                                        BitSet.create(0b111, 3))
-                                                                                                                        .build(),
-                                                                                                             DEFAULT_OP_TYPE_SELECTOR,
-                                                                                                             new Distribution.ScaledDistribution(1, 3),
-                                                                                                             new Distribution.ScaledDistribution(2, 30),
-                                                                                                             100);
+        OpSelectors.Rng rng = new OpSelectors.PCGFast(1);
 
-        for (int i = 0; i < SchemaGenerators.PROGRESSIVE_GENERATORS.length * 5; i++)
+        OpSelectors.PdSelector pdSelector = new OpSelectors.DefaultPdSelector(rng, 10, 10);
+        OpSelectors.DescriptorSelector descriptorSelector = new OpSelectors.DefaultDescriptorSelector(rng,
+                                                                                                      OpSelectors.columnSelectorBuilder().forAll(BitSet.create(0b001, 3),
+                                                                                                                                                 BitSet.create(0b011, 3),
+                                                                                                                                                 BitSet.create(0b111, 3))
+                                                                                                                 .build(),
+                                                                                                      DEFAULT_OP_TYPE_SELECTOR,
+                                                                                                      new Distribution.ScaledDistribution(1, 3),
+                                                                                                      new Distribution.ScaledDistribution(2, 30),
+                                                                                                      100);
+
+        for (int i = 0; i < SchemaGenerators.DEFAULT_RUNS; i++)
         {
             SchemaSpec schema = specGenerator.get();
             createTable(schema.compile().cql());
 
-            DefaultRowVisitor visitor = new DefaultRowVisitor(schema,
-                                                              new OffsetClock(10000),
-                                                              descriptorSelector,
-                                                              new QuerySelector(schema,
-                                                                                new OpSelectors.DefaultPdSelector(opRng, 10, 10),
-                                                                                descriptorSelector,
-                                                                                opRng));
+            Run run = new Run(rng,
+                              new OffsetClock(10000),
+                              pdSelector,
+                              descriptorSelector,
+                              schema,
+                              DataTracker.NO_OP,
+                              SystemUnderTest.NO_OP,
+                              MetricReporter.NO_OP);
+
+            MutatingRowVisitor visitor = new MutatingRowVisitor(run);
             long[] descriptors = rand.next(4);
 
             execute(visitor.write(Math.abs(descriptors[0]),

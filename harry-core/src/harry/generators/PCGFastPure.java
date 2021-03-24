@@ -105,7 +105,7 @@ public class PCGFastPure
             curMult *= curMult;
         }
 
-        return distance - 1;
+        return distance;
     }
 
     public static long shuffle(long state)

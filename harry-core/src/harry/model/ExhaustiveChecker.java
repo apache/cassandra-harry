@@ -30,20 +30,21 @@ import java.util.TreeMap;
 import java.util.function.Supplier;
 import java.util.stream.Collectors;
 
-import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.Iterators;
 import com.google.common.collect.PeekingIterator;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import harry.core.Configuration;
+import harry.core.Run;
 import harry.data.ResultSetRow;
 import harry.ddl.SchemaSpec;
 import harry.model.sut.SystemUnderTest;
 import harry.runner.AbstractPartitionVisitor;
+import harry.runner.DataTracker;
 import harry.runner.PartitionVisitor;
 import harry.runner.Query;
-import harry.runner.QuerySelector;
+import harry.runner.QueryGenerator;
 import harry.util.BitSet;
 import harry.util.Ranges;
 
@@ -61,42 +62,26 @@ public class ExhaustiveChecker implements Model
     protected final OpSelectors.PdSelector pdSelector;
     protected final OpSelectors.MonotonicClock clock;
     protected final SystemUnderTest sut;
-    protected final QuerySelector querySelector;
+    protected final QueryGenerator rangeSelector;
 
     protected final DataTracker tracker;
 
     private final SchemaSpec schema;
 
-    public ExhaustiveChecker(SchemaSpec schema,
-                             OpSelectors.PdSelector pdSelector,
-                             OpSelectors.DescriptorSelector descriptorSelector,
-                             OpSelectors.MonotonicClock clock,
-                             QuerySelector querySelector,
-                             SystemUnderTest sut)
+    public ExhaustiveChecker(Run run)
     {
-        this.descriptorSelector = descriptorSelector;
-        this.pdSelector = pdSelector;
-        this.tracker = new DataTracker();
-        this.schema = schema;
-        this.sut = sut;
-        this.clock = clock;
-        this.querySelector = querySelector;
+        this.descriptorSelector = run.descriptorSelector;
+        this.pdSelector = run.pdSelector;
+        this.tracker = run.tracker;
+        this.schema = run.schemaSpec;
+        this.sut = run.sut;
+        this.clock = run.clock;
+        this.rangeSelector = run.rangeSelector;
     }
 
-    public void recordEvent(long lts, boolean quorumAchieved)
+    public void validate(Query query)
     {
-        tracker.recordEvent(lts, quorumAchieved);
-    }
-
-    public DataTracker tracker()
-    {
-        return tracker;
-    }
-
-    public void validatePartitionState(long validationLts, Query query)
-    {
-        validatePartitionState(validationLts,
-                               query,
+        validatePartitionState(query,
                                () -> {
                                    while (!Thread.currentThread().isInterrupted())
                                    {
@@ -114,18 +99,18 @@ public class ExhaustiveChecker implements Model
                                });
     }
 
-    void validatePartitionState(long validationLts, Query query, Supplier<List<ResultSetRow>> rowsSupplier)
+    void validatePartitionState(Query query, Supplier<List<ResultSetRow>> rowsSupplier)
     {
         // Before we execute SELECT, we know what was the lts of operation that is guaranteed to be visible
-        long visibleLtsBound = tracker.maxCompleteLts();
+        long visibleLtsBound = tracker.maxConsecutiveFinished();
 
         // TODO: when we implement a reorder buffer through a bitmap, we can just grab a bitmap _before_,
         //       and know that a combination of `consecutive` + `bitmap` gives us _all possible guaranteed-to-be-seen_ values
         List<ResultSetRow> rows = rowsSupplier.get();
 
         // by the time SELECT done, we grab max "possible" lts
-        long inFlightLtsBound = tracker.maxSeenLts();
-        PartitionState partitionState = inflatePartitionState(validationLts, inFlightLtsBound, query);
+        long maxSeenLts = tracker.maxStarted();
+        PartitionState partitionState = inflatePartitionState(maxSeenLts, query);
         NavigableMap<Long, List<Operation>> operations = partitionState.operations;
         LongComparator cmp = FORWARD_COMPARATOR;
         if (query.reverse)
@@ -137,7 +122,7 @@ public class ExhaustiveChecker implements Model
         if (!rows.isEmpty() && operations.isEmpty())
         {
             throw new ValidationException(String.format("Returned rows are not empty, but there were no records in the event log.\nRows: %s\nMax seen LTS: %s\nQuery: %s",
-                                                        rows, inFlightLtsBound, query));
+                                                        rows, maxSeenLts, query));
         }
 
         PeekingIterator<ResultSetRow> rowIter = Iterators.peekingIterator(rows.iterator());
@@ -156,7 +141,7 @@ public class ExhaustiveChecker implements Model
                 if (rowIter.hasNext() && rowIter.peek().cd == cd)
                 {
                     ResultSetRow row = rowIter.next();
-                    RowValidationState validationState = new RowValidationState(row, visibleLtsBound, inFlightLtsBound, partitionState.rangeTombstones);
+                    RowValidationState validationState = new RowValidationState(row, visibleLtsBound, maxSeenLts, partitionState.rangeTombstones);
 
                     // TODO: We only need to go for as long as we explain every column. In fact, we make state _less_ precise by allowing
                     // to continue moving back in time. So far this hasn't proven to be a source of any issues, but we should fix that.
@@ -230,14 +215,11 @@ public class ExhaustiveChecker implements Model
         catch (Throwable t)
         {
             throw new ValidationException(String.format("Caught exception while validating the resultset %s." +
-                                                        "\nchecker.tracker().forceLts(%dL, %dL)" +
-                                                        "\nrun.validator.validatePartition(%dL)" +
                                                         "\nRow Iter Peek: %s" +
                                                         "\nValidated no rows:\n%s" +
                                                         "\nValidated rows:\n%s" +
                                                         "\nRows:\n%s",
                                                         query,
-                                                        inFlightLtsBound, visibleLtsBound, validationLts,
                                                         rowIter.hasNext() ? rowIter.peek() : null,
                                                         validatedNoRows,
                                                         validatedRows.stream().map(Object::toString).collect(Collectors.joining(",\n")),
@@ -320,14 +302,10 @@ public class ExhaustiveChecker implements Model
         }
     }
 
-    public PartitionState inflatePartitionState(long validationLts, long maxLts, Query query)
+    public PartitionState inflatePartitionState(long maxLts, Query query)
     {
-        long currentLts = pdSelector.maxLts(validationLts);
-        long pd = pdSelector.pd(currentLts, schema);
+        long currentLts = pdSelector.maxLtsFor(query.pd);
 
-        if (pd != pdSelector.pd(validationLts, schema))
-            throw new ValidationException("Partition descriptor %d doesn't match partition descriptor %d for LTS %d",
-                                          pd, pdSelector.pd(validationLts, schema), validationLts);
         NavigableMap<Long, List<Operation>> operations = new TreeMap<>();
         List<Ranges.Range> ranges = new ArrayList<>();
 
@@ -338,7 +316,11 @@ public class ExhaustiveChecker implements Model
                 OpSelectors.OperationKind opType = descriptorSelector.operationType(pd, lts, opId);
                 if (opType == OpSelectors.OperationKind.DELETE_RANGE)
                 {
-                    ranges.add(maybeWrap(lts, opId, querySelector.inflate(lts, opId).toRange(lts)));
+                    ranges.add(maybeWrap(lts, opId, rangeSelector.inflate(lts, opId, Query.QueryKind.CLUSTERING_RANGE).toRange(lts)));
+                }
+                else if (opType == OpSelectors.OperationKind.DELETE_SLICE)
+                {
+                    ranges.add(maybeWrap(lts, opId, rangeSelector.inflate(lts, opId, Query.QueryKind.CLUSTERING_SLICE).toRange(lts)));
                 }
                 else if (query.match(cd)) // skip descriptors that are out of range
                 {
@@ -387,11 +369,6 @@ public class ExhaustiveChecker implements Model
                    ", opId=" + opId +
                    ')';
         }
-    }
-
-    public Configuration.ExhaustiveCheckerConfig toConfig()
-    {
-        return new Configuration.ExhaustiveCheckerConfig(tracker.maxSeenLts(), tracker.maxCompleteLts());
     }
 
     public String toString()
@@ -555,12 +532,6 @@ public class ExhaustiveChecker implements Model
                                  Arrays.toString(columnStates),
                                  row);
         }
-    }
-
-    @VisibleForTesting
-    public void forceLts(long maxSeen, long maxComplete)
-    {
-        tracker.forceLts(maxSeen, maxComplete);
     }
 
     public static class Operation implements Comparable<Operation>

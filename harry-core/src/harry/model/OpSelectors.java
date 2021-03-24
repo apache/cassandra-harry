@@ -117,8 +117,7 @@ public interface OpSelectors
 
         public abstract long prevLts(long lts);
 
-        public abstract long maxLts(long lts);
-
+        public abstract long maxLtsFor(long pd);
         public abstract long minLtsAt(long position);
 
         public abstract long minLtsFor(long pd);
@@ -281,14 +280,19 @@ public interface OpSelectors
 
         public long minLtsFor(long pd)
         {
-            long sequenceNumber = rng.sequenceNumber(pd, PARTITION_DESCRIPTOR_STREAM_ID);
-            return minLtsAt(sequenceNumber);
+            long position = rng.sequenceNumber(pd, PARTITION_DESCRIPTOR_STREAM_ID);
+            return minLtsAt(position);
         }
 
         public long positionFor(long lts)
         {
             long windowStart = lts / switchAfter;
             return windowStart + lts % windowSize;
+        }
+
+        public long positionForPd(long pd)
+        {
+            return rng.sequenceNumber(pd, PARTITION_DESCRIPTOR_STREAM_ID);
         }
 
         public long nextLts(long lts)
@@ -326,11 +330,9 @@ public interface OpSelectors
             return slideCount * switchAfter - windowSize + positionInCycle;
         }
 
-        public long maxLts(long lts)
+        public long maxLtsFor(long pd)
         {
-            long windowStart = lts / switchAfter;
-            long position = windowStart + lts % windowSize;
-
+            long position = rng.sequenceNumber(pd, PARTITION_DESCRIPTOR_STREAM_ID);
             return position * switchAfter + (slideAfterRepeats - 1) * windowSize;
         }
 
@@ -607,8 +609,7 @@ public interface OpSelectors
 
         public long vd(long pd, long cd, long lts, long opId, int col)
         {
-            // change randomNumber / sequenceNumber to prev/Next
-            return rng.randomNumber(opId + 1, pd ^ cd ^ lts ^ col);
+            return rng.randomNumber(opId, pd ^ cd ^ lts ^ col);
         }
 
         public long modificationId(long pd, long cd, long lts, long vd, int col)
@@ -622,6 +623,7 @@ public interface OpSelectors
         WRITE,
         DELETE_ROW,
         DELETE_COLUMN,
-        DELETE_RANGE
+        DELETE_RANGE,
+        DELETE_SLICE
     }
 }

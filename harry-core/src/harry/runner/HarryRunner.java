@@ -33,24 +33,40 @@ import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 
-public interface HarryRunner
+public abstract class HarryRunner
 {
+    public static final Logger logger = LoggerFactory.getLogger(HarryRunner.class);
 
-    Logger logger = LoggerFactory.getLogger(HarryRunner.class);
+    protected CompletableFuture progress;
+    protected ScheduledThreadPoolExecutor executor;
+    public abstract void beforeRun(Runner runner);
+    public void afterRun(Runner runner, Object result)
+    {
+        executor.shutdown();
+        try
+        {
+            executor.awaitTermination(10, TimeUnit.SECONDS);
+        }
+        catch (InterruptedException e)
+        {
+            // ignore
+        }
+    }
 
-    default void run(Configuration configuration) throws Throwable
+    public void run(Configuration config) throws Throwable
     {
         System.setProperty("cassandra.disable_tcactive_openssl", "true");
         System.setProperty("relocated.shaded.io.netty.transport.noNative", "true");
         System.setProperty("org.apache.cassandra.disable_mbean_registration", "true");
 
-        ScheduledThreadPoolExecutor executor = new ScheduledThreadPoolExecutor(1);
+        executor = new ScheduledThreadPoolExecutor(1);
         executor.setRemoveOnCancelPolicy(true);
 
-        Runner runner = configuration.createRunner();
+        Runner runner = config.createRunner();
         Run run = runner.getRun();
 
-        CompletableFuture progress = runner.initAndStartAll();
+        progress = runner.initAndStartAll();
+        beforeRun(runner);
 
         // Uncomment this if you want to have fun!
         // scheduleCorruption(run, executor);
@@ -63,7 +79,7 @@ public interface HarryRunner
                 if (b != null)
                     return b;
                 return a;
-            }).get(run.snapshot.run_time_unit.toSeconds(run.snapshot.run_time) + 30,
+            }).get(config.run_time_unit.toSeconds(config.run_time) + 30,
                    TimeUnit.SECONDS);
             if (result instanceof Throwable)
                 logger.error("Execution failed", result);
@@ -77,6 +93,8 @@ public interface HarryRunner
         }
         finally
         {
+            afterRun(runner, result);
+
             logger.info("Shutting down executor..");
             tryRun(() -> {
                 executor.shutdownNow();
@@ -99,7 +117,7 @@ public interface HarryRunner
         }
     }
 
-    default void tryRun(ThrowingRunnable runnable)
+    public void tryRun(ThrowingRunnable runnable)
     {
         try
         {
@@ -117,7 +135,7 @@ public interface HarryRunner
      * @return Configuration YAML file.
      * @throws Exception If file is not found or cannot be read.
      */
-    default File loadConfig(String[] args) throws Exception {
+    public File loadConfig(String[] args) throws Exception {
         if (args == null || args.length == 0) {
             throw new Exception("Harry config YAML not provided.");
         }

@@ -21,10 +21,11 @@ package harry.runner.external;
 import harry.core.Configuration;
 import harry.model.sut.external.ExternalClusterSut;
 import harry.runner.HarryRunner;
+import harry.runner.Runner;
 
 import java.io.File;
 
-public class HarryRunnerExternal implements HarryRunner {
+public class HarryRunnerExternal extends HarryRunner {
 
     public static void main(String[] args) throws Throwable {
         ExternalClusterSut.registerSubtypes();
@@ -34,5 +35,10 @@ public class HarryRunnerExternal implements HarryRunner {
 
         Configuration configuration = Configuration.fromFile(configFile);
         runner.run(configuration);
+    }
+
+    @Override
+    public void beforeRun(Runner runner) {
+
     }
 }

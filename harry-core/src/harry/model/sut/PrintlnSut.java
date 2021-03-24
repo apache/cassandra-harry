@@ -32,17 +32,18 @@ public class PrintlnSut implements SystemUnderTest
     {
     }
 
-    public Object[][] execute(String statement, Object... bindings)
+    public Object[][] execute(String statement, ConsistencyLevel cl, Object... bindings)
     {
-        System.out.println(String.format("%s | %s",
+        System.out.println(String.format("%s | %s | %s",
                                          statement,
+                                         cl,
                                          Arrays.toString(bindings)));
         return new Object[0][];
     }
 
-    public CompletableFuture<Object[][]> executeAsync(String statement, Object... bindings)
+    public CompletableFuture<Object[][]> executeAsync(String statement, ConsistencyLevel cl, Object... bindings)
     {
-        return CompletableFuture.supplyAsync(() -> execute(statement, bindings),
+        return CompletableFuture.supplyAsync(() -> execute(statement, cl, bindings),
                                              Runnable::run);
     }
 }

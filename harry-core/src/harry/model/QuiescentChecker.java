@@ -22,54 +22,49 @@ import java.util.Arrays;
 import java.util.Collection;
 import java.util.Iterator;
 import java.util.List;
-
-import com.google.common.annotations.VisibleForTesting;
+import java.util.function.Supplier;
 
 import harry.core.Configuration;
+import harry.core.Run;
 import harry.data.ResultSetRow;
 import harry.ddl.SchemaSpec;
 import harry.model.sut.SystemUnderTest;
 import harry.reconciler.Reconciler;
+import harry.runner.DataTracker;
 import harry.runner.Query;
-import harry.runner.QuerySelector;
+import harry.runner.QueryGenerator;
 
 public class QuiescentChecker implements Model
 {
-    private final OpSelectors.MonotonicClock clock;
+    protected final OpSelectors.MonotonicClock clock;
 
-    private final DataTracker tracker;
-    private final SystemUnderTest sut;
-    private final Reconciler reconciler;
+    protected final DataTracker tracker;
+    protected final SystemUnderTest sut;
+    protected final Reconciler reconciler;
 
-    public QuiescentChecker(SchemaSpec schema,
-                            OpSelectors.PdSelector pdSelector,
-                            OpSelectors.DescriptorSelector descriptorSelector,
-                            OpSelectors.MonotonicClock clock,
-                            QuerySelector querySelector,
-
-                            SystemUnderTest sut)
+    public QuiescentChecker(Run run)
     {
-        this.clock = clock;
-        this.sut = sut;
+        this.clock = run.clock;
+        this.sut = run.sut;
 
-        this.reconciler = new Reconciler(schema, pdSelector, descriptorSelector, querySelector);
-        this.tracker = new DataTracker();
+        this.reconciler = new Reconciler(run.schemaSpec, run.pdSelector, run.descriptorSelector, run.rangeSelector);
+        this.tracker = run.tracker;
     }
 
-    public void recordEvent(long lts, boolean quorumAchieved)
+    public void validate(Query query)
     {
-        tracker.recordEvent(lts, quorumAchieved);
+        validate(() -> SelectHelper.execute(sut, clock, query), query);
     }
 
-    public void validatePartitionState(long verificationLts, Query query)
+    protected void validate(Supplier<List<ResultSetRow>> rowsSupplier, Query query)
     {
-        long maxCompeteLts = tracker.maxCompleteLts();
-        long maxSeenLts = tracker.maxSeenLts();
+        long maxCompeteLts = tracker.maxConsecutiveFinished();
+        long maxSeenLts = tracker.maxStarted();
 
         assert maxCompeteLts == maxSeenLts : "Runner hasn't settled down yet. " +
                                              "Quiescent model can't be reliably used in such cases.";
 
-        List<ResultSetRow> actualRows = SelectHelper.execute(sut, clock, query);
+        List<ResultSetRow> actualRows = rowsSupplier.get();
         Iterator<ResultSetRow> actual = actualRows.iterator();
         Collection<Reconciler.RowState> expectedRows = reconciler.inflatePartitionState(query.pd, maxSeenLts, query).rows(query.reverse);
         Iterator<Reconciler.RowState> expected = expectedRows.iterator();
@@ -103,16 +98,5 @@ public class QuiescentChecker implements Model
                                           expectedRows,
                                           actualRows);
         }
-    }
-
-    @VisibleForTesting
-    public void forceLts(long maxSeen, long maxComplete)
-    {
-        tracker.forceLts(maxSeen, maxComplete);
-    }
-
-    public Configuration.ModelConfiguration toConfig()
-    {
-        return new Configuration.QuiescentCheckerConfig(tracker.maxSeenLts(), tracker.maxCompleteLts());
     }
 }

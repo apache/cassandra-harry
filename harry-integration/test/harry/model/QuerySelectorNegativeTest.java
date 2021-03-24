@@ -23,6 +23,7 @@ import java.util.Collection;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Random;
+import java.util.function.Supplier;
 
 import org.junit.Assert;
 import org.junit.Test;
@@ -37,17 +38,20 @@ import harry.corruptor.HideRowCorruptor;
 import harry.corruptor.HideValueCorruptor;
 import harry.corruptor.QueryResponseCorruptor;
 import harry.corruptor.ShowValueCorruptor;
+import harry.ddl.SchemaGenerators;
+import harry.runner.MutatingPartitionVisitor;
+import harry.runner.MutatingRowVisitor;
 import harry.runner.PartitionVisitor;
 import harry.runner.Query;
-import harry.runner.QuerySelector;
+import harry.runner.QueryGenerator;
 
 import static harry.corruptor.QueryResponseCorruptor.SimpleQueryResponseCorruptor;
 
 @RunWith(Parameterized.class)
 public class QuerySelectorNegativeTest extends IntegrationTestBase
 {
-    private final int rounds = 10;
     private final int ltss = 1000;
+
     private final Random rnd = new Random();
 
     private final QueryResponseCorruptorFactory corruptorFactory;
@@ -86,20 +90,26 @@ public class QuerySelectorNegativeTest extends IntegrationTestBase
     public void selectRows()
     {
         Map<Query.QueryKind, Integer> stats = new HashMap<>();
+        Supplier<Configuration.ConfigurationBuilder> gen = sharedConfiguration();
+
+        int rounds = SchemaGenerators.DEFAULT_RUNS;
         int failureCounter = 0;
         outer:
         for (int counter = 0; counter < rounds; counter++)
         {
             beforeEach();
-            Configuration config = sharedConfiguration(counter)
-                                   .setClusteringDescriptorSelector((builder) -> {
-                                       builder.setMaxPartitionSize(2000);
-                                   })
-                                   .build();
+            Configuration config = gen.get()
+                                      .setClusteringDescriptorSelector((builder) -> {
+                                          builder.setMaxPartitionSize(2000);
+                                      })
+                                      .build();
             Run run = config.createRun();
             run.sut.schemaChange(run.schemaSpec.compile().cql());
+
             OpSelectors.MonotonicClock clock = run.clock;
-            PartitionVisitor partitionVisitor = run.visitorFactory.get();
+
+            PartitionVisitor partitionVisitor = new MutatingPartitionVisitor(run, MutatingRowVisitor::new);
+            Model model = new ExhaustiveChecker(run);
 
             QueryResponseCorruptor corruptor = this.corruptorFactory.create(run);
 
@@ -112,20 +122,23 @@ public class QuerySelectorNegativeTest extends IntegrationTestBase
             while (true)
             {
                 long verificationLts = rnd.nextInt(1000);
-                QuerySelector querySelector = new QuerySelector(run.schemaSpec,
-                                                                run.pdSelector,
-                                                                run.descriptorSelector,
-                                                                run.rng);
+                QueryGenerator queryGen = new QueryGenerator(run.schemaSpec,
+                                                             run.pdSelector,
+                                                             run.descriptorSelector,
+                                                             run.rng);
+
+                QueryGenerator.TypedQueryGenerator querySelector = new QueryGenerator.TypedQueryGenerator(run.rng, queryGen);
 
                 Query query = querySelector.inflate(verificationLts, counter);
-                run.model.validatePartitionState(verificationLts, query);
+
+                model.validate(query);
 
                 if (!corruptor.maybeCorrupt(query, run.sut))
                     continue;
 
                 try
                 {
-                    run.model.validatePartitionState(verificationLts, query);
+                    model.validate(query);
                     Assert.fail("Should've failed");
                 }
                 catch (Throwable t)

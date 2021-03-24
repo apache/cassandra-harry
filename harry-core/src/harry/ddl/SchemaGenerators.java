@@ -18,15 +18,19 @@
 
 package harry.ddl;
 
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Function;
 import java.util.function.Supplier;
 
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
 
+import com.fasterxml.jackson.annotation.JsonProperty;
 import harry.generators.Generator;
 import harry.generators.Surjections;
 
@@ -40,10 +44,12 @@ public class SchemaGenerators
     }
 
     public static final Collection<ColumnSpec.DataType<?>> clusteringKeyTypes;
+    public static final Map<String, ColumnSpec.DataType<?>> nameToTypeMap;
     public static final Collection<ColumnSpec.DataType<?>> columnTypes;
 
     static
     {
+
         ImmutableList.Builder<ColumnSpec.DataType<?>> builder = ImmutableList.builder();
         builder.add(ColumnSpec.int8Type,
                     ColumnSpec.int16Type,
@@ -51,17 +57,27 @@ public class SchemaGenerators
                     ColumnSpec.int64Type,
 // TODO re-enable boolean type; add it to ByteBufferUtil in Cassandra for that
 //                    ColumnSpec.booleanType,
-                    ColumnSpec.floatType,
-                    ColumnSpec.doubleType,
                     ColumnSpec.asciiType);
         columnTypes = builder.build();
         builder = ImmutableList.builder();
         builder.addAll(columnTypes);
+
+        ImmutableMap.Builder<String, ColumnSpec.DataType<?>> mapBuilder = ImmutableMap.builder();
+
         for (ColumnSpec.DataType<?> columnType : columnTypes)
         {
-            builder.add(ColumnSpec.ReversedType.getInstance(columnType));
+            ColumnSpec.DataType<?> reversedType = ColumnSpec.ReversedType.getInstance(columnType);
+            builder.add(reversedType);
+
+            mapBuilder.put(columnType.toString(), columnType);
+            mapBuilder.put(String.format("desc(%s)", columnType.toString()), columnType);
         }
+
+        builder.add(ColumnSpec.floatType);
+        builder.add(ColumnSpec.doubleType);
+
         clusteringKeyTypes = builder.build();
+        nameToTypeMap = mapBuilder.build();
     }
 
     @SuppressWarnings("unchecked")
@@ -281,7 +297,7 @@ public class SchemaGenerators
     public static Surjections.Surjection<SchemaSpec> defaultSchemaSpecGen(String ks, String table)
     {
         return new SchemaGenerators.Builder(ks, () -> table)
-               .partitionKeySpec(1, 4,
+               .partitionKeySpec(2, 4,
 //                                                                             ColumnSpec.int8Type,
 //                                                                             ColumnSpec.int16Type,
                                  ColumnSpec.int32Type,
@@ -289,7 +305,7 @@ public class SchemaGenerators
 //                                                                             ColumnSpec.floatType,
 //                                                                             ColumnSpec.doubleType,
                                  ColumnSpec.asciiType(4, 10))
-               .clusteringKeySpec(1, 4,
+               .clusteringKeySpec(2, 4,
 //                                                                              ColumnSpec.int8Type,
 //                                                                              ColumnSpec.int16Type,
                                   ColumnSpec.int32Type,
@@ -366,6 +382,7 @@ public class SchemaGenerators
     longAndStringSpecWithReversedBothBuilder,
     withAllFeaturesEnabled
     };
+
     // Create schema generators that would produce tables starting with just a few features, progressing to use more
     public static Supplier<SchemaSpec> progression(int switchAfter)
     {
@@ -375,10 +392,11 @@ public class SchemaGenerators
 
         return new Supplier<SchemaSpec>()
         {
-            private final AtomicInteger counter = new AtomicInteger();
+            private int counter = 0;
             public SchemaSpec get()
             {
-                int idx = (counter.getAndIncrement() / switchAfter) % generators.length;
+                int idx = (counter / switchAfter) % generators.length;
+                counter++;
                 SchemaSpec spec = generators[idx].get();
                 int tries = 100;
                 while ((spec.ckGenerator.byteSize() != Long.BYTES || spec.pkGenerator.byteSize() != Long.BYTES) && tries > 0)
@@ -388,6 +406,8 @@ public class SchemaGenerators
                     tries--;
                 }
 
+                spec.validate();
+
                 assert tries > 0 : String.format("Max number of tries exceeded on generator %d, can't generate a needed schema", idx);
                 return spec;
             }
@@ -396,12 +416,34 @@ public class SchemaGenerators
         };
     }
 
-    public static int DEFAULT_SWITCH_AFTER = 5;
-    public static int GENERATORS_COUNT = PROGRESSIVE_GENERATORS.length;
-    public static int DEFAULT_RUNS = DEFAULT_SWITCH_AFTER * PROGRESSIVE_GENERATORS.length;
-
-    public static Supplier<SchemaSpec> progression()
+    public static List<ColumnSpec<?>> toColumns(Map<String, String> config, ColumnSpec.Kind kind, boolean allowReverse)
     {
-        return progression(DEFAULT_SWITCH_AFTER); // would generate 30 tables before wrapping around
+        List<ColumnSpec<?>> columns = new ArrayList<>(config.size());
+
+        for (Map.Entry<String, String> e : config.entrySet())
+        {
+            ColumnSpec.DataType<?> type = nameToTypeMap.get(e.getValue());
+            assert type != null : "Can't parse the type";
+            assert allowReverse || !type.isReversed() : String.format("%s columns aren't allowed to be reversed");
+            columns.add(new ColumnSpec<>(e.getKey(), type, kind));
+        }
+
+        return columns;
     }
+
+    public static SchemaSpec parse(String keyspace,
+                                   String table,
+                                   Map<String, String> pks,
+                                   Map<String, String> cks,
+                                   Map<String, String> regulars)
+    {
+        return new SchemaSpec(keyspace, table,
+                              toColumns(pks, ColumnSpec.Kind.PARTITION_KEY, false),
+                              toColumns(cks, ColumnSpec.Kind.CLUSTERING, false),
+                              toColumns(regulars, ColumnSpec.Kind.REGULAR, false));
+    }
+
+    public static int DEFAULT_SWITCH_AFTER = Integer.getInteger("harry.test.progression.switch-after", 5);
+    public static int GENERATORS_COUNT = PROGRESSIVE_GENERATORS.length;
+    public static int DEFAULT_RUNS = DEFAULT_SWITCH_AFTER * GENERATORS_COUNT;
 }
