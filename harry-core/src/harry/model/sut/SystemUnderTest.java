@@ -35,20 +35,51 @@ public interface SystemUnderTest
 
     default void schemaChange(String statement)
     {
-        execute(statement, new Object[]{});
+        execute(statement, ConsistencyLevel.ALL, new Object[]{});
     }
 
-    default Object[][] execute(CompiledStatement statement)
+    default Object[][] execute(CompiledStatement statement, ConsistencyLevel cl)
     {
-        return execute(statement.cql(), statement.bindings());
+        return execute(statement.cql(), cl, statement.bindings());
     }
 
-    Object[][] execute(String statement, Object... bindings);
+    Object[][] execute(String statement, ConsistencyLevel cl, Object... bindings);
 
-    CompletableFuture<Object[][]> executeAsync(String statement, Object... bindings);
+    CompletableFuture<Object[][]> executeAsync(String statement, ConsistencyLevel cl, Object... bindings);
 
     interface SystemUnderTestFactory
     {
         SystemUnderTest create();
     }
+
+    enum ConsistencyLevel {
+        ALL, QUORUM, NODE_LOCAL
+    }
+
+    public static final SystemUnderTest NO_OP = new NoOpSut();
+
+    public class NoOpSut implements SystemUnderTest
+    {
+        private NoOpSut() {}
+        public boolean isShutdown()
+        {
+            return false;
+        }
+
+        public void shutdown()
+        {
+        }
+
+        public Object[][] execute(String statement, ConsistencyLevel cl,  Object... bindings)
+        {
+            return new Object[0][];
+        }
+
+        public CompletableFuture<Object[][]> executeAsync(String statement, ConsistencyLevel cl, Object... bindings)
+        {
+            return CompletableFuture.supplyAsync(() -> execute(statement, cl, bindings),
+                                                 Runnable::run);
+        }
+    }
+
 }

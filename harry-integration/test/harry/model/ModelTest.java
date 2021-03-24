@@ -18,8 +18,10 @@
 
 package harry.model;
 
+import java.util.Arrays;
 import java.util.Random;
 import java.util.concurrent.TimeUnit;
+import java.util.function.Consumer;
 
 import org.junit.Assert;
 import org.junit.Test;
@@ -29,6 +31,7 @@ import harry.ddl.SchemaSpec;
 import harry.generators.Surjections;
 import harry.generators.distribution.Distribution;
 import harry.model.sut.InJvmSut;
+import harry.runner.LoggingPartitionVisitor;
 import harry.runner.Runner;
 import harry.util.BitSet;
 import org.apache.cassandra.distributed.Cluster;
@@ -80,7 +83,10 @@ public class ModelTest extends TestBaseImpl
     @Test
     public void statefulVisibleRowsCheckerTest() throws Throwable
     {
-        visibleRowsCheckerTest(VisibleRowsChecker::new);
+        visibleRowsCheckerTest(VisibleRowsChecker::new,
+                               (cfg) -> {
+                                   cfg.setDataTracker(VisibleRowsChecker.LoggingDataTracker::new);
+                               });
     }
 
     @Test
@@ -91,13 +97,20 @@ public class ModelTest extends TestBaseImpl
 
     public void visibleRowsCheckerTest(Model.ModelFactory factory) throws Throwable
     {
+        visibleRowsCheckerTest(factory, (a) -> {});
+    }
+    public void visibleRowsCheckerTest(Model.ModelFactory factory, Consumer<Configuration.ConfigurationBuilder> configurator) throws Throwable
+    {
         try (Cluster cluster = Cluster.create(3))
         {
-            Configuration.ConfigurationBuilder configuration = new Configuration.ConfigurationBuilder();
-            configuration.setClock(new Configuration.ApproximateMonotonicClockConfiguration((int) TimeUnit.MINUTES.toMillis(2),
+            Configuration.ConfigurationBuilder builder = new Configuration.ConfigurationBuilder();
+            builder.setClock(new Configuration.ApproximateMonotonicClockConfiguration((int) TimeUnit.MINUTES.toMillis(2),
                                                                                             1, TimeUnit.SECONDS))
                          .setRunTime(1, TimeUnit.MINUTES)
-                         .setRunner(new Configuration.ConcurrentRunnerConfig(2, 2, 2))
+                         .setRunner(new Configuration.ConcurrentRunnerConfig(2,
+                                                                             Arrays.asList(new Configuration.LoggingPartitionVisitorConfiguration(new Configuration.MutatingRowVisitorConfiguration()),
+                                                                                           new Configuration.RecentPartitionsValidatorConfiguration(10, 10, factory::make),
+                                                                                           new Configuration.AllPartitionsValidatorConfiguration(10, 10, factory::make))))
                          .setSchemaProvider((seed) -> schema)
                          .setClusteringDescriptorSelector((OpSelectors.Rng rng, SchemaSpec schemaSpec) -> {
                              return new DescriptorSelectorBuilder()
@@ -109,10 +122,9 @@ public class ModelTest extends TestBaseImpl
                          .setCreateSchema(true)
                          .setTruncateTable(false)
                          .setDropSchema(false)
-                         .setModel(factory::create)
                          .setSUT(() -> new InJvmSut(cluster));
-
-            Runner runner = configuration.build().createRunner();
+            configurator.accept(builder);
+            Runner runner = builder.build().createRunner();
             try
             {
                 runner.initAndStartAll().get(2, TimeUnit.MINUTES);

@@ -18,39 +18,22 @@
 
 package harry.model;
 
-import harry.core.Configuration;
-import harry.ddl.SchemaSpec;
-import harry.model.sut.SystemUnderTest;
+import harry.core.Run;
 import harry.runner.Query;
-import harry.runner.QuerySelector;
 
 public interface Model
 {
     long NO_TIMESTAMP = Long.MIN_VALUE;
 
-    void recordEvent(long lts, boolean quorumAchieved);
-
-    void validatePartitionState(long verificationLts, Query query);
-
-    Configuration.ModelConfiguration toConfig();
+    void validate(Query query);
 
     interface ModelFactory
     {
-        Model create(SchemaSpec schema,
-                     OpSelectors.PdSelector pdSelector,
-                     OpSelectors.DescriptorSelector descriptorSelector,
-                     OpSelectors.MonotonicClock clock,
-                     QuerySelector querySelector,
-                     SystemUnderTest sut);
+        Model make(Run run);
     }
 
     class ValidationException extends RuntimeException
     {
-        public ValidationException()
-        {
-            super();
-        }
-
         public ValidationException(String message)
         {
             super(message);

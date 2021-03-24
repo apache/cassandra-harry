@@ -27,7 +27,6 @@ import java.util.Objects;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Consumer;
 import java.util.function.Function;
-import java.util.function.Supplier;
 
 import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonProperty;
@@ -46,14 +45,16 @@ import harry.model.OpSelectors;
 import harry.model.QuiescentChecker;
 import harry.model.clock.ApproximateMonotonicClock;
 import harry.model.sut.SystemUnderTest;
-import harry.runner.DefaultPartitionVisitorFactory;
-import harry.runner.DefaultRowVisitor;
+import harry.runner.AllPartitionsValidator;
+import harry.runner.DataTracker;
+import harry.runner.DefaultDataTracker;
+import harry.runner.LoggingPartitionVisitor;
+import harry.runner.MutatingPartitionVisitor;
+import harry.runner.MutatingRowVisitor;
 import harry.runner.PartitionVisitor;
-import harry.runner.Query;
-import harry.runner.QuerySelector;
+import harry.runner.RecentPartitionValidator;
 import harry.runner.RowVisitor;
 import harry.runner.Runner;
-import harry.runner.Validator;
 import harry.util.BitSet;
 
 public class Configuration
@@ -70,13 +71,22 @@ public class Configuration
         mapper.registerSubtypes(Configuration.DebugApproximateMonotonicClockConfiguration.class);
         mapper.registerSubtypes(Configuration.ApproximateMonotonicClockConfiguration.class);
         mapper.registerSubtypes(Configuration.ConcurrentRunnerConfig.class);
+        mapper.registerSubtypes(Configuration.SequentialRunnerConfig.class);
+        mapper.registerSubtypes(Configuration.DefaultDataTrackerConfiguration.class);
 
         mapper.registerSubtypes(Configuration.ExhaustiveCheckerConfig.class);
+        mapper.registerSubtypes(Configuration.QuiescentCheckerConfig.class);
         mapper.registerSubtypes(Configuration.DefaultCDSelectorConfiguration.class);
         mapper.registerSubtypes(Configuration.DefaultPDSelectorConfiguration.class);
         mapper.registerSubtypes(Configuration.ConstantDistributionConfig.class);
         mapper.registerSubtypes(DefaultSchemaProviderConfiguration.class);
-        mapper.registerSubtypes(DefaultRowVisitorConfiguration.class);
+        mapper.registerSubtypes(MutatingRowVisitorConfiguration.class);
+
+        mapper.registerSubtypes(MutatingPartitionVisitorConfiguation.class);
+        mapper.registerSubtypes(LoggingPartitionVisitorConfiguration.class);
+        mapper.registerSubtypes(AllPartitionsValidatorConfiguration.class);
+        mapper.registerSubtypes(RecentPartitionsValidatorConfiguration.class);
+        mapper.registerSubtypes(FixedSchemaProviderConfiguration.class);
     }
 
     public final long seed;
@@ -86,12 +96,11 @@ public class Configuration
     public final boolean create_schema;
     public final boolean truncate_table;
 
+    public final MetricReporterConfiguration metric_reporter;
     public final ClockConfiguration clock;
-    public final RunnerConfiguration runner;
     public final SutConfiguration system_under_test;
-    public final ModelConfiguration model;
-    public final RowVisitorConfiguration row_visitor;
-
+    public final DataTrackerConfiguration data_tracker;
+    public final RunnerConfiguration runner;
     public final PDSelectorConfiguration partition_descriptor_selector;
     public final CDSelectorConfiguration clustering_descriptor_selector;
 
@@ -104,11 +113,11 @@ public class Configuration
                          @JsonProperty("drop_schema") boolean drop_schema,
                          @JsonProperty("create_schema") boolean create_schema,
                          @JsonProperty("truncate_schema") boolean truncate_table,
+                         @JsonProperty("metric_reporter") MetricReporterConfiguration metric_reporter,
                          @JsonProperty("clock") ClockConfiguration clock,
                          @JsonProperty("runner") RunnerConfiguration runner,
                          @JsonProperty("system_under_test") SutConfiguration system_under_test,
-                         @JsonProperty("model") ModelConfiguration model,
-                         @JsonProperty("row_visitor") RowVisitorConfiguration row_visitor,
+                         @JsonProperty("data_tracker") DataTrackerConfiguration data_tracker,
                          @JsonProperty("partition_descriptor_selector") PDSelectorConfiguration partition_descriptor_selector,
                          @JsonProperty("clustering_descriptor_selector") CDSelectorConfiguration clustering_descriptor_selector,
                          @JsonProperty(value = "run_time", defaultValue = "2") long run_time,
@@ -119,15 +128,15 @@ public class Configuration
         this.drop_schema = drop_schema;
         this.create_schema = create_schema;
         this.truncate_table = truncate_table;
+        this.metric_reporter = metric_reporter;
         this.clock = clock;
-        this.runner = runner;
         this.system_under_test = system_under_test;
-        this.model = model;
-        this.row_visitor = row_visitor;
+        this.data_tracker = data_tracker;
         this.partition_descriptor_selector = partition_descriptor_selector;
         this.clustering_descriptor_selector = clustering_descriptor_selector;
         this.run_time = run_time;
         this.run_time_unit = run_time_unit;
+        this.runner = runner;
     }
 
     public static void registerSubtypes(Class<?>... classes)
@@ -178,6 +187,13 @@ public class Configuration
 
     public static void validate(Configuration config)
     {
+        Objects.requireNonNull(config.schema_provider, "Schema provider should not be null");
+        Objects.requireNonNull(config.metric_reporter, "Metric reporter should not be null");
+        Objects.requireNonNull(config.clock, "Clock should not be null");
+        Objects.requireNonNull(config.system_under_test, "System under test should not be null");
+        Objects.requireNonNull(config.partition_descriptor_selector, "Partition descriptor selector should not be null");
+        Objects.requireNonNull(config.clustering_descriptor_selector, "Clustering descriptor selector should not be null");
+
         // TODO: validation
         //assert historySize * clockEpochTimeUnit.toMillis(clockEpoch) > runTimePeriod.toMillis(runTime) : "History size is too small for this run";
     }
@@ -194,53 +210,39 @@ public class Configuration
 
     public static Run createRun(Configuration snapshot)
     {
+        validate(snapshot);
+
         long seed = snapshot.seed;
 
+        DataTracker tracker = snapshot.data_tracker == null ? new DefaultDataTrackerConfiguration().make() : snapshot.data_tracker.make();
         OpSelectors.Rng rng = new OpSelectors.PCGFast(seed);
 
         OpSelectors.MonotonicClock clock = snapshot.clock.make();
 
-        // TODO: parsing schema
+        MetricReporter metricReporter = snapshot.metric_reporter.make();
+        // TODO: parse schema
         SchemaSpec schemaSpec = snapshot.schema_provider.make(seed);
+        schemaSpec.validate();
 
         OpSelectors.PdSelector pdSelector = snapshot.partition_descriptor_selector.make(rng);
         OpSelectors.DescriptorSelector descriptorSelector = snapshot.clustering_descriptor_selector.make(rng, schemaSpec);
 
         SystemUnderTest sut = snapshot.system_under_test.make();
-        QuerySelector querySelector = new QuerySelector(schemaSpec,
-                                                        pdSelector,
-                                                        descriptorSelector,
-                                                        Surjections.pick(Query.QueryKind.CLUSTERING_SLICE,
-                                                                         Query.QueryKind.CLUSTERING_RANGE),
-                                                        rng);
-        Model model = snapshot.model.create(schemaSpec, pdSelector, descriptorSelector, clock, querySelector, sut);
-        Validator validator = new Validator(model, schemaSpec, clock, pdSelector, descriptorSelector, rng);
 
-        RowVisitor rowVisitor;
-        if (snapshot.row_visitor != null)
-            rowVisitor = snapshot.row_visitor.make(schemaSpec, clock, descriptorSelector, querySelector);
-        else
-            rowVisitor = new DefaultRowVisitor(schemaSpec, clock, descriptorSelector, querySelector);
-
-        // TODO: make this one configurable, too?
-        Supplier<PartitionVisitor> visitorFactory = new DefaultPartitionVisitorFactory(model, sut, pdSelector, descriptorSelector, schemaSpec, rowVisitor);
         return new Run(rng,
                        clock,
                        pdSelector,
                        descriptorSelector,
                        schemaSpec,
-                       model,
+                       tracker,
                        sut,
-                       validator,
-                       rowVisitor,
-                       visitorFactory,
-                       snapshot);
+                       metricReporter);
     }
 
-    public static Runner createRunner(Configuration snapshot)
+    public static Runner createRunner(Configuration config)
     {
-        Run run = createRun(snapshot);
-        return snapshot.runner.make(run);
+        Run run = createRun(config);
+        return config.runner.make(run, config);
     }
 
     public static class ConfigurationBuilder
@@ -253,11 +255,10 @@ public class Configuration
         boolean truncate_table;
 
         ClockConfiguration clock;
+        MetricReporterConfiguration metric_reporter = new NoOpMetricReporterConfiguration();
+        DataTrackerConfiguration data_tracker = new DefaultDataTrackerConfiguration();
         RunnerConfiguration runner;
         SutConfiguration system_under_test;
-        ModelConfiguration model;
-        RowVisitorConfiguration row_visitor = new DefaultRowVisitorConfiguration();
-
         PDSelectorConfiguration partition_descriptor_selector = new Configuration.DefaultPDSelectorConfiguration(10, 100);
         CDSelectorConfiguration clustering_descriptor_selector; // TODO: sensible default value
 
@@ -283,12 +284,18 @@ public class Configuration
             return this;
         }
 
+
+        public ConfigurationBuilder setDataTracker(DataTrackerConfiguration tracker)
+        {
+            this.data_tracker = tracker;
+            return this;
+        }
+
         public ConfigurationBuilder setClock(ClockConfiguration clock)
         {
             this.clock = clock;
             return this;
         }
-
 
         public ConfigurationBuilder setSUT(SutConfiguration system_under_test)
         {
@@ -311,12 +318,6 @@ public class Configuration
         public ConfigurationBuilder setTruncateTable(boolean truncate_table)
         {
             this.truncate_table = truncate_table;
-            return this;
-        }
-
-        public ConfigurationBuilder setModel(ModelConfiguration model)
-        {
-            this.model = model;
             return this;
         }
 
@@ -345,28 +346,28 @@ public class Configuration
             return setClusteringDescriptorSelector(builder.build());
         }
 
-        public ConfigurationBuilder setRowVisitor(RowVisitorConfiguration row_visitor)
+        public ConfigurationBuilder setMetricReporter(MetricReporterConfiguration metric_reporter)
         {
-            this.row_visitor = row_visitor;
+            this.metric_reporter = metric_reporter;
             return this;
         }
 
         public Configuration build()
         {
             return new Configuration(seed,
-                                     Objects.requireNonNull(schema_provider, "Schema provider should not be null"),
+                                     schema_provider,
                                      drop_schema,
                                      create_schema,
                                      truncate_table,
+                                     metric_reporter,
+                                     clock,
 
-                                     Objects.requireNonNull(clock, "Clock should not be null"),
                                      runner,
-                                     Objects.requireNonNull(system_under_test, "System under test should not be null"),
-                                     Objects.requireNonNull(model, "Model should not be null"),
-                                     Objects.requireNonNull(row_visitor, "Row visitor should not be null"),
+                                     system_under_test,
+                                     data_tracker,
 
-                                     Objects.requireNonNull(partition_descriptor_selector, "Partition descriptor selector should not be null"),
-                                     Objects.requireNonNull(clustering_descriptor_selector, "Clustering descriptor selector should not be null"),
+                                     partition_descriptor_selector,
+                                     clustering_descriptor_selector,
 
                                      run_time,
                                      run_time_unit);
@@ -385,8 +386,6 @@ public class Configuration
         builder.clock = clock;
         builder.runner = runner;
         builder.system_under_test = system_under_test;
-        builder.model = model;
-        builder.row_visitor = row_visitor;
 
         builder.partition_descriptor_selector = partition_descriptor_selector;
         builder.clustering_descriptor_selector = clustering_descriptor_selector;
@@ -394,6 +393,40 @@ public class Configuration
         builder.run_time = run_time;
         builder.run_time_unit = run_time_unit;
         return builder;
+    }
+
+
+    @JsonTypeInfo(use = JsonTypeInfo.Id.NAME, include = JsonTypeInfo.As.WRAPPER_OBJECT)
+    public interface DataTrackerConfiguration extends DataTracker.DataTrackerFactory
+    {
+
+    }
+
+    @JsonTypeName("default")
+    public static class DefaultDataTrackerConfiguration implements DataTrackerConfiguration
+    {
+        public final long max_seen_lts;
+        public final long max_complete_lts;
+
+        public DefaultDataTrackerConfiguration()
+        {
+            this(-1, -1);
+        }
+
+        @JsonCreator
+        public DefaultDataTrackerConfiguration(@JsonProperty(value = "max_seen_lts", defaultValue = "-1") long max_seen_lts,
+                                               @JsonProperty(value = "max_complete_lts", defaultValue = "-1") long max_complete_lts)
+        {
+            this.max_seen_lts = max_seen_lts;
+            this.max_complete_lts = max_complete_lts;
+        }
+
+        public DataTracker make()
+        {
+            DefaultDataTracker defaultDataTracker = new DefaultDataTracker();
+            defaultDataTracker.forceLts(max_seen_lts, max_complete_lts);
+            return defaultDataTracker;
+        }
     }
 
     @JsonTypeInfo(use = JsonTypeInfo.Id.NAME, include = JsonTypeInfo.As.WRAPPER_OBJECT)
@@ -475,46 +508,39 @@ public class Configuration
     @JsonTypeName("concurrent")
     public static class ConcurrentRunnerConfig implements RunnerConfiguration
     {
-        public final int writer_threads;
-        public final int round_robin_validator_threads;
-        public final int recent_partition_validator_threads;
+        public final int concurrency;
+        public final List<PartitionVisitorConfiguration> partition_visitor_factories;
 
         @JsonCreator
-        public ConcurrentRunnerConfig(@JsonProperty(value = "writer_threads", defaultValue = "2") int writer_threads,
-                                      @JsonProperty(value = "round_robin_validator_threads", defaultValue = "2") int round_robin_validator_threads,
-                                      @JsonProperty(value = "recent_partition_validator_threads", defaultValue = "2") int recent_partition_validator_threads)
+        public ConcurrentRunnerConfig(@JsonProperty(value = "concurrency", defaultValue = "2") int concurrency,
+                                      @JsonProperty(value = "partition_visitors") List<PartitionVisitorConfiguration> partitionVisitors)
         {
-            this.writer_threads = writer_threads;
-            this.round_robin_validator_threads = round_robin_validator_threads;
-            this.recent_partition_validator_threads = recent_partition_validator_threads;
+            this.concurrency = concurrency;
+            this.partition_visitor_factories = partitionVisitors;
         }
 
-        public Runner make(Run run)
+        @Override
+        public Runner make(Run run, Configuration config)
         {
-            return new Runner.ConcurrentRunner(run, writer_threads, round_robin_validator_threads, recent_partition_validator_threads);
+            return new Runner.ConcurrentRunner(run, config, concurrency, partition_visitor_factories);
         }
     }
 
     @JsonTypeName("sequential")
     public static class SequentialRunnerConfig implements RunnerConfiguration
     {
-        private final int round_robin_validator_threads;
-        private final int check_recent_after;
-        private final int check_all_after;
+        public final List<PartitionVisitorConfiguration> partition_visitor_factories;
 
         @JsonCreator
-        public SequentialRunnerConfig(@JsonProperty(value = "round_robin_validator_threads", defaultValue = "2") int round_robin_validator_threads,
-                                      @JsonProperty(value = "check_recent_after", defaultValue = "100") int check_recent_after,
-                                      @JsonProperty(value = "check_all_after", defaultValue = "5000") int check_all_after)
+        public SequentialRunnerConfig(@JsonProperty(value = "partition_visitors") List<PartitionVisitorConfiguration> partitionVisitors)
         {
-            this.round_robin_validator_threads = round_robin_validator_threads;
-            this.check_recent_after = check_recent_after;
-            this.check_all_after = check_all_after;
+            this.partition_visitor_factories = partitionVisitors;
         }
 
-        public Runner make(Run run)
+        @Override
+        public Runner make(Run run, Configuration config)
         {
-            return new Runner.SequentialRunner(run, round_robin_validator_threads, check_recent_after, check_all_after);
+            return new Runner.SequentialRunner(run, config, partition_visitor_factories);
         }
     }
 
@@ -531,64 +557,29 @@ public class Configuration
     @JsonTypeName("exhaustive_checker")
     public static class ExhaustiveCheckerConfig implements ModelConfiguration
     {
-        public final long max_seen_lts;
-        public final long max_complete_lts;
-
+        @JsonCreator
         public ExhaustiveCheckerConfig()
         {
-            this(-1, -1);
+
         }
 
-        @JsonCreator
-        public ExhaustiveCheckerConfig(@JsonProperty(value = "max_seen_lts", defaultValue = "-1") long max_seen_lts,
-                                       @JsonProperty(value = "max_complete_lts", defaultValue = "-1") long max_complete_lts)
+        public Model make(Run run)
         {
-            this.max_seen_lts = max_seen_lts;
-            this.max_complete_lts = max_complete_lts;
-        }
-
-        public Model create(SchemaSpec schema, OpSelectors.PdSelector pdSelector, OpSelectors.DescriptorSelector descriptorSelector, OpSelectors.MonotonicClock clock, QuerySelector querySelector, SystemUnderTest sut)
-        {
-            ExhaustiveChecker exhaustiveChecker = new ExhaustiveChecker(schema,
-                                                                        pdSelector,
-                                                                        descriptorSelector,
-                                                                        clock,
-                                                                        querySelector,
-                                                                        sut);
-            exhaustiveChecker.forceLts(max_seen_lts, max_complete_lts);
-            return exhaustiveChecker;
+            return new ExhaustiveChecker(run);
         }
     }
 
     @JsonTypeName("quiescent_checker")
     public static class QuiescentCheckerConfig implements ModelConfiguration
     {
-        public final long max_seen_lts;
-        public final long max_complete_lts;
-
+        @JsonCreator
         public QuiescentCheckerConfig()
         {
-            this(-1, -1);
         }
 
-        @JsonCreator
-        public QuiescentCheckerConfig(@JsonProperty(value = "max_seen_lts", defaultValue = "-1") long max_seen_lts,
-                                      @JsonProperty(value = "max_complete_lts", defaultValue = "-1") long max_complete_lts)
+        public Model make(Run run)
         {
-            this.max_seen_lts = max_seen_lts;
-            this.max_complete_lts = max_complete_lts;
-        }
-
-        public Model create(SchemaSpec schema, OpSelectors.PdSelector pdSelector, OpSelectors.DescriptorSelector descriptorSelector, OpSelectors.MonotonicClock clock, QuerySelector querySelector, SystemUnderTest sut)
-        {
-            QuiescentChecker exhaustiveChecker = new QuiescentChecker(schema,
-                                                                      pdSelector,
-                                                                      descriptorSelector,
-                                                                      clock,
-                                                                      querySelector,
-                                                                      sut);
-            exhaustiveChecker.forceLts(max_seen_lts, max_complete_lts);
-            return exhaustiveChecker;
+            return new QuiescentChecker(run);
         }
     }
 
@@ -875,23 +866,108 @@ public class Configuration
         }
     }
 
+
+    @JsonTypeInfo(use = JsonTypeInfo.Id.NAME, include = JsonTypeInfo.As.WRAPPER_OBJECT)
+    public interface PartitionVisitorConfiguration extends PartitionVisitor.PartitionVisitorFactory
+    {
+    }
+
+
+    @JsonTypeName("mutating")
+    public static class MutatingPartitionVisitorConfiguation implements PartitionVisitorConfiguration
+    {
+        protected final RowVisitorConfiguration row_visitor;
+
+        @JsonCreator
+        public MutatingPartitionVisitorConfiguation(@JsonProperty("row_visitor") RowVisitorConfiguration row_visitor)
+        {
+            this.row_visitor = row_visitor;
+        }
+
+        @Override
+        public PartitionVisitor make(Run run)
+        {
+            return new MutatingPartitionVisitor(run, row_visitor);
+        }
+    }
+
+    @JsonTypeName("logging")
+    public static class LoggingPartitionVisitorConfiguration implements PartitionVisitorConfiguration
+    {
+        protected final RowVisitorConfiguration row_visitor;
+
+        @JsonCreator
+        public LoggingPartitionVisitorConfiguration(@JsonProperty("row_visitor") RowVisitorConfiguration row_visitor)
+        {
+            this.row_visitor = row_visitor;
+        }
+
+        @Override
+        public PartitionVisitor make(Run run)
+        {
+            return new LoggingPartitionVisitor(run, row_visitor);
+        }
+    }
+
+    @JsonTypeName("validate_all_partitions")
+    public static class AllPartitionsValidatorConfiguration implements Configuration.PartitionVisitorConfiguration
+    {
+        private final int concurrency;
+        private final int trigger_after;
+        private final Configuration.ModelConfiguration modelConfiguration;
+
+        @JsonCreator
+        public AllPartitionsValidatorConfiguration(@JsonProperty("concurrency") int concurrency,
+                                                   @JsonProperty("trigger_after") int trigger_after,
+                                                   @JsonProperty("model") Configuration.ModelConfiguration model)
+        {
+            this.concurrency = concurrency;
+            this.trigger_after = trigger_after;
+            this.modelConfiguration = model;
+        }
+
+        public PartitionVisitor make(Run run)
+        {
+            return new AllPartitionsValidator(concurrency, trigger_after, run, modelConfiguration);
+        }
+    }
+
+    @JsonTypeName("validate_recent_partitions")
+    public static class RecentPartitionsValidatorConfiguration implements Configuration.PartitionVisitorConfiguration
+    {
+        private final int partition_count;
+        private final int trigger_after;
+        private final Configuration.ModelConfiguration modelConfiguration;
+
+        @JsonCreator
+        public RecentPartitionsValidatorConfiguration(@JsonProperty("partition_count") int partition_count,
+                                                      @JsonProperty("trigger_after") int trigger_after,
+                                                      @JsonProperty("model") Configuration.ModelConfiguration model)
+        {
+            this.partition_count = partition_count;
+            this.trigger_after = trigger_after;
+            this.modelConfiguration = model;
+        }
+
+        @Override
+        public PartitionVisitor make(Run run)
+        {
+            return new RecentPartitionValidator(partition_count, trigger_after, run, modelConfiguration);
+        }
+    }
+
     @JsonTypeInfo(use = JsonTypeInfo.Id.NAME, include = JsonTypeInfo.As.WRAPPER_OBJECT)
     public interface RowVisitorConfiguration extends RowVisitor.RowVisitorFactory
     {
     }
 
-    @JsonTypeName("default")
-    public static class DefaultRowVisitorConfiguration implements RowVisitorConfiguration
+    @JsonTypeName("mutating")
+    public static class MutatingRowVisitorConfiguration implements RowVisitorConfiguration
     {
-        public RowVisitor make(SchemaSpec schema,
-                               OpSelectors.MonotonicClock clock,
-                               OpSelectors.DescriptorSelector descriptorSelector,
-                               QuerySelector querySelector)
+        @Override
+        public RowVisitor make(Run run)
         {
-            return new DefaultRowVisitor(schema,
-                                         clock,
-                                         descriptorSelector,
-                                         querySelector);
+            return new MutatingRowVisitor(run);
         }
     }
 
@@ -907,6 +983,42 @@ public class Configuration
         {
             return SchemaGenerators.defaultSchemaSpecGen("harry", "table0")
                                    .inflate(seed);
+        }
+    }
+
+    @JsonTypeName("fixed")
+    public static class FixedSchemaProviderConfiguration implements SchemaProviderConfiguration
+    {
+        private final SchemaSpec schemaSpec;
+
+        @JsonCreator
+        public FixedSchemaProviderConfiguration(@JsonProperty("keyspace") String keyspace,
+                                                @JsonProperty("table") String table,
+                                                @JsonProperty("partition_keys") Map<String, String> pks,
+                                                @JsonProperty("clustering_keys") Map<String, String> cks,
+                                                @JsonProperty("regular_columns") Map<String, String> regulars)
+        {
+            this.schemaSpec = SchemaGenerators.parse(keyspace, table,
+                                                     pks, cks, regulars);
+        }
+
+        public SchemaSpec make(long seed)
+        {
+            return schemaSpec;
+        }
+    }
+
+    @JsonTypeInfo(use = JsonTypeInfo.Id.NAME, include = JsonTypeInfo.As.WRAPPER_OBJECT)
+    public interface MetricReporterConfiguration extends MetricReporter.MetricReporterFactory
+    {
+    }
+
+    @JsonTypeName("default")
+    public static class NoOpMetricReporterConfiguration implements MetricReporterConfiguration
+    {
+        public MetricReporter make()
+        {
+            return MetricReporter.NO_OP;
         }
     }
 

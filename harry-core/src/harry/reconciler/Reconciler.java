@@ -24,14 +24,16 @@ import java.util.Collection;
 import java.util.Iterator;
 import java.util.List;
 import java.util.NavigableMap;
+import java.util.Set;
 import java.util.TreeMap;
 
 import harry.ddl.SchemaSpec;
+import harry.model.ExhaustiveChecker;
 import harry.model.OpSelectors;
 import harry.runner.AbstractPartitionVisitor;
 import harry.runner.PartitionVisitor;
 import harry.runner.Query;
-import harry.runner.QuerySelector;
+import harry.runner.QueryGenerator;
 import harry.util.BitSet;
 import harry.util.Ranges;
 
@@ -49,36 +51,42 @@ public class Reconciler
 {
     private final OpSelectors.DescriptorSelector descriptorSelector;
     private final OpSelectors.PdSelector pdSelector;
-    private final QuerySelector querySelector;
+    private final QueryGenerator rangeSelector;
     private final SchemaSpec schema;
 
     public Reconciler(SchemaSpec schema,
                       OpSelectors.PdSelector pdSelector,
                       OpSelectors.DescriptorSelector descriptorSelector,
-                      QuerySelector querySelector)
+                      QueryGenerator rangeSelector)
     {
         this.descriptorSelector = descriptorSelector;
         this.pdSelector = pdSelector;
         this.schema = schema;
-        this.querySelector = querySelector;
+        this.rangeSelector = rangeSelector;
     }
 
     public PartitionState inflatePartitionState(final long pd, long maxLts, Query query)
     {
         List<Ranges.Range> ranges = new ArrayList<>();
+
         // TODO: we should think of a single-pass algorithm that would allow us to inflate all deletes and range deletes for a partition
         PartitionVisitor partitionVisitor = new AbstractPartitionVisitor(pdSelector, descriptorSelector, schema)
         {
             public void operation(long lts, long pd, long cd, long m, long opId)
             {
-                if (!query.match(cd))
-                    return;
-
                 OpSelectors.OperationKind opType = descriptorSelector.operationType(pd, lts, opId);
                 if (opType == OpSelectors.OperationKind.DELETE_RANGE)
-                    ranges.add(querySelector.inflate(lts, opId).toRange(lts));
+                {
+                    ranges.add(rangeSelector.inflate(lts, opId, Query.QueryKind.CLUSTERING_RANGE).toRange(lts));
+                }
+                else if (opType == OpSelectors.OperationKind.DELETE_SLICE)
+                {
+                    ranges.add(rangeSelector.inflate(lts, opId, Query.QueryKind.CLUSTERING_SLICE).toRange(lts));
+                }
                 else if (opType == OpSelectors.OperationKind.DELETE_ROW)
+                {
                     ranges.add(new Ranges.Range(cd, cd, true, true, lts));
+                }
             }
         };
 
@@ -90,21 +98,27 @@ public class Reconciler
             currentLts = pdSelector.nextLts(currentLts);
         }
 
-        // We have to do two passes to avoid inflating deleted items
-        Ranges rts = new Ranges(ranges);
-
         PartitionState partitionState = new PartitionState();
         partitionVisitor = new AbstractPartitionVisitor(pdSelector, descriptorSelector, schema)
         {
             public void operation(long lts, long pd, long cd, long m, long opId)
             {
+                if (!query.match(cd))
+                    return;
+
                 OpSelectors.OperationKind opType = descriptorSelector.operationType(pd, lts, opId);
 
-                if (opType == OpSelectors.OperationKind.DELETE_ROW || opType == OpSelectors.OperationKind.DELETE_RANGE)
+                if (opType == OpSelectors.OperationKind.DELETE_ROW
+                    || opType == OpSelectors.OperationKind.DELETE_RANGE
+                    || opType == OpSelectors.OperationKind.DELETE_SLICE)
                     return;
 
-                if (!query.match(cd) || rts.isShadowed(cd, lts))
-                    return;
+                // TODO: avoid linear scan
+                for (Ranges.Range range : ranges)
+                {
+                    if (range.timestamp >= lts && range.contains(cd))
+                        return;
+                }
 
                 if (opType == OpSelectors.OperationKind.WRITE)
                 {
@@ -166,7 +180,6 @@ public class Reconciler
                         vdsCopy[i] = NIL_DESCR;
                     }
                 }
-
 
                 state = new RowState(cd, vdsCopy, ltss);
                 rows.put(cd, state);

@@ -52,7 +52,7 @@ public interface QueryResponseCorruptor
         {
             List<ResultSetRow> result = new ArrayList<>();
             CompiledStatement statement = query.toSelectStatement();
-            for (Object[] obj : sut.execute(statement.cql(), statement.bindings()))
+            for (Object[] obj : sut.execute(statement.cql(), SystemUnderTest.ConsistencyLevel.ALL, statement.bindings()))
                 result.add(SelectHelper.resultSetToRow(schema, clock, obj));
 
             // TODO: technically, we can do this just depends on corruption strategy

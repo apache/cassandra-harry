@@ -84,7 +84,8 @@ public class Ranges
 
         public Range(long minBound, long maxBound, boolean minInclusive, boolean maxInclusive, long timestamp)
         {
-            assert (minBound < maxBound) || ((minBound == maxBound) && minInclusive && maxInclusive) :
+            // (minBound < maxBound) ||
+            assert ((minBound != maxBound) || (minInclusive && maxInclusive)) :
             String.format("Min bound should be less than max bound, or both bounds have to be inclusive, but was: %s%d,%d%s",
                           minInclusive ? "[" : "(",
                           minBound, maxBound,
@@ -99,12 +100,24 @@ public class Ranges
 
         public boolean contains(long descriptor)
         {
-            if (minInclusive && descriptor == minBound)
-                return true;
-            if (maxInclusive && descriptor == maxBound)
-                return true;
+            if (minInclusive && maxInclusive)
+                return descriptor >= minBound && descriptor <= maxBound;
 
-            return (descriptor > minBound) && (descriptor < maxBound);
+            if (!minInclusive && !maxInclusive)
+                return descriptor > minBound && descriptor < maxBound;
+
+            if (!minInclusive && maxInclusive)
+                return descriptor > minBound && descriptor <= maxBound;
+
+            assert (minInclusive && !maxInclusive);
+            return descriptor >= minBound && descriptor < maxBound;
+
+//            if ((minInclusive && descriptor == minBound) && descriptor < maxBound)
+//                return true;
+//            if ((maxInclusive && descriptor == maxBound) && descriptor > minBound)
+//                return true;
+//
+//            return (descriptor > minBound) && (descriptor < maxBound);
         }
 
         public boolean contains(long descriptor, long ts)

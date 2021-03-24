@@ -36,7 +36,7 @@ public interface RowCorruptor
         if (canCorrupt(row))
         {
             CompiledStatement statement = corrupt(row);
-            sut.execute(statement.cql(), statement.bindings());
+            sut.execute(statement.cql(), SystemUnderTest.ConsistencyLevel.ALL, statement.bindings());
             return true;
         }
         return false;

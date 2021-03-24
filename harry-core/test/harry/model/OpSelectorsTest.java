@@ -32,16 +32,18 @@ import java.util.function.Supplier;
 import org.junit.Assert;
 import org.junit.Test;
 
+import harry.core.MetricReporter;
+import harry.core.Run;
 import harry.ddl.ColumnSpec;
 import harry.ddl.SchemaGenerators;
 import harry.ddl.SchemaSpec;
-import harry.generators.PcgRSUFast;
-import harry.generators.RandomGenerator;
 import harry.generators.Surjections;
 import harry.generators.distribution.Distribution;
-import harry.model.sut.NoOpSut;
+import harry.model.clock.OffsetClock;
+import harry.model.sut.SystemUnderTest;
 import harry.operations.CompiledStatement;
-import harry.runner.DefaultPartitionVisitorFactory;
+import harry.runner.DataTracker;
+import harry.runner.MutatingPartitionVisitor;
 import harry.runner.PartitionVisitor;
 import harry.runner.RowVisitor;
 import harry.util.BitSet;
@@ -50,6 +52,8 @@ import static harry.model.OpSelectors.DefaultDescriptorSelector.DEFAULT_OP_TYPE_
 
 public class OpSelectorsTest
 {
+    private static int RUNS = 10000;
+
     @Test
     public void testRowDataDescriptorSupplier()
     {
@@ -69,7 +73,7 @@ public class OpSelectorsTest
                                                                               100,
                                                                               100);
 
-        for (int lts = 0; lts < 100000; lts++)
+        for (int lts = 0; lts < RUNS; lts++)
         {
             long pd = pdSupplier.pd(lts);
             for (int m = 0; m < descriptorSelector.numberOfModifications(lts); m++)
@@ -94,9 +98,9 @@ public class OpSelectorsTest
     public void pdSelectorTest()
     {
         OpSelectors.Rng rng = new OpSelectors.PCGFast(1);
-        int cycles = 1000;
+        int cycles = 10000;
 
-        for (int repeats = 2; repeats <= 100; repeats++)
+        for (int repeats = 2; repeats <= 1000; repeats++)
         {
             for (int windowSize = 2; windowSize <= 10; windowSize++)
             {
@@ -104,7 +108,9 @@ public class OpSelectorsTest
                 long[] pds = new long[cycles];
                 for (int i = 0; i < cycles; i++)
                 {
-                    pds[i] = pdSupplier.pd(i);
+                    long pd = pdSupplier.pd(i);
+                    pds[i] = pd;
+                    Assert.assertEquals(pdSupplier.positionFor(i), pdSupplier.positionForPd(pd));
                 }
 
                 Set<Long> noNext = new HashSet<>();
@@ -150,7 +156,8 @@ public class OpSelectorsTest
 
                 for (int i = 0; i < cycles; i++)
                 {
-                    long maxLts = pdSupplier.maxLts(i);
+                    long pd = pdSupplier.pd(i);
+                    long maxLts = pdSupplier.maxLtsFor(pd);
                     Assert.assertEquals(-1, pdSupplier.nextLts(maxLts));
                     Assert.assertEquals(pdSupplier.pd(i), pdSupplier.pd(maxLts));
                 }
@@ -161,8 +168,8 @@ public class OpSelectorsTest
     @Test
     public void ckSelectorTest()
     {
-        Supplier<SchemaSpec> gen = SchemaGenerators.progression(5);
-        for (int i = 0; i < 30; i++)
+        Supplier<SchemaSpec> gen = SchemaGenerators.progression(SchemaGenerators.DEFAULT_SWITCH_AFTER);
+        for (int i = 0; i < SchemaGenerators.DEFAULT_RUNS; i++)
             ckSelectorTest(gen.get());
     }
 
@@ -191,37 +198,48 @@ public class OpSelectorsTest
             });
         };
 
-        PartitionVisitor partitionVisitor = new DefaultPartitionVisitorFactory(new DoNothingModel(),
-                                                                               new NoOpSut(),
-                                                                               pdSelector,
-                                                                               ckSelector,
-                                                                               schema,
-                                                                               new RowVisitor()
-                                                                        {
-                                                                            public CompiledStatement write(long lts, long pd, long cd, long m)
-                                                                            {
-                                                                                consumer.accept(pd, cd);
-                                                                                return compiledStatement;
-                                                                            }
+        Run run = new Run(rng,
+                new OffsetClock(0),
+                pdSelector,
+                ckSelector,
+                schema,
+                DataTracker.NO_OP,
+                SystemUnderTest.NO_OP,
+                MetricReporter.NO_OP);
 
-                                                                            public CompiledStatement deleteColumn(long lts, long pd, long cd, long m)
-                                                                            {
-                                                                                consumer.accept(pd, cd);
-                                                                                return compiledStatement;
-                                                                            }
+        PartitionVisitor partitionVisitor = new MutatingPartitionVisitor(run,
+                                                                         (r) -> new RowVisitor()
+                                                                         {
+                                                                             public CompiledStatement write(long lts, long pd, long cd, long m)
+                                                                             {
+                                                                                 consumer.accept(pd, cd);
+                                                                                 return compiledStatement;
+                                                                             }
 
-                                                                            public CompiledStatement deleteRow(long lts, long pd, long cd, long m)
-                                                                            {
-                                                                                consumer.accept(pd, cd);
-                                                                                return compiledStatement;
-                                                                            }
+                                                                             public CompiledStatement deleteColumn(long lts, long pd, long cd, long m)
+                                                                             {
+                                                                                 consumer.accept(pd, cd);
+                                                                                 return compiledStatement;
+                                                                             }
 
-                                                                            public CompiledStatement deleteRange(long lts, long pd, long opId)
-                                                                            {
-                                                                                // ignore
-                                                                                return compiledStatement;
-                                                                            }
-                                                                        }).get();
+                                                                             public CompiledStatement deleteRow(long lts, long pd, long cd, long m)
+                                                                             {
+                                                                                 consumer.accept(pd, cd);
+                                                                                 return compiledStatement;
+                                                                             }
+
+                                                                             public CompiledStatement deleteRange(long lts, long pd, long opId)
+                                                                             {
+                                                                                 // ignore
+                                                                                 return compiledStatement;
+                                                                             }
+
+                                                                             public CompiledStatement deleteSlice(long lts, long pd, long opId)
+                                                                             {
+                                                                                 // ignore
+                                                                                 return compiledStatement;
+                                                                             }
+                                                                         });
 
         for (int lts = 0; lts < 1000; lts++)
         {

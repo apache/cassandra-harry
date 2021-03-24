@@ -96,6 +96,12 @@ public class SchemaSpec
         this.ALL_COLUMNS_BITSET = BitSet.allSet(regularColumns.size());
     }
 
+    public void validate()
+    {
+        assert pkGenerator.byteSize() == Long.BYTES : partitionKeys.toString();
+        assert ckGenerator.byteSize() == Long.BYTES : clusteringKeys.toString();
+    }
+
     public static interface AddRelationCallback
     {
         public void accept(ColumnSpec spec, Relation.RelationKind kind, Object value);

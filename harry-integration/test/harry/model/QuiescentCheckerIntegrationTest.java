@@ -18,8 +18,6 @@
 
 package harry.model;
 
-import java.util.function.Consumer;
-
 import org.junit.Assert;
 import org.junit.Test;
 
@@ -31,19 +29,28 @@ import harry.corruptor.HideRowCorruptor;
 import harry.corruptor.HideValueCorruptor;
 import harry.corruptor.QueryResponseCorruptor;
 import harry.corruptor.QueryResponseCorruptor.SimpleQueryResponseCorruptor;
-import harry.generators.Surjections;
-import harry.generators.distribution.Distribution;
 import harry.runner.PartitionVisitor;
 import harry.runner.Query;
-import harry.runner.Validator;
+import harry.runner.SinglePartitionValidator;
 
-public class QuiescentCheckerIntegrationTest extends IntegrationTestBase
+public class QuiescentCheckerIntegrationTest extends ModelTestBase
 {
+    @Override
+    protected PartitionVisitor validator(Run run)
+    {
+        return new SinglePartitionValidator(100, run, modelConfiguration());
+    }
+
     @Test
     public void testNormalCondition()
     {
-        negativeTest((run) -> {},
-                     Assert::assertNull);
+        negativeTest((run) -> { return  true; },
+                     (t, run) -> {
+                         if (t != null)
+                             throw new AssertionError(String.format("Throwable was supposed to be null. Schema: %s",
+                                                                    run.schemaSpec.compile().cql()),
+                                                      t);
+                     });
     }
 
     @Test
@@ -54,15 +61,18 @@ public class QuiescentCheckerIntegrationTest extends IntegrationTestBase
                                                                                                    run.clock,
                                                                                                    HideRowCorruptor::new);
 
-                         Assert.assertTrue(corruptor.maybeCorrupt(Query.selectPartition(run.schemaSpec,
-                                                                                        run.pdSelector.pd(0, run.schemaSpec),
-                                                                                        false),
-                                                                  run.sut));
+                         Query query = Query.selectPartition(run.schemaSpec,
+                                                             run.pdSelector.pd(0, run.schemaSpec),
+                                                             false);
+
+                         return corruptor.maybeCorrupt(query, run.sut);
                      },
-                     (t) -> {
+                     (t, run) -> {
+                         // TODO: We can actually pinpoint the difference
                          String expected = "Expected results to have the same number of results, but expected result iterator has more results";
+                         String expected2 = "Found a row in the model that is not present in the resultset";
                          Assert.assertTrue(String.format("Exception string mismatch.\nExpected error: %s.\nActual error: %s", expected, t.getMessage()),
-                                           t.getMessage().contains(expected));
+                                           t.getMessage().contains(expected) || t.getMessage().contains(expected2));
                      });
     }
 
@@ -74,15 +84,17 @@ public class QuiescentCheckerIntegrationTest extends IntegrationTestBase
                                                                                      run.clock,
                                                                                      run.descriptorSelector);
 
-                         Assert.assertTrue(corruptor.maybeCorrupt(Query.selectPartition(run.schemaSpec,
-                                                                                        run.pdSelector.pd(0, run.schemaSpec),
-                                                                                        false),
-                                                                  run.sut));
+                         return corruptor.maybeCorrupt(Query.selectPartition(run.schemaSpec,
+                                                                             run.pdSelector.pd(0, run.schemaSpec),
+                                                                             false),
+                                                       run.sut);
                      },
-                     (t) -> {
+                     (t, run) -> {
                          String expected = "Found a row in the model that is not present in the resultset";
+                         String expected2 = "Expected results to have the same number of results, but actual result iterator has more results";
+
                          Assert.assertTrue(String.format("Exception string mismatch.\nExpected error: %s.\nActual error: %s", expected, t.getMessage()),
-                                           t.getMessage().contains(expected));
+                                           t.getMessage().contains(expected) || t.getMessage().contains(expected2));
                      });
     }
 
@@ -95,12 +107,12 @@ public class QuiescentCheckerIntegrationTest extends IntegrationTestBase
                                                                                                    run.clock,
                                                                                                    HideValueCorruptor::new);
 
-                         Assert.assertTrue(corruptor.maybeCorrupt(Query.selectPartition(run.schemaSpec,
-                                                                                        run.pdSelector.pd(0, run.schemaSpec),
-                                                                                        false),
-                                                                  run.sut));
+                         return corruptor.maybeCorrupt(Query.selectPartition(run.schemaSpec,
+                                                                             run.pdSelector.pd(0, run.schemaSpec),
+                                                                             false),
+                                                       run.sut);
                      },
-                     (t) -> {
+                     (t, run) -> {
                          String expected = "Returned row state doesn't match the one predicted by the model";
                          Assert.assertTrue(String.format("Exception string mismatch.\nExpected error: %s.\nActual error: %s", expected, t.getMessage()),
                                            t.getMessage().contains(expected));
@@ -116,55 +128,20 @@ public class QuiescentCheckerIntegrationTest extends IntegrationTestBase
                                                                                                    run.clock,
                                                                                                    ChangeValueCorruptor::new);
 
-                         Assert.assertTrue(corruptor.maybeCorrupt(Query.selectPartition(run.schemaSpec,
-                                                                                        run.pdSelector.pd(0, run.schemaSpec),
-                                                                                        false),
-                                                                  run.sut));
+                         return corruptor.maybeCorrupt(Query.selectPartition(run.schemaSpec,
+                                                                             run.pdSelector.pd(0, run.schemaSpec),
+                                                                             false),
+                                                       run.sut);
                      },
-                     (t) -> {
+                     (t, run) -> {
                          String expected = "Returned row state doesn't match the one predicted by the model";
                          Assert.assertTrue(String.format("Exception string mismatch.\nExpected error: %s.\nActual error: %s", expected, t.getMessage()),
                                            t.getMessage().contains(expected));
                      });
     }
 
-
-    static void negativeTest(Consumer<Run> corrupt, Consumer<Throwable> validate)
+    Configuration.ModelConfiguration modelConfiguration()
     {
-        Configuration config = sharedConfiguration()
-                               .setModel(new Configuration.QuiescentCheckerConfig())
-                               .setClusteringDescriptorSelector((rng, schemaSpec) -> {
-                                   return new OpSelectors.DefaultDescriptorSelector(rng,
-                                                                                    new OpSelectors.ColumnSelectorBuilder().forAll(schemaSpec.regularColumns.size()).build(),
-                                                                                    Surjections.pick(OpSelectors.OperationKind.DELETE_COLUMN,
-                                                                                                     OpSelectors.OperationKind.DELETE_ROW,
-                                                                                                     OpSelectors.OperationKind.WRITE),
-                                                                                    new Distribution.ConstantDistribution(10),
-                                                                                    new Distribution.ConstantDistribution(10),
-                                                                                    100);
-                               })
-                               .build();
-        Run run = config.createRun();
-        run.sut.schemaChange(run.schemaSpec.compile().cql());
-        OpSelectors.MonotonicClock clock = run.clock;
-        Validator validator = run.validator;
-        PartitionVisitor partitionVisitor = run.visitorFactory.get();
-
-        for (int i = 0; i < 200; i++)
-        {
-            long lts = clock.nextLts();
-            partitionVisitor.visitPartition(lts);
-        }
-
-        corrupt.accept(run);
-
-        try
-        {
-            validator.validatePartition(0);
-        }
-        catch (Throwable t)
-        {
-            validate.accept(t);
-        }
+        return new Configuration.QuiescentCheckerConfig();
     }
 }

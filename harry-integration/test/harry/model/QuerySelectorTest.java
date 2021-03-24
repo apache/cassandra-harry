@@ -20,29 +20,37 @@ package harry.model;
 
 import java.util.HashSet;
 import java.util.Set;
+import java.util.function.Supplier;
 
 import org.junit.Assert;
 import org.junit.Test;
 
 import harry.core.Configuration;
 import harry.core.Run;
+import harry.ddl.SchemaGenerators;
 import harry.ddl.SchemaSpec;
+import harry.model.sut.SystemUnderTest;
 import harry.operations.CompiledStatement;
+import harry.runner.MutatingPartitionVisitor;
+import harry.runner.MutatingRowVisitor;
 import harry.runner.PartitionVisitor;
 import harry.runner.Query;
-import harry.runner.QuerySelector;
+import harry.runner.QueryGenerator;
 
 public class QuerySelectorTest extends IntegrationTestBase
 {
-    private static int CYCLES = 100;
+    private static int CYCLES = 300;
 
     @Test
     public void basicQuerySelectorTest()
     {
-        for (int cnt = 0; cnt < 50; cnt++)
+        Supplier<SchemaSpec> schemaGen = SchemaGenerators.progression(SchemaGenerators.DEFAULT_SWITCH_AFTER);
+        for (int cnt = 0; cnt < SchemaGenerators.DEFAULT_RUNS; cnt++)
         {
-            SchemaSpec schemaSpec = MockSchema.randomSchema("harry", "table" + cnt, cnt);
+            beforeEach();
+            SchemaSpec schemaSpec = schemaGen.get();
             int partitionSize = 200;
+
             int[] fractions = new int[schemaSpec.clusteringKeys.size()];
             int last = partitionSize;
             for (int i = fractions.length - 1; i >= 0; i--)
@@ -60,7 +68,8 @@ public class QuerySelectorTest extends IntegrationTestBase
             Run run = config.createRun();
             run.sut.schemaChange(run.schemaSpec.compile().cql());
             OpSelectors.MonotonicClock clock = run.clock;
-            PartitionVisitor partitionVisitor = run.visitorFactory.get();
+
+            PartitionVisitor partitionVisitor = new MutatingPartitionVisitor(run, MutatingRowVisitor::new);
 
             for (int i = 0; i < CYCLES; i++)
             {
@@ -68,15 +77,13 @@ public class QuerySelectorTest extends IntegrationTestBase
                 partitionVisitor.visitPartition(lts);
             }
 
-            QuerySelector querySelector = new QuerySelector(run.schemaSpec,
-                                                            run.pdSelector,
-                                                            run.descriptorSelector,
-                                                            run.rng);
+            QueryGenerator.TypedQueryGenerator querySelector = new QueryGenerator.TypedQueryGenerator(run);
 
             for (int i = 0; i < CYCLES; i++)
             {
                 Query query = querySelector.inflate(i, i);
-                Object[][] results = run.sut.execute(query.toSelectStatement());
+
+                Object[][] results = run.sut.execute(query.toSelectStatement(), SystemUnderTest.ConsistencyLevel.QUORUM);
                 Set<Long> matchingClusterings = new HashSet<>();
                 for (Object[] row : results)
                 {
@@ -89,7 +96,7 @@ public class QuerySelectorTest extends IntegrationTestBase
                 // the simplest test there can be: every row that is in the partition and was returned by the query,
                 // has to "match", every other row has to be a non-match
                 CompiledStatement selectPartition = SelectHelper.select(run.schemaSpec, run.pdSelector.pd(i));
-                Object[][] partition = run.sut.execute(selectPartition);
+                Object[][] partition = run.sut.execute(selectPartition, SystemUnderTest.ConsistencyLevel.QUORUM);
                 for (Object[] row : partition)
                 {
                     long cd = SelectHelper.resultSetToRow(run.schemaSpec,
@@ -106,9 +113,10 @@ public class QuerySelectorTest extends IntegrationTestBase
     @Test
     public void querySelectorModelTest()
     {
-        for (int cnt = 0; cnt < 50; cnt++)
+        Supplier<SchemaSpec> gen = SchemaGenerators.progression(SchemaGenerators.DEFAULT_SWITCH_AFTER);
+        for (int cnt = 0; cnt < SchemaGenerators.DEFAULT_RUNS; cnt++)
         {
-            SchemaSpec schemaSpec = MockSchema.randomSchema("harry", "table" + cnt, cnt);
+            SchemaSpec schemaSpec = gen.get();
             int[] fractions = new int[schemaSpec.clusteringKeys.size()];
             int partitionSize = 200;
             int last = partitionSize;
@@ -127,7 +135,7 @@ public class QuerySelectorTest extends IntegrationTestBase
             Run run = config.createRun();
             run.sut.schemaChange(run.schemaSpec.compile().cql());
             OpSelectors.MonotonicClock clock = run.clock;
-            PartitionVisitor partitionVisitor = run.visitorFactory.get();
+            PartitionVisitor partitionVisitor = new MutatingPartitionVisitor(run, MutatingRowVisitor::new);
 
             for (int i = 0; i < CYCLES; i++)
             {
@@ -135,18 +143,14 @@ public class QuerySelectorTest extends IntegrationTestBase
                 partitionVisitor.visitPartition(lts);
             }
 
-            QuerySelector querySelector = new QuerySelector(run.schemaSpec,
-                                                            run.pdSelector,
-                                                            run.descriptorSelector,
-                                                            run.rng);
-
-            Model model = run.model;
+            QueryGenerator.TypedQueryGenerator querySelector = new QueryGenerator.TypedQueryGenerator(run);
+            Model model = new ExhaustiveChecker(run);
 
             long verificationLts = 10;
             for (int i = 0; i < CYCLES; i++)
             {
                 Query query = querySelector.inflate(verificationLts, i);
-                model.validatePartitionState(verificationLts, query);
+                model.validate(query);
             }
         }
     }

@@ -18,7 +18,7 @@
 
 package harry.runner;
 
-import harry.ddl.SchemaSpec;
+import harry.core.Run;
 import harry.model.OpSelectors;
 import harry.operations.CompiledStatement;
 
@@ -26,10 +26,7 @@ public interface RowVisitor
 {
     interface RowVisitorFactory
     {
-        RowVisitor make(SchemaSpec schema,
-                        OpSelectors.MonotonicClock clock,
-                        OpSelectors.DescriptorSelector descriptorSelector,
-                        QuerySelector querySelector);
+        RowVisitor make(Run run);
     }
 
     default CompiledStatement visitRow(OpSelectors.OperationKind op, long lts, long pd, long cd, long opId)
@@ -46,6 +43,8 @@ public interface RowVisitor
                 return deleteColumn(lts, pd, cd, opId);
             case DELETE_RANGE:
                 return deleteRange(lts, pd, opId);
+            case DELETE_SLICE:
+                return deleteSlice(lts, pd, opId);
             default:
                 throw new IllegalStateException();
         }
@@ -58,4 +57,8 @@ public interface RowVisitor
     CompiledStatement deleteRow(long lts, long pd, long cd, long opId);
 
     CompiledStatement deleteRange(long lts, long pd, long opId);
+
+    CompiledStatement deleteSlice(long lts, long pd, long opId);
+
+
 }

@@ -18,6 +18,8 @@
 
 package harry.runner;
 
+import harry.core.MetricReporter;
+import harry.core.Run;
 import harry.ddl.SchemaSpec;
 import harry.model.OpSelectors;
 import harry.operations.CompiledStatement;
@@ -25,32 +27,33 @@ import harry.operations.DeleteHelper;
 import harry.operations.WriteHelper;
 import harry.util.BitSet;
 
-public class DefaultRowVisitor implements RowVisitor
+public class MutatingRowVisitor implements RowVisitor
 {
-    private final SchemaSpec schema;
-    private final OpSelectors.MonotonicClock clock;
-    private final OpSelectors.DescriptorSelector descriptorSelector;
-    private final QuerySelector querySelector;
+    protected final SchemaSpec schema;
+    protected final OpSelectors.MonotonicClock clock;
+    protected final OpSelectors.DescriptorSelector descriptorSelector;
+    protected final QueryGenerator rangeSelector;
+    protected final MetricReporter metricReporter;
 
-    public DefaultRowVisitor(SchemaSpec schema,
-                             OpSelectors.MonotonicClock clock,
-                             OpSelectors.DescriptorSelector descriptorSelector,
-                             QuerySelector querySelector)
+    public MutatingRowVisitor(Run run)
     {
-        this.schema = schema;
-        this.clock = clock;
-        this.descriptorSelector = descriptorSelector;
-        this.querySelector = querySelector;
+        this.metricReporter = run.metricReporter;
+        this.schema = run.schemaSpec;
+        this.clock = run.clock;
+        this.descriptorSelector = run.descriptorSelector;
+        this.rangeSelector = run.rangeSelector;
     }
 
     public CompiledStatement write(long lts, long pd, long cd, long opId)
     {
+        metricReporter.insert();
         long[] vds = descriptorSelector.vds(pd, cd, lts, opId, schema);
         return WriteHelper.inflateInsert(schema, pd, cd, vds, clock.rts(lts));
     }
 
     public CompiledStatement deleteColumn(long lts, long pd, long cd, long opId)
     {
+        metricReporter.columnDelete();
         BitSet mask = descriptorSelector.columnMask(pd, lts, opId);
         return DeleteHelper.deleteColumn(schema, pd, cd, mask, clock.rts(lts));
     }
@@ -58,11 +61,19 @@ public class DefaultRowVisitor implements RowVisitor
 
     public CompiledStatement deleteRow(long lts, long pd, long cd, long opId)
     {
+        metricReporter.rowDelete();
         return DeleteHelper.deleteRow(schema, pd, cd, clock.rts(lts));
     }
 
     public CompiledStatement deleteRange(long lts, long pd, long opId)
     {
-        return querySelector.inflate(lts, opId).toDeleteStatement(clock.rts(lts));
+        metricReporter.rangeDelete();
+        return rangeSelector.inflate(lts, opId, Query.QueryKind.CLUSTERING_RANGE).toDeleteStatement(clock.rts(lts));
+    }
+
+    public CompiledStatement deleteSlice(long lts, long pd, long opId)
+    {
+        metricReporter.rangeDelete();
+        return rangeSelector.inflate(lts, opId, Query.QueryKind.CLUSTERING_SLICE).toDeleteStatement(clock.rts(lts));
     }
 }

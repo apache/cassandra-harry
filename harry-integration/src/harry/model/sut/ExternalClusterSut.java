@@ -16,16 +16,7 @@
  *  limitations under the License.
  */
 
-package harry.model.sut.external;
-
-import com.datastax.driver.core.*;
-import com.fasterxml.jackson.annotation.JsonCreator;
-import com.fasterxml.jackson.annotation.JsonProperty;
-import com.fasterxml.jackson.annotation.JsonTypeName;
-import com.google.common.util.concurrent.FutureCallback;
-import com.google.common.util.concurrent.Futures;
-import harry.core.Configuration;
-import harry.model.sut.SystemUnderTest;
+package harry.model.sut;
 
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
@@ -33,13 +24,20 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 
+import com.google.common.util.concurrent.FutureCallback;
+import com.google.common.util.concurrent.Futures;
+
+import com.datastax.driver.core.Cluster;
+import com.datastax.driver.core.ColumnDefinitions;
+import com.datastax.driver.core.QueryOptions;
+import com.datastax.driver.core.ResultSet;
+import com.datastax.driver.core.Row;
+import com.datastax.driver.core.Session;
+import com.datastax.driver.core.SimpleStatement;
+import com.datastax.driver.core.Statement;
+
 public class ExternalClusterSut implements SystemUnderTest
 {
-    public static void registerSubtypes()
-    {
-        Configuration.registerSubtypes(ExternalSutConfiguration.class);
-    }
-
     private final Session session;
     private final ExecutorService executor;
 
@@ -54,14 +52,12 @@ public class ExternalClusterSut implements SystemUnderTest
         this.executor = Executors.newFixedThreadPool(threads);
     }
 
-    public static ExternalClusterSut create(ExternalSutConfiguration config)
+    public static ExternalClusterSut create()
     {
         // TODO: close Cluster and Session!
         return new ExternalClusterSut(Cluster.builder()
                                              .withQueryOptions(new QueryOptions().setConsistencyLevel(toDriverCl(ConsistencyLevel.QUORUM)))
-                                             .addContactPoints(config.contactPoints)
-                                             .withPort(config.port)
-                                             .withCredentials(config.username, config.password)
+                                             .addContactPoints("127.0.0.1")
                                              .build()
                                              .connect());
     }
@@ -109,8 +105,7 @@ public class ExternalClusterSut implements SystemUnderTest
         }
     }
 
-
-    private static Object[][] resultSetToObjectArray(ResultSet rs)
+    public static Object[][] resultSetToObjectArray(ResultSet rs)
     {
         List<Row> rows = rs.all();
         if (rows.size() == 0)
@@ -152,33 +147,6 @@ public class ExternalClusterSut implements SystemUnderTest
                             executor);
 
         return future;
-    }
-
-    @JsonTypeName("external")
-    public static class ExternalSutConfiguration implements Configuration.SutConfiguration
-    {
-
-        private final String contactPoints;
-        private final int port;
-        private final String username;
-        private final String password;
-
-        @JsonCreator
-        public ExternalSutConfiguration(@JsonProperty(value = "contact_points") String contactPoints,
-                                        @JsonProperty(value = "port") int port,
-                                        @JsonProperty(value = "username") String username,
-                                        @JsonProperty(value = "password") String password)
-        {
-            this.contactPoints = contactPoints;
-            this.port = port;
-            this.username = username;
-            this.password = password;
-        }
-
-        public SystemUnderTest make()
-        {
-            return ExternalClusterSut.create(this);
-        }
     }
 
     public static com.datastax.driver.core.ConsistencyLevel toDriverCl(SystemUnderTest.ConsistencyLevel cl)

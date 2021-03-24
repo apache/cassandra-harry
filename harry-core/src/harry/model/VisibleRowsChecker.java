@@ -24,18 +24,18 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.TreeMap;
-import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Supplier;
 
 import com.google.common.collect.Iterators;
 import com.google.common.collect.PeekingIterator;
 
 import harry.core.Configuration;
+import harry.core.Run;
 import harry.data.ResultSetRow;
 import harry.ddl.SchemaSpec;
 import harry.model.sut.SystemUnderTest;
+import harry.runner.DefaultDataTracker;
 import harry.runner.Query;
-import harry.runner.QuerySelector;
 
 /**
  * A simple model to check whether or not the rows reported as visible by the database are reflected in
@@ -43,54 +43,86 @@ import harry.runner.QuerySelector;
  */
 public class VisibleRowsChecker implements Model
 {
-    protected final Map<Long, TreeMap<Long, Event>> eventLog;
     protected final OpSelectors.DescriptorSelector descriptorSelector;
     protected final OpSelectors.PdSelector pdSelector;
     protected final OpSelectors.MonotonicClock clock;
+    protected final LoggingDataTracker tracker;
     protected final SystemUnderTest sut;
-    protected final AtomicLong maxLts;
     protected final SchemaSpec schema;
 
-    public VisibleRowsChecker(SchemaSpec schema,
-                              OpSelectors.PdSelector pdSelector,
-                              OpSelectors.DescriptorSelector descriptorSelector,
-                              OpSelectors.MonotonicClock clock,
-                              QuerySelector querySelector,
-                              SystemUnderTest sut)
+    public VisibleRowsChecker(Run run)
     {
-        this.pdSelector = pdSelector;
-        this.descriptorSelector = descriptorSelector;
-        this.eventLog = new HashMap<>();
-        this.maxLts = new AtomicLong();
-        this.schema = schema;
-        this.clock = clock;
-        this.sut = sut;
+        assert run.tracker instanceof LoggingDataTracker : "Visible rows checker requires a logging data tracker to run";
+        this.tracker = (LoggingDataTracker) run.tracker;
+        this.tracker.pdSelector = run.pdSelector;
+        this.pdSelector = run.pdSelector;
+        this.descriptorSelector = run.descriptorSelector;
+        this.schema = run.schemaSpec;
+        this.clock = run.clock;
+        this.sut = run.sut;
     }
 
-
-    public synchronized void recordEvent(long lts, boolean quorumAchieved)
+    public static class LoggingDataTracker extends DefaultDataTracker
     {
-        maxLts.updateAndGet((old) -> Math.max(old, lts));
-        long pd = pdSelector.pd(lts);
+        protected final Map<Long, TreeMap<Long, Event>> eventLog = new HashMap<>();
+        private OpSelectors.PdSelector pdSelector;
 
-        // TODO: This is definitely not optimal, but we probably use a better, potentially off-heap sorted structure for that anyways
-        TreeMap<Long, Event> events = eventLog.get(pd);
-        if (events == null)
+        public LoggingDataTracker()
         {
-            events = new TreeMap<>();
-            eventLog.put(pd, events);
         }
 
-        Event event = events.get(lts);
-        assert event == null || !event.quorumAchieved : "Operation should be partially visible before it is fully visible";
-        events.put(lts, new Event(lts, quorumAchieved));
+        public synchronized void started(long lts)
+        {
+            super.started(lts);
+            recordEvent(lts, false);
+        }
+
+        public synchronized void finished(long lts)
+        {
+            super.finished(lts);
+            recordEvent(lts, true);
+        }
+
+        public synchronized TreeMap<Long, Event> events(long pd)
+        {
+            TreeMap<Long, Event> log = eventLog.get(pd);
+            if (log == null)
+                return null;
+
+            return (TreeMap<Long, Event>) log.clone();
+        }
+
+        public long maxStarted()
+        {
+            return super.maxStarted();
+        }
+
+        public long maxConsecutiveFinished()
+        {
+            return super.maxConsecutiveFinished();
+        }
+
+        public void recordEvent(long lts, boolean finished)
+        {
+            long pd = pdSelector.pd(lts);
+
+            // TODO: This is definitely not optimal, but we probably use a better, potentially off-heap sorted structure for that anyways
+            TreeMap<Long, Event> events = eventLog.get(pd);
+            if (events == null)
+            {
+                events = new TreeMap<>();
+                eventLog.put(pd, events);
+            }
+
+            Event event = events.get(lts);
+            assert event == null || !event.quorumAchieved : "Operation should be partially visible before it is fully visible";
+            events.put(lts, new Event(lts, finished));
+        }
     }
 
-
-    public void validatePartitionState(long validationLts, Query query)
+    public void validate(Query query)
     {
-        validatePartitionState(validationLts,
-                               query,
+        validatePartitionState(query,
                                () -> SelectHelper.execute(sut, clock, query));
     }
 
@@ -99,22 +131,23 @@ public class VisibleRowsChecker implements Model
         throw new RuntimeException("not implemented");
     }
 
-    synchronized void validatePartitionState(long validationLts, Query query, Supplier<List<ResultSetRow>> rowsSupplier)
+    synchronized void validatePartitionState(Query query, Supplier<List<ResultSetRow>> rowsSupplier)
     {
         // TODO: Right now, we ignore Query here!
-        long pd = pdSelector.pd(validationLts, schema);
+        long pd = query.pd;
         List<ResultSetRow> rows = rowsSupplier.get();
-        TreeMap<Long, Event> events = eventLog.get(pd);
+        TreeMap<Long, Event> events = tracker.events(pd);
+
         if (!rows.isEmpty() && (events == null || events.isEmpty()))
         {
             throw new ValidationException(String.format("Returned rows are not empty, but there were no records in the event log.\nRows: %s\nSeen pds: %s",
-                                                        rows, eventLog.keySet()));
+                                                        rows, tracker.eventLog.keySet()));
         }
 
         for (ResultSetRow row : rows)
         {
             LongIterator rowLtsIter = descendingIterator(row.lts);
-            PeekingIterator<Event> modelLtsIter = Iterators.peekingIterator(events.subMap(0L, true, maxLts.get(), true)
+            PeekingIterator<Event> modelLtsIter = Iterators.peekingIterator(events.subMap(0L, true, tracker.maxStarted(), true)
                                                                                   .descendingMap()
                                                                                   .values()
                                                                                   .iterator());
@@ -158,11 +191,11 @@ public class VisibleRowsChecker implements Model
     }
 
 
-    public static LongIterator descendingIterator(OpSelectors.PdSelector pdSelector, long verificationLts)
+    public static LongIterator descendingIterator(OpSelectors.PdSelector pdSelector, long pd)
     {
         return new VisibleRowsChecker.LongIterator()
         {
-            long next = pdSelector.maxLts(verificationLts);
+            long next = pdSelector.maxLtsFor(pd);
 
             public long nextLong()
             {

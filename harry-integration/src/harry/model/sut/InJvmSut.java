@@ -35,11 +35,15 @@ import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.annotation.JsonTypeName;
 import harry.core.Configuration;
 import org.apache.cassandra.distributed.Cluster;
-import org.apache.cassandra.distributed.api.ConsistencyLevel;
+import org.apache.cassandra.distributed.api.Feature;
+import org.apache.cassandra.distributed.api.ICluster;
+import org.apache.cassandra.distributed.api.IMessage;
+import org.apache.cassandra.distributed.api.IMessageFilters;
+import org.apache.cassandra.net.Verb;
 
 public class InJvmSut implements SystemUnderTest
 {
-    public static void registerSubtypes()
+    public static void init()
     {
         Configuration.registerSubtypes(InJvmSutConfiguration.class);
     }
@@ -51,6 +55,7 @@ public class InJvmSut implements SystemUnderTest
     public final Cluster cluster;
     private final AtomicLong cnt = new AtomicLong();
     private final AtomicBoolean isShutdown = new AtomicBoolean(false);
+
     public InJvmSut(Cluster cluster)
     {
         this(cluster, 10);
@@ -60,6 +65,11 @@ public class InJvmSut implements SystemUnderTest
     {
         this.cluster = cluster;
         this.executor = Executors.newFixedThreadPool(threads);
+    }
+
+    public Cluster cluster()
+    {
+        return cluster;
     }
 
     public boolean isShutdown()
@@ -73,6 +83,7 @@ public class InJvmSut implements SystemUnderTest
 
         cluster.close();
         executor.shutdown();
+
         try
         {
             executor.awaitTermination(30, TimeUnit.SECONDS);
@@ -88,17 +99,67 @@ public class InJvmSut implements SystemUnderTest
         cluster.schemaChange(statement);
     }
 
-    public Object[][] execute(String statement, Object... bindings)
+    public Object[][] execute(String statement, ConsistencyLevel cl, Object... bindings)
+    {
+        return execute(statement, cl, (int) (cnt.getAndIncrement() % cluster.size() + 1), bindings);
+    }
+
+    public Object[][] execute(String statement, ConsistencyLevel cl, int coordinator, Object... bindings)
     {
         if (isShutdown.get())
             throw new RuntimeException("Instance is shut down");
 
         try
         {
-            return cluster
-                   // round-robin
-                   .coordinator((int) (cnt.getAndIncrement() % cluster.size() + 1))
-                   .execute(statement, ConsistencyLevel.QUORUM, bindings);
+            if (cl == ConsistencyLevel.NODE_LOCAL)
+            {
+                return cluster.get(coordinator)
+                              .executeInternal(statement, bindings);
+            }
+            else
+            {
+                return cluster
+                       // round-robin
+                       .coordinator(coordinator)
+                       .execute(statement, toApiCl(cl), bindings);
+            }
+        }
+        catch (Throwable t)
+        {
+            logger.error(String.format("Caught error while trying execute statement %s: %s", statement, t.getMessage()),
+                         t);
+            throw t;
+        }
+    }
+
+    // TODO: Ideally, we need to be able to induce a failure of a single specific message
+    public Object[][] executeWithWriteFailure(String statement, ConsistencyLevel cl, Object... bindings)
+    {
+        if (isShutdown.get())
+            throw new RuntimeException("Instance is shut down");
+
+        try
+        {
+            int coordinator = (int) (cnt.getAndIncrement() % cluster.size() + 1);
+            IMessageFilters filters = cluster.filters();
+
+            // Drop exactly one coordinated message
+            filters.verbs(Verb.MUTATION_REQ.id).from(coordinator).messagesMatching(new IMessageFilters.Matcher()
+            {
+                private final AtomicBoolean issued = new AtomicBoolean();
+                public boolean matches(int from, int to, IMessage message)
+                {
+                    if (from != coordinator || message.verb() != Verb.MUTATION_REQ.id)
+                        return false;
+
+                    return !issued.getAndSet(true);
+                }
+            }).drop().on();
+            Object[][] res = cluster
+                             .coordinator(coordinator)
+                             .execute(statement, toApiCl(cl), bindings);
+            filters.reset();
+            return res;
         }
         catch (Throwable t)
         {
@@ -108,9 +169,14 @@ public class InJvmSut implements SystemUnderTest
         }
     }
 
-    public CompletableFuture<Object[][]> executeAsync(String statement, Object... bindings)
+    public CompletableFuture<Object[][]> executeAsync(String statement, ConsistencyLevel cl, Object... bindings)
     {
-        return CompletableFuture.supplyAsync(() -> execute(statement, bindings), executor);
+        return CompletableFuture.supplyAsync(() -> execute(statement, cl, bindings), executor);
+    }
+
+    public CompletableFuture<Object[][]> executeAsyncWithWriteFailure(String statement, ConsistencyLevel cl, Object... bindings)
+    {
+        return CompletableFuture.supplyAsync(() -> executeWithWriteFailure(statement, cl, bindings), executor);
     }
 
     @JsonTypeName("in_jvm")
@@ -132,17 +198,26 @@ public class InJvmSut implements SystemUnderTest
 
         public SystemUnderTest make()
         {
+            try
+            {
+                ICluster.setup();
+            }
+            catch (Throwable throwable)
+            {
+                throwable.printStackTrace();
+            }
+
             Cluster cluster;
             try
             {
                 cluster = Cluster.build().withConfig((cfg) -> {
                     // TODO: make this configurable
-                    cfg.set("row_cache_size_in_mb", 10L)
+                    cfg.with(Feature.NETWORK, Feature.GOSSIP)
+                       .set("row_cache_size_in_mb", 10L)
                        .set("index_summary_capacity_in_mb", 10L)
                        .set("counter_cache_size_in_mb", 10L)
                        .set("key_cache_size_in_mb", 10L)
                        .set("file_cache_size_in_mb", 10)
-                       .set("prepared_statements_cache_size_mb", 10L)
                        .set("memtable_heap_space_in_mb", 128)
                        .set("memtable_offheap_space_in_mb", 128)
                        .set("memtable_flush_writers", 1)
@@ -151,7 +226,8 @@ public class InJvmSut implements SystemUnderTest
                        .set("concurrent_writes", 5)
                        .set("compaction_throughput_mb_per_sec", 10)
                        .set("hinted_handoff_enabled", false);
-                }).withNodes(nodes)
+                })
+                                 .withNodes(nodes)
                                  .withRoot(new File(root)).createWithoutStarting();
             }
             catch (IOException e)
@@ -162,5 +238,16 @@ public class InJvmSut implements SystemUnderTest
             cluster.startup();
             return new InJvmSut(cluster);
         }
+    }
+
+    public static org.apache.cassandra.distributed.api.ConsistencyLevel toApiCl(ConsistencyLevel cl)
+    {
+        switch (cl)
+        {
+            case ALL:    return org.apache.cassandra.distributed.api.ConsistencyLevel.ALL;
+            case QUORUM: return org.apache.cassandra.distributed.api.ConsistencyLevel.QUORUM;
+            case NODE_LOCAL: return org.apache.cassandra.distributed.api.ConsistencyLevel.NODE_LOCAL;
+        }
+        throw new IllegalArgumentException("Don't know a CL: " + cl);
     }
 }

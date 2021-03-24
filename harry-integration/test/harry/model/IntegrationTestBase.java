@@ -18,13 +18,14 @@
 
 package harry.model;
 
-import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.Supplier;
 
 import org.junit.AfterClass;
 import org.junit.Before;
 import org.junit.BeforeClass;
 
 import harry.core.Configuration;
+import harry.ddl.SchemaGenerators;
 import harry.ddl.SchemaSpec;
 import harry.model.clock.OffsetClock;
 import harry.model.sut.InJvmSut;
@@ -57,21 +58,15 @@ public class IntegrationTestBase extends TestBaseImpl
         cluster.schemaChange("CREATE KEYSPACE harry WITH replication = {'class': 'SimpleStrategy', 'replication_factor': 3};");
     }
 
-    // TODO: run these tests with like a hundred different tables?
-    static Configuration.ConfigurationBuilder sharedConfiguration()
+    private static long seed = 0;
+    public static Supplier<Configuration.ConfigurationBuilder> sharedConfiguration()
     {
-        return sharedConfiguration(1);
+        Supplier<SchemaSpec> specGenerator = SchemaGenerators.progression(SchemaGenerators.DEFAULT_SWITCH_AFTER);
+        return () -> {
+            SchemaSpec schemaSpec = specGenerator.get();
+            return sharedConfiguration(seed, schemaSpec);
+        };
     }
-
-    private static AtomicInteger COUNTER = new AtomicInteger();
-
-    public static Configuration.ConfigurationBuilder sharedConfiguration(long seed)
-    {
-        int i = COUNTER.incrementAndGet();
-        SchemaSpec schemaSpec = MockSchema.randomSchema("harry", "table" + i, seed);
-        return sharedConfiguration(seed, schemaSpec);
-    }
-
 
     public static Configuration.ConfigurationBuilder sharedConfiguration(long seed, SchemaSpec schema)
     {
@@ -80,7 +75,6 @@ public class IntegrationTestBase extends TestBaseImpl
                                                        .setCreateSchema(true)
                                                        .setTruncateTable(false)
                                                        .setDropSchema(true)
-                                                       .setModel(new Configuration.ExhaustiveCheckerConfig())
                                                        .setSchemaProvider(seed1 -> schema)
                                                        .setClusteringDescriptorSelector((builder) -> {
                                                            builder
@@ -91,7 +85,7 @@ public class IntegrationTestBase extends TestBaseImpl
                                                                                     .addWeight(OpSelectors.OperationKind.DELETE_COLUMN, 10)
                                                                                     .addWeight(OpSelectors.OperationKind.WRITE, 80)
                                                                                     .build())
-                                                           .setMaxPartitionSize(1);
+                                                           .setMaxPartitionSize(100);
                                                        })
                                                        .setPartitionDescriptorSelector(new Configuration.DefaultPDSelectorConfiguration(1, 200))
                                                        .setSUT(() -> sut);

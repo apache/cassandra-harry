@@ -31,13 +31,14 @@ import static junit.framework.TestCase.fail;
 
 public class RandomGeneratorTest
 {
+    private static int RUNS = 100000;
+
     @Test
     public void testShuffleUnshuffle()
     {
-        int iterations = 100000;
         Random rnd = new Random();
 
-        for (int i = 1; i < iterations; i++)
+        for (int i = 1; i < RUNS; i++)
         {
             long l = rnd.nextLong();
             Assert.assertEquals(l, PCGFastPure.unshuffle(PCGFastPure.shuffle(l)));
@@ -48,19 +49,34 @@ public class RandomGeneratorTest
     public void testImmutableRng()
     {
         int size = 5;
-        for (int stream = 1; stream < 1000000; stream++)
+        OpSelectors.Rng rng = new OpSelectors.PCGFast(1);
+        for (int stream = 1; stream < RUNS; stream++)
         {
             long[] generated = new long[size];
-            OpSelectors.Rng rng = new OpSelectors.PCGFast(1);
             for (int i = 0; i < size; i++)
                 generated[i] = rng.randomNumber(i, stream);
+
+            Assert.assertEquals(0, rng.sequenceNumber(generated[0], stream));
+            Assert.assertEquals(generated[1], rng.next(generated[0], stream));
 
             for (int i = 1; i < size; i++)
             {
                 Assert.assertEquals(generated[i], rng.next(generated[i - 1], stream));
                 Assert.assertEquals(generated[i - 1], rng.prev(generated[i], stream));
-                Assert.assertEquals(i - 1, rng.sequenceNumber(generated[i], stream));
+                Assert.assertEquals(i, rng.sequenceNumber(generated[i], stream));
             }
+        }
+    }
+
+    @Test
+    public void testSequenceNumber()
+    {
+        int size = 5;
+        OpSelectors.Rng rng = new OpSelectors.PCGFast(1);
+        for (int stream = 1; stream < RUNS; stream++)
+        {
+            for (int i = 0; i < size; i++)
+                Assert.assertEquals(i, rng.sequenceNumber(rng.randomNumber(i, stream), stream));
         }
     }
 
@@ -81,14 +97,14 @@ public class RandomGeneratorTest
         Assert.assertEquals(last, rand.next());
         Assert.assertEquals(first, rand.nextAt(0));
         Assert.assertEquals(last, rand.nextAt(10));
-        Assert.assertEquals(-11, rand.distance(first));
+        Assert.assertEquals(-10, rand.distance(first));
     }
 
     @Test
     public void shuffleUnshuffleTest()
     {
         Random rnd = new Random();
-        for (int i = 0; i < 100000; i++)
+        for (int i = 0; i < RUNS; i++)
         {
             long a = rnd.nextLong();
             Assert.assertEquals(a, PCGFastPure.unshuffle(PCGFastPure.shuffle(a)));
@@ -103,7 +119,7 @@ public class RandomGeneratorTest
         int a = 0;
         int b = 50;
         int[] cardinality = new int[b - a];
-        for (int i = 0; i < 100000; i++)
+        for (int i = 0; i < RUNS; i++)
         {
             int min = Math.min(a, b);
             int max = Math.max(a, b);

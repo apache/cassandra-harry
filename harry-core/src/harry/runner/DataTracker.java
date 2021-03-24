@@ -16,29 +16,37 @@
  *  limitations under the License.
  */
 
-package harry.model.sut;
+package harry.runner;
 
-import java.util.concurrent.CompletableFuture;
+import harry.core.Configuration;
 
-public class NoOpSut implements SystemUnderTest
+public interface DataTracker
 {
-    public boolean isShutdown()
-    {
-        return false;
+    void started(long lts);
+    void finished(long lts);
+
+    long maxStarted();
+    long maxConsecutiveFinished();
+
+    public Configuration.DataTrackerConfiguration toConfig();
+
+    interface DataTrackerFactory {
+        DataTracker make();
     }
 
-    public void shutdown()
+    public static DataTracker NO_OP = new NoOpDataTracker();
+    class NoOpDataTracker implements DataTracker
     {
-    }
+        private NoOpDataTracker() {}
 
-    public Object[][] execute(String statement, Object... bindings)
-    {
-        return new Object[0][];
-    }
+        public void started(long lts) {}
+        public void finished(long lts) {}
+        public long maxStarted() { return 0; }
+        public long maxConsecutiveFinished() { return 0; }
 
-    public CompletableFuture<Object[][]> executeAsync(String statement, Object... bindings)
-    {
-        return CompletableFuture.supplyAsync(() -> execute(statement, bindings),
-                                             Runnable::run);
+        public Configuration.DataTrackerConfiguration toConfig()
+        {
+            return null;
+        }
     }
 }
