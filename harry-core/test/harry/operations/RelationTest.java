@@ -66,6 +66,7 @@ public class RelationTest
                                                        Collections.singletonList(ColumnSpec.pk("pk", ColumnSpec.int64Type)),
                                                        spec,
                                                        Collections.emptyList(),
+                                                       Collections.emptyList(),
                                                        false);
 
                 long[] cds = new long[100];

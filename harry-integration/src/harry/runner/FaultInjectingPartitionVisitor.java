@@ -28,6 +28,7 @@ import com.fasterxml.jackson.annotation.JsonTypeName;
 import harry.core.Configuration;
 import harry.core.Run;
 import harry.model.sut.InJvmSut;
+import harry.model.sut.MixedVersionInJvmSut;
 import harry.model.sut.SystemUnderTest;
 import harry.operations.CompiledStatement;
 
@@ -56,12 +57,12 @@ public class FaultInjectingPartitionVisitor extends LoggingPartitionVisitor
 
     private final AtomicInteger cnt = new AtomicInteger();
 
-    private final InJvmSut sut;
+    private final SystemUnderTest.FaultInjectingSut sut;
 
-    public FaultInjectingPartitionVisitor(Run run, RowVisitor.RowVisitorFactory rowVisitorFactory)
+    public FaultInjectingPartitionVisitor(Run run, Operation.RowVisitorFactory rowVisitorFactory)
     {
         super(run, rowVisitorFactory);
-        this.sut = (InJvmSut) run.sut;
+        this.sut = (SystemUnderTest.FaultInjectingSut) run.sut;
     }
 
     void executeAsyncWithRetries(CompletableFuture<Object[][]> originator, CompiledStatement statement)

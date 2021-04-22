@@ -25,6 +25,9 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import harry.core.Run;
 import harry.model.Model;
 import harry.model.OpSelectors;
@@ -33,6 +36,8 @@ import harry.operations.CompiledStatement;
 
 public class MutatingPartitionVisitor extends AbstractPartitionVisitor
 {
+    private static final Logger logger = LoggerFactory.getLogger(MutatingPartitionVisitor.class);
+
     private final List<String> statements = new ArrayList<>();
     private final List<Object> bindings = new ArrayList<>();
 
@@ -41,9 +46,9 @@ public class MutatingPartitionVisitor extends AbstractPartitionVisitor
     protected final ScheduledExecutorService executor = Executors.newScheduledThreadPool(2);
     protected final DataTracker tracker;
     protected final SystemUnderTest sut;
-    protected final RowVisitor rowVisitor;
+    protected final Operation rowVisitor;
 
-    public MutatingPartitionVisitor(Run run, RowVisitor.RowVisitorFactory rowVisitorFactory)
+    public MutatingPartitionVisitor(Run run, Operation.RowVisitorFactory rowVisitorFactory)
     {
         super(run.pdSelector, run.descriptorSelector, run.schemaSpec);
         this.tracker = run.tracker;
@@ -66,7 +71,7 @@ public class MutatingPartitionVisitor extends AbstractPartitionVisitor
             }
             catch (Throwable t)
             {
-                throw new Model.ValidationException("Couldn't repeat operations within timeout bounds.", t);
+                throw new IllegalStateException("Couldn't repeat operations within timeout bounds.", t);
             }
         }
         futures.clear();
@@ -90,11 +95,17 @@ public class MutatingPartitionVisitor extends AbstractPartitionVisitor
     protected CompiledStatement operationInternal(long lts, long pd, long cd, long m, long opId)
     {
         OpSelectors.OperationKind op = descriptorSelector.operationType(pd, lts, opId);
-        return rowVisitor.visitRow(op, lts, pd, cd, opId);
+        return rowVisitor.perform(op, lts, pd, cd, opId);
     }
 
     public void afterBatch(long lts, long pd, long m)
     {
+        if (statements.isEmpty())
+        {
+            logger.warn("Encountered an empty batch on {}", lts);
+            return;
+        }
+
         String query = String.join(" ", statements);
 
         if (statements.size() > 1)

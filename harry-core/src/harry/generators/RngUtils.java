@@ -18,6 +18,8 @@
 
 package harry.generators;
 
+import java.util.function.LongSupplier;
+
 public class RngUtils
 {
     public static long next(long input)
@@ -92,5 +94,49 @@ public class RngUtils
     public static double asDouble(long current)
     {
         return Double.longBitsToDouble(current);
+    }
+
+    static long bitmask(long n)
+    {
+        if (n == 64) return ~0L;
+        return (1L << n) - 1;
+    }
+
+    public static long randomBits(long bits, long length, long s)
+    {
+        return randomBits(bits, length, new LongSupplier()
+        {
+            private long seed = s;
+
+            @Override
+            public long getAsLong()
+            {
+                long next = PCGFastPure.advanceState(seed, 1, 1);
+                assert next != seed : seed;
+                seed = next;
+                return next;
+            }
+        });
+    }
+
+    public static long randomBits(long bits, long length, LongSupplier rng)
+    {
+        long mask = bitmask(length);
+        if (bits == length)
+            return mask;
+        long min = 0;
+        long max = ~0L;
+        int n = 0;
+        while (n != bits)
+        {
+            long x = rng.getAsLong() & mask;
+            x = min | (x & max);
+            n = Long.bitCount(x);
+            if (n > bits)
+                max = x;
+            else
+                min = x;
+        }
+        return min;
     }
 }

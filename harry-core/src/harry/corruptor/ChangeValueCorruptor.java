@@ -75,11 +75,11 @@ public class ChangeValueCorruptor implements RowCorruptor
         final long oldV = row.vds[idx];
         do
         {
-            corruptedVds[idx] = +rng.next();
+            corruptedVds[idx] =+ rng.next();
         }
         // we need to find a value that sorts strictly greater than the current one
-        while (schema.regularColumns.get(idx).generator().compare(corruptedVds[idx], oldV) <= 0);
+        while (schema.regularColumns.get(idx).type.compareLexicographically(corruptedVds[idx], oldV) <= 0);
 
-        return WriteHelper.inflateInsert(schema, row.pd, row.cd, corruptedVds, clock.rts(row.lts[idx]));
+        return WriteHelper.inflateInsert(schema, row.pd, row.cd, corruptedVds, null, clock.rts(row.lts[idx]));
     }
 }

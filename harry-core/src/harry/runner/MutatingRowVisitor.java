@@ -27,7 +27,7 @@ import harry.operations.DeleteHelper;
 import harry.operations.WriteHelper;
 import harry.util.BitSet;
 
-public class MutatingRowVisitor implements RowVisitor
+public class MutatingRowVisitor implements Operation
 {
     protected final SchemaSpec schema;
     protected final OpSelectors.MonotonicClock clock;
@@ -48,21 +48,43 @@ public class MutatingRowVisitor implements RowVisitor
     {
         metricReporter.insert();
         long[] vds = descriptorSelector.vds(pd, cd, lts, opId, schema);
-        return WriteHelper.inflateInsert(schema, pd, cd, vds, clock.rts(lts));
+        return WriteHelper.inflateInsert(schema, pd, cd, vds, null, clock.rts(lts));
+    }
+
+    public CompiledStatement writeWithStatics(long lts, long pd, long cd, long opId)
+    {
+        metricReporter.insert();
+        long[] vds = descriptorSelector.vds(pd, cd, lts, opId, schema);
+        long[] sds = descriptorSelector.sds(pd, cd, lts, opId, schema);
+        return WriteHelper.inflateInsert(schema, pd, cd, vds, sds, clock.rts(lts));
     }
 
     public CompiledStatement deleteColumn(long lts, long pd, long cd, long opId)
     {
         metricReporter.columnDelete();
-        BitSet mask = descriptorSelector.columnMask(pd, lts, opId);
-        return DeleteHelper.deleteColumn(schema, pd, cd, mask, clock.rts(lts));
+        BitSet columns = descriptorSelector.columnMask(pd, lts, opId);
+        BitSet mask = schema.regularColumnsMask();
+        return DeleteHelper.deleteColumn(schema, pd, cd, columns, mask, clock.rts(lts));
     }
 
+    public CompiledStatement deleteColumnWithStatics(long lts, long pd, long cd, long opId)
+    {
+        metricReporter.columnDelete();
+        BitSet columns = descriptorSelector.columnMask(pd, lts, opId);
+        BitSet mask = schema.regularAndStaticColumnsMask();
+        return DeleteHelper.deleteColumn(schema, pd, cd, columns, mask, clock.rts(lts));
+    }
 
     public CompiledStatement deleteRow(long lts, long pd, long cd, long opId)
     {
         metricReporter.rowDelete();
         return DeleteHelper.deleteRow(schema, pd, cd, clock.rts(lts));
+    }
+
+    public CompiledStatement deletePartition(long lts, long pd, long opId)
+    {
+        metricReporter.partitionDelete();
+        return DeleteHelper.delete(schema, pd, clock.rts(lts));
     }
 
     public CompiledStatement deleteRange(long lts, long pd, long opId)

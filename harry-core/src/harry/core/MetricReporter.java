@@ -22,6 +22,7 @@ public interface MetricReporter
 {
     void columnDelete();
     void rowDelete();
+    void partitionDelete();
     void insert();
     void rangeDelete();
 
@@ -41,6 +42,7 @@ public interface MetricReporter
 
         public void columnDelete(){}
         public void rowDelete(){}
+        public void partitionDelete(){}
         public void insert(){}
         public void rangeDelete(){}
         public void validatePartition(){}

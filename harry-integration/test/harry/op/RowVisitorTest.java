@@ -30,18 +30,15 @@ import harry.ddl.SchemaGenerators;
 import harry.ddl.SchemaSpec;
 import harry.generators.RandomGenerator;
 import harry.generators.distribution.Distribution;
+import harry.model.OpSelectors;
+import harry.model.clock.OffsetClock;
 import harry.model.sut.SystemUnderTest;
+import harry.operations.CompiledStatement;
 import harry.runner.DataTracker;
 import harry.runner.MutatingRowVisitor;
-import harry.model.clock.OffsetClock;
-import harry.model.OpSelectors;
-import harry.operations.CompiledStatement;
-import harry.runner.QueryGenerator;
-import harry.util.BitSet;
 import org.apache.cassandra.cql3.CQLTester;
 
-import static harry.util.TestRunner.test;
-import static harry.model.OpSelectors.DefaultDescriptorSelector.DEFAULT_OP_TYPE_SELECTOR;
+import static harry.model.OpSelectors.DefaultDescriptorSelector.DEFAULT_OP_SELECTOR;
 
 public class RowVisitorTest extends CQLTester
 {
@@ -60,20 +57,19 @@ public class RowVisitorTest extends CQLTester
         OpSelectors.Rng rng = new OpSelectors.PCGFast(1);
 
         OpSelectors.PdSelector pdSelector = new OpSelectors.DefaultPdSelector(rng, 10, 10);
-        OpSelectors.DescriptorSelector descriptorSelector = new OpSelectors.DefaultDescriptorSelector(rng,
-                                                                                                      OpSelectors.columnSelectorBuilder().forAll(BitSet.create(0b001, 3),
-                                                                                                                                                 BitSet.create(0b011, 3),
-                                                                                                                                                 BitSet.create(0b111, 3))
-                                                                                                                 .build(),
-                                                                                                      DEFAULT_OP_TYPE_SELECTOR,
-                                                                                                      new Distribution.ScaledDistribution(1, 3),
-                                                                                                      new Distribution.ScaledDistribution(2, 30),
-                                                                                                      100);
 
         for (int i = 0; i < SchemaGenerators.DEFAULT_RUNS; i++)
         {
             SchemaSpec schema = specGenerator.get();
             createTable(schema.compile().cql());
+
+            OpSelectors.DescriptorSelector descriptorSelector = new OpSelectors.DefaultDescriptorSelector(rng,
+                                                                                                          new OpSelectors.ColumnSelectorBuilder().forAll(schema)
+                                                                                                                                                 .build(),
+                                                                                                          DEFAULT_OP_SELECTOR,
+                                                                                                          new Distribution.ScaledDistribution(1, 3),
+                                                                                                          new Distribution.ScaledDistribution(2, 30),
+                                                                                                          100);
 
             Run run = new Run(rng,
                               new OffsetClock(10000),

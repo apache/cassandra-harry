@@ -55,10 +55,16 @@ public class SchemaGenerators
                     ColumnSpec.int16Type,
                     ColumnSpec.int32Type,
                     ColumnSpec.int64Type,
-// TODO re-enable boolean type; add it to ByteBufferUtil in Cassandra for that
-//                    ColumnSpec.booleanType,
-                    ColumnSpec.asciiType);
+                    ColumnSpec.asciiType,
+                    ColumnSpec.asciiType(4, 256),
+                    ColumnSpec.asciiType(4, 512));
+
         columnTypes = builder.build();
+        builder.add(ColumnSpec.int8Type,
+                    ColumnSpec.int16Type,
+                    ColumnSpec.int32Type,
+                    ColumnSpec.int64Type,
+                    ColumnSpec.asciiType);
         builder = ImmutableList.builder();
         builder.addAll(columnTypes);
 
@@ -69,8 +75,8 @@ public class SchemaGenerators
             ColumnSpec.DataType<?> reversedType = ColumnSpec.ReversedType.getInstance(columnType);
             builder.add(reversedType);
 
-            mapBuilder.put(columnType.toString(), columnType);
-            mapBuilder.put(String.format("desc(%s)", columnType.toString()), columnType);
+            mapBuilder.put(columnType.nameForParser(), columnType);
+            mapBuilder.put(String.format("desc(%s)", columnType.nameForParser()), columnType);
         }
 
         builder.add(ColumnSpec.floatType);
@@ -152,6 +158,7 @@ public class SchemaGenerators
         private Generator<ColumnSpec<?>> pkGenerator = columnSpecGenerator("pk", ColumnSpec.Kind.PARTITION_KEY);
         private Generator<ColumnSpec<?>> ckGenerator = clusteringColumnSpecGenerator("ck");
         private Generator<ColumnSpec<?>> regularGenerator = columnSpecGenerator("regular", ColumnSpec.Kind.REGULAR);
+        private Generator<ColumnSpec<?>> staticGenerator = columnSpecGenerator("regular", ColumnSpec.Kind.STATIC);
 
         private int minPks = 1;
         private int maxPks = 1;
@@ -159,6 +166,8 @@ public class SchemaGenerators
         private int maxCks = 0;
         private int minRegular = 0;
         private int maxRegular = 0;
+        private int minStatic = 0;
+        private int maxStatic = 0;
 
         public Builder(String keyspace)
         {
@@ -221,16 +230,16 @@ public class SchemaGenerators
             return this;
         }
 
-        public Builder regularColumnCount(int numCols)
-        {
-            return regularColumnCount(numCols, numCols);
-        }
-
         public Builder regularColumnCount(int minCols, int maxCols)
         {
             this.minRegular = minCols;
             this.maxRegular = maxCols;
             return this;
+        }
+
+        public Builder regularColumnCount(int numCols)
+        {
+            return regularColumnCount(numCols, numCols);
         }
 
         public Builder regularColumnSpec(int minCols, int maxCols, ColumnSpec.DataType<?>... columnTypes)
@@ -246,17 +255,44 @@ public class SchemaGenerators
             return this;
         }
 
+        public Builder staticColumnCount(int minCols, int maxCols)
+        {
+            this.minStatic = minCols;
+            this.maxStatic = maxCols;
+            return this;
+        }
+
+        public Builder staticColumnCount(int numCols)
+        {
+            return staticColumnCount(numCols, numCols);
+        }
+
+        public Builder staticColumnSpec(int minCols, int maxCols, ColumnSpec.DataType<?>... columnTypes)
+        {
+            return this.staticColumnSpec(minCols, maxCols, Arrays.asList(columnTypes));
+        }
+
+        public Builder staticColumnSpec(int minCols, int maxCols, Collection<ColumnSpec.DataType<?>> columnTypes)
+        {
+            this.minStatic = minCols;
+            this.maxStatic = maxCols;
+            this.staticGenerator = columnSpecGenerator(columnTypes, "static", ColumnSpec.Kind.STATIC);
+            return this;
+        }
+
         private static class ColumnCounts
         {
             private final int pks;
             private final int cks;
             private final int regulars;
+            private final int statics;
 
-            private ColumnCounts(int pks, int cks, int regulars)
+            private ColumnCounts(int pks, int cks, int regulars, int statics)
             {
                 this.pks = pks;
                 this.cks = cks;
                 this.regulars = regulars;
+                this.statics = statics;
             }
         }
 
@@ -266,8 +302,9 @@ public class SchemaGenerators
                 int pks = rand.nextInt(minPks, maxPks);
                 int cks = rand.nextInt(minCks, maxCks);
                 int regulars = rand.nextInt(minRegular, maxRegular);
+                int statics = rand.nextInt(minStatic, maxStatic);
 
-                return new ColumnCounts(pks, cks, regulars);
+                return new ColumnCounts(pks, cks, regulars, statics);
             };
         }
 
@@ -283,7 +320,8 @@ public class SchemaGenerators
                                           tableNameSupplier.get(),
                                           pk,
                                           ck,
-                                          regularGenerator.generate(rand, counts.regulars));
+                                          regularGenerator.generate(rand, counts.regulars),
+                                          staticGenerator.generate(rand, counts.statics));
                 };
             });
         }
@@ -297,30 +335,27 @@ public class SchemaGenerators
     public static Surjections.Surjection<SchemaSpec> defaultSchemaSpecGen(String ks, String table)
     {
         return new SchemaGenerators.Builder(ks, () -> table)
-               .partitionKeySpec(2, 4,
-//                                                                             ColumnSpec.int8Type,
-//                                                                             ColumnSpec.int16Type,
+               .partitionKeySpec(1, 3,
+                                 columnTypes)
+               .clusteringKeySpec(1, 3,
+                                  clusteringKeyTypes)
+               .regularColumnSpec(3, 5,
+                                  ColumnSpec.int8Type,
+                                  ColumnSpec.int16Type,
+                                  ColumnSpec.int32Type,
+                                  ColumnSpec.int64Type,
+                                  ColumnSpec.floatType,
+                                  ColumnSpec.doubleType,
+                                  ColumnSpec.asciiType(5, 256))
+               .staticColumnSpec(3, 5,
+                                 ColumnSpec.int8Type,
+                                 ColumnSpec.int16Type,
                                  ColumnSpec.int32Type,
                                  ColumnSpec.int64Type,
-//                                                                             ColumnSpec.floatType,
-//                                                                             ColumnSpec.doubleType,
-                                 ColumnSpec.asciiType(4, 10))
-               .clusteringKeySpec(2, 4,
-//                                                                              ColumnSpec.int8Type,
-//                                                                              ColumnSpec.int16Type,
-                                  ColumnSpec.int32Type,
-                                  ColumnSpec.int64Type,
-//                                                                              ColumnSpec.floatType,
-//                                                                              ColumnSpec.doubleType,
-                                  ColumnSpec.asciiType(4, 10))
-               .regularColumnSpec(1, 10,
-//                                                                              ColumnSpec.int8Type,
-//                                                                              ColumnSpec.int16Type,
-                                  ColumnSpec.int32Type,
-                                  ColumnSpec.int64Type,
-//                                                                              ColumnSpec.floatType,
-//                                                                              ColumnSpec.doubleType,
-                                  ColumnSpec.asciiType(5, 10))
+                                 ColumnSpec.floatType,
+                                 ColumnSpec.doubleType,
+                                 ColumnSpec.asciiType(4, 512),
+                                 ColumnSpec.asciiType(4, 2048))
                .surjection();
     }
 
@@ -330,10 +365,11 @@ public class SchemaGenerators
     private static final Supplier<String> tableNameSupplier = () -> DEFAULT_PREFIX + counter.getAndIncrement();
 
     // simplest schema gen, nothing can go wrong with it
-    public static final Surjections.Surjection<SchemaSpec> longOnlySpecBuilder = new SchemaGenerators.Builder(DEFAULT_KEYSPACE_NAME, tableNameSupplier)
+    public static final Surjections.Surjection<SchemaSpec> longOnlySpecBuilder = new Builder(DEFAULT_KEYSPACE_NAME, tableNameSupplier)
                                                                                  .partitionKeySpec(1, 1, ColumnSpec.int64Type)
                                                                                  .clusteringKeySpec(1, 1, ColumnSpec.int64Type)
                                                                                  .regularColumnSpec(1, 10, ColumnSpec.int64Type)
+                                                                                 .staticColumnSpec(1, 10, ColumnSpec.int64Type)
                                                                                  .surjection();
 
     private static final ColumnSpec.DataType<String> simpleStringType = ColumnSpec.asciiType(4, 10);
@@ -341,30 +377,35 @@ public class SchemaGenerators
                                                                                        .partitionKeySpec(2, 2, ColumnSpec.int64Type, simpleStringType)
                                                                                        .clusteringKeySpec(2, 2, ColumnSpec.int64Type, simpleStringType)
                                                                                        .regularColumnSpec(1, 10, ColumnSpec.int64Type, simpleStringType)
+                                                                                       .staticColumnSpec(1, 10, ColumnSpec.int64Type)
                                                                                        .surjection();
 
     public static final Surjections.Surjection<SchemaSpec> longOnlyWithReverseSpecBuilder = new SchemaGenerators.Builder(DEFAULT_KEYSPACE_NAME, tableNameSupplier)
                                                                                             .partitionKeySpec(1, 1, ColumnSpec.int64Type)
                                                                                             .clusteringKeySpec(1, 1, ColumnSpec.ReversedType.getInstance(ColumnSpec.int64Type))
                                                                                             .regularColumnSpec(1, 10, ColumnSpec.int64Type)
+                                                                                            .staticColumnSpec(1, 10, ColumnSpec.int64Type)
                                                                                             .surjection();
 
     public static final Surjections.Surjection<SchemaSpec> longAndStringSpecWithReversedLongBuilder = new SchemaGenerators.Builder(DEFAULT_KEYSPACE_NAME, tableNameSupplier)
                                                                                                       .partitionKeySpec(2, 2, ColumnSpec.int64Type, simpleStringType)
                                                                                                       .clusteringKeySpec(2, 2, ColumnSpec.ReversedType.getInstance(ColumnSpec.int64Type), simpleStringType)
                                                                                                       .regularColumnSpec(1, 10, ColumnSpec.int64Type, simpleStringType)
+                                                                                                      .staticColumnSpec(1, 10, ColumnSpec.int64Type)
                                                                                                       .surjection();
 
     public static final Surjections.Surjection<SchemaSpec> longAndStringSpecWithReversedStringBuilder = new SchemaGenerators.Builder(DEFAULT_KEYSPACE_NAME, tableNameSupplier)
                                                                                                         .partitionKeySpec(2, 2, ColumnSpec.int64Type, simpleStringType)
                                                                                                         .clusteringKeySpec(2, 2, ColumnSpec.int64Type, ColumnSpec.ReversedType.getInstance(simpleStringType))
                                                                                                         .regularColumnSpec(1, 10, ColumnSpec.int64Type, simpleStringType)
+                                                                                                        .staticColumnSpec(1, 10, ColumnSpec.int64Type)
                                                                                                         .surjection();
 
     public static final Surjections.Surjection<SchemaSpec> longAndStringSpecWithReversedBothBuilder = new SchemaGenerators.Builder(DEFAULT_KEYSPACE_NAME, tableNameSupplier)
                                                                                                       .partitionKeySpec(2, 2, ColumnSpec.int64Type, simpleStringType)
                                                                                                       .clusteringKeySpec(2, 2, ColumnSpec.ReversedType.getInstance(ColumnSpec.int64Type), ColumnSpec.ReversedType.getInstance(simpleStringType))
                                                                                                       .regularColumnSpec(1, 10, ColumnSpec.int64Type, simpleStringType)
+                                                                                                      .staticColumnSpec(1, 10, ColumnSpec.int64Type)
                                                                                                       .surjection();
 
     public static final Surjections.Surjection<SchemaSpec> withAllFeaturesEnabled = new SchemaGenerators.Builder(DEFAULT_KEYSPACE_NAME, tableNameSupplier)
@@ -399,7 +440,7 @@ public class SchemaGenerators
                 counter++;
                 SchemaSpec spec = generators[idx].get();
                 int tries = 100;
-                while ((spec.ckGenerator.byteSize() != Long.BYTES || spec.pkGenerator.byteSize() != Long.BYTES) && tries > 0)
+                while ((spec.pkGenerator.byteSize() != Long.BYTES) && tries > 0)
                 {
                     System.out.println("Skipping schema, since it doesn't have enough entropy bits available: " + spec.compile().cql());
                     spec = generators[idx].get();
@@ -411,8 +452,6 @@ public class SchemaGenerators
                 assert tries > 0 : String.format("Max number of tries exceeded on generator %d, can't generate a needed schema", idx);
                 return spec;
             }
-
-
         };
     }
 
@@ -435,12 +474,14 @@ public class SchemaGenerators
                                    String table,
                                    Map<String, String> pks,
                                    Map<String, String> cks,
-                                   Map<String, String> regulars)
+                                   Map<String, String> regulars,
+                                   Map<String, String> statics)
     {
         return new SchemaSpec(keyspace, table,
                               toColumns(pks, ColumnSpec.Kind.PARTITION_KEY, false),
                               toColumns(cks, ColumnSpec.Kind.CLUSTERING, false),
-                              toColumns(regulars, ColumnSpec.Kind.REGULAR, false));
+                              toColumns(regulars, ColumnSpec.Kind.REGULAR, false),
+                              toColumns(statics, ColumnSpec.Kind.STATIC, false));
     }
 
     public static int DEFAULT_SWITCH_AFTER = Integer.getInteger("harry.test.progression.switch-after", 5);

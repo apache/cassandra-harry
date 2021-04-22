@@ -107,7 +107,9 @@ public class SchemaGenTest extends CQLTester
                                          Arrays.asList(ColumnSpec.regularColumn("v1", ColumnSpec.asciiType),
                                                        ColumnSpec.regularColumn("v2", ColumnSpec.asciiType),
                                                        ColumnSpec.regularColumn("v3", ColumnSpec.int64Type),
-                                                       ColumnSpec.regularColumn("v4", ColumnSpec.int64Type)));
+                                                       ColumnSpec.regularColumn("v4", ColumnSpec.int64Type)),
+                                         Arrays.asList(ColumnSpec.staticColumn("regular1", ColumnSpec.asciiType),
+                                                       ColumnSpec.staticColumn("regular2", ColumnSpec.int64Type)));
 
 
         String tableDef = spec.compile().cql();

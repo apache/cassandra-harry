@@ -18,20 +18,18 @@
 
 package harry.runner;
 
-import harry.core.Configuration;
-import harry.core.Run;
-import harry.corruptor.*;
-import harry.util.ThrowingRunnable;
+import java.io.File;
+import java.io.FileNotFoundException;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ScheduledThreadPoolExecutor;
+import java.util.concurrent.TimeUnit;
+
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.io.File;
-import java.io.FileNotFoundException;
-import java.util.Random;
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.ScheduledExecutorService;
-import java.util.concurrent.ScheduledThreadPoolExecutor;
-import java.util.concurrent.TimeUnit;
+import harry.core.Configuration;
+import harry.core.Run;
+import harry.util.ThrowingRunnable;
 
 public abstract class HarryRunner
 {
@@ -68,9 +66,6 @@ public abstract class HarryRunner
         progress = runner.initAndStartAll();
         beforeRun(runner);
 
-        // Uncomment this if you want to have fun!
-        // scheduleCorruption(run, executor);
-
         Object result = null;
 
         try
@@ -79,8 +74,7 @@ public abstract class HarryRunner
                 if (b != null)
                     return b;
                 return a;
-            }).get(config.run_time_unit.toSeconds(config.run_time) + 30,
-                   TimeUnit.SECONDS);
+            }).get();
             if (result instanceof Throwable)
                 logger.error("Execution failed", result);
 
@@ -135,7 +129,7 @@ public abstract class HarryRunner
      * @return Configuration YAML file.
      * @throws Exception If file is not found or cannot be read.
      */
-    public File loadConfig(String[] args) throws Exception {
+    public static File loadConfig(String[] args) throws Exception {
         if (args == null || args.length == 0) {
             throw new Exception("Harry config YAML not provided.");
         }
@@ -144,49 +138,11 @@ public abstract class HarryRunner
         if (!configFile.exists()) {
             throw new FileNotFoundException(configFile.getAbsolutePath());
         }
+
         if (!configFile.canRead()) {
             throw new Exception("Cannot read config file, check your permissions on " + configFile.getAbsolutePath());
         }
 
         return configFile;
     }
-
-    /**
-     * If you want to see how Harry detects problems!
-     */
-    public static void scheduleCorruption(Run run, ScheduledExecutorService executor)
-    {
-        QueryResponseCorruptor[] corruptors = new QueryResponseCorruptor[]{
-        new QueryResponseCorruptor.SimpleQueryResponseCorruptor(run.schemaSpec,
-                                                                run.clock,
-                                                                HideRowCorruptor::new),
-        new AddExtraRowCorruptor(run.schemaSpec,
-                                 run.clock,
-                                 run.descriptorSelector),
-        new QueryResponseCorruptor.SimpleQueryResponseCorruptor(run.schemaSpec,
-                                                                run.clock,
-                                                                HideValueCorruptor::new),
-        new QueryResponseCorruptor.SimpleQueryResponseCorruptor(run.schemaSpec,
-                                                                run.clock,
-                                                                ChangeValueCorruptor::new)
-        };
-
-        Random random = new Random();
-        executor.scheduleWithFixedDelay(() -> {
-            try
-            {
-                QueryResponseCorruptor corruptor = corruptors[random.nextInt(corruptors.length)];
-                long lts = run.clock.maxLts();
-                long pd = run.pdSelector.pd(random.nextInt((int) lts), run.schemaSpec);
-                boolean success = corruptor.maybeCorrupt(Query.selectPartition(run.schemaSpec, pd, false),
-                                                         run.sut);
-                logger.info("{} tried to corrupt a partition with a pd {}@{}", success ? "Successfully" : "Unsuccessfully", pd, lts);
-            }
-            catch (Throwable t)
-            {
-                logger.error("Caught an exception while trying to corrupt a partition.", t);
-            }
-        }, 30, 1, TimeUnit.SECONDS);
-    }
-
 }

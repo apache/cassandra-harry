@@ -18,6 +18,9 @@
 
 package harry.corruptor;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import harry.data.ResultSetRow;
 import harry.ddl.SchemaSpec;
 import harry.model.OpSelectors;
@@ -26,6 +29,8 @@ import harry.operations.CompiledStatement;
 
 public interface RowCorruptor
 {
+    Logger logger = LoggerFactory.getLogger(QueryResponseCorruptor.class);
+
     boolean canCorrupt(ResultSetRow row);
 
     CompiledStatement corrupt(ResultSetRow row);
@@ -37,6 +42,7 @@ public interface RowCorruptor
         {
             CompiledStatement statement = corrupt(row);
             sut.execute(statement.cql(), SystemUnderTest.ConsistencyLevel.ALL, statement.bindings());
+            logger.info("Corrupting with: {} ({})", statement.cql(), CompiledStatement.bindingsToString(statement.bindings()));
             return true;
         }
         return false;

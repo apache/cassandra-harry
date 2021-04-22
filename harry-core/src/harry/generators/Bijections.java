@@ -52,6 +52,9 @@ public class Bijections
         // TODO: byteSize is great, but you know what's better? Bit size! For example, for `boolean`, we only need a single bit.
         int byteSize();
 
+        /**
+         * Compare as if we were comparing the values in question
+         */
         int compare(long l, long r);
 
         default long adjustEntropyDomain(long descriptor)
@@ -69,7 +72,7 @@ public class Bijections
             return maxForSize(byteSize());
         }
 
-        default boolean byteOrdered()
+        default boolean unsigned()
         {
             return false;
         }
@@ -280,7 +283,7 @@ public class Bijections
         }
 
         // In other words, there's no way we can extend entropy to a sign
-        public boolean byteOrdered()
+        public boolean unsigned()
         {
             return true;
         }
@@ -343,7 +346,12 @@ public class Bijections
             return SIZE;
         }
 
-        public boolean byteOrdered()
+        /**
+         * To avoid generating NaNs, we're using a smaller size for Double. But because of that, double became
+         * sign-less. In other words, even if we generate a double, it will always be positive, since its most
+         * significant bit isn't set. This means that
+         */
+        public boolean unsigned()
         {
             return true;
         }

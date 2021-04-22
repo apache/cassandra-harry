@@ -60,15 +60,11 @@ public class Surjections
     public static long[] weights(int... weights)
     {
         long[] res = new long[weights.length];
-        int sum = 0;
         for (int i = 0; i < weights.length; i++)
         {
             long w = weights[i];
-            sum += w;
             res[i] = w << 32 | i;
         }
-        assert sum == 100;
-
         return res;
     }
 
@@ -109,9 +105,9 @@ public class Surjections
             weightMap.put(sum, entry.getKey());
         }
 
-        assert sum == 100;
+        int max = sum;
         return (i) -> {
-            int weight = RngUtils.asInt(i, 0, 100);
+            int weight = RngUtils.asInt(i, 0, max);
             return weightMap.ceilingEntry(weight).getValue();
         };
     }

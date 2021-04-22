@@ -32,19 +32,19 @@ public class StringBijection implements Bijections.Bijection<String>
     private final String[] nibbles;
     private final Map<String, Integer> inverse;
     private final int nibbleSize;
-    private final int maxRandomNibbles;
+    private final int maxRandomBytes;
 
     public StringBijection()
     {
         this(alphabetNibbles(8), 8, 10);
     }
 
-    public StringBijection(int nibbleSize, int maxRandomNibbles)
+    public StringBijection(int nibbleSize, int maxRandomBytes)
     {
-        this(alphabetNibbles(nibbleSize), nibbleSize, maxRandomNibbles);
+        this(alphabetNibbles(nibbleSize), nibbleSize, maxRandomBytes);
     }
 
-    public StringBijection(String[] nibbles, int nibbleSize, int maxRandomNibbles)
+    public StringBijection(String[] nibbles, int nibbleSize, int maxRandomBytes)
     {
         assert nibbles.length == NIBBLES_SIZE;
         this.nibbles = nibbles;
@@ -57,7 +57,7 @@ public class StringBijection implements Bijections.Bijection<String>
             inverse.put(nibbles[i], i);
         }
 
-        this.maxRandomNibbles = maxRandomNibbles;
+        this.maxRandomBytes = maxRandomBytes;
     }
 
     public String inflate(long descriptor)
@@ -69,7 +69,7 @@ public class StringBijection implements Bijections.Bijection<String>
             builder.append(nibbles[idx]);
         }
 
-        appendRandomNibbles(builder, descriptor);
+        appendRandomBytes(builder, descriptor);
 
         // everything after this point can be just random, since strings are guaranteed
         // to have unique prefixes
@@ -87,15 +87,19 @@ public class StringBijection implements Bijections.Bijection<String>
 
 
     // TODO: shuld we switch to PCG here, too?
-    private void appendRandomNibbles(StringBuilder builder, long descriptor)
+    private void appendRandomBytes(StringBuilder builder, long descriptor)
     {
         long rnd = RngUtils.next(descriptor);
-        int count = RngUtils.asInt(rnd, 0, maxRandomNibbles);
+        int remaining = RngUtils.asInt(rnd, 0, maxRandomBytes);
 
-        for (int i = 0; i < count; i++)
+        while (remaining > 0)
         {
             rnd = RngUtils.next(rnd);
-            builder.append(nibbles[RngUtils.asByte(rnd) & 0xff]);
+            for (int i = 0; i < remaining && i < Long.BYTES; i++)
+            {
+                builder.append((char) (rnd >> (i * 8)) & 0xff);
+                remaining--;
+            }
         }
     }
 
@@ -136,7 +140,7 @@ public class StringBijection implements Bijections.Bijection<String>
     {
         return "ascii(" +
                "nibbleSize=" + nibbleSize +
-               ", maxRandomNibbles=" + maxRandomNibbles +
+               ", maxRandomBytes=" + maxRandomBytes +
                ')';
     }
 

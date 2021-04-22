@@ -19,6 +19,7 @@
 package harry.operations;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.function.IntConsumer;
 
@@ -26,6 +27,7 @@ import com.datastax.driver.core.querybuilder.Delete;
 import com.datastax.driver.core.querybuilder.QueryBuilder;
 import harry.ddl.ColumnSpec;
 import harry.ddl.SchemaSpec;
+import harry.runner.LoggingPartitionVisitor;
 import harry.util.BitSet;
 
 public class DeleteHelper
@@ -33,13 +35,26 @@ public class DeleteHelper
     public static CompiledStatement deleteColumn(SchemaSpec schema,
                                                  long pd,
                                                  long cd,
-                                                 BitSet columnsToDelete,
+                                                 BitSet columns,
+                                                 BitSet mask,
                                                  long rts)
     {
-        if (columnsToDelete == null || columnsToDelete.allUnset())
-            throw new IllegalArgumentException("Can't have a delete column query with no columns set. Column mask: " + columnsToDelete);
+        if (columns == null || columns.allUnset(mask))
+            throw new IllegalArgumentException("Can't have a delete column query with no columns set. Column mask: " + columns);
 
-        return delete(schema, pd, cd, columnsToDelete, rts);
+        return delete(schema, pd, cd, columns, mask, rts);
+    }
+
+    public static CompiledStatement deleteColumn(SchemaSpec schema,
+                                                 long pd,
+                                                 BitSet columns,
+                                                 BitSet mask,
+                                                 long rts)
+    {
+        if (columns == null || columns.allUnset(mask))
+            throw new IllegalArgumentException("Can't have a delete column query with no columns set. Column mask: " + columns);
+
+        return delete(schema, pd, columns, mask, rts);
     }
 
     public static CompiledStatement deleteRow(SchemaSpec schema,
@@ -47,25 +62,29 @@ public class DeleteHelper
                                               long cd,
                                               long rts)
     {
-        return delete(schema, pd, cd, null, rts);
+        return delete(schema, pd, cd, null, null, rts);
     }
 
     public static CompiledStatement delete(SchemaSpec schema,
                                            long pd,
                                            List<Relation> relations,
                                            BitSet columnsToDelete,
+                                           BitSet mask,
                                            long rts)
     {
+        assert (columnsToDelete == null && mask == null) || (columnsToDelete != null && mask != null);
         return compile(schema,
                        pd,
                        relations,
                        columnsToDelete,
+                       mask,
                        rts);
     }
 
     private static CompiledStatement delete(SchemaSpec schema,
                                             long pd,
                                             long cd,
+                                            BitSet columnsToDelete,
                                             BitSet mask,
                                             long rts)
     {
@@ -73,7 +92,34 @@ public class DeleteHelper
                        pd,
                        Relation.eqRelations(schema.ckGenerator.slice(cd),
                                             schema.clusteringKeys),
+                       columnsToDelete,
                        mask,
+                       rts);
+    }
+
+    private static CompiledStatement delete(SchemaSpec schema,
+                                            long pd,
+                                            BitSet columnsToDelete,
+                                            BitSet mask,
+                                            long rts)
+    {
+        return compile(schema,
+                       pd,
+                       new ArrayList<>(),
+                       columnsToDelete,
+                       mask,
+                       rts);
+    }
+
+    public static CompiledStatement delete(SchemaSpec schema,
+                                           long pd,
+                                           long rts)
+    {
+        return compile(schema,
+                       pd,
+                       Collections.emptyList(),
+                       null,
+                       null,
                        rts);
     }
 
@@ -81,23 +127,33 @@ public class DeleteHelper
                                              long pd,
                                              List<Relation> relations,
                                              BitSet columnsToDelete,
+                                             BitSet mask,
                                              long ts)
     {
         Delete delete;
         if (columnsToDelete == null)
             delete = QueryBuilder.delete().from(schema.keyspace, schema.table);
         else
-            delete = QueryBuilder.delete(columnNames(schema.regularColumns, columnsToDelete))
+        {
+            assert mask != null;
+            assert relations == null || relations.stream().allMatch((r) -> r.kind == Relation.RelationKind.EQ);
+            delete = QueryBuilder.delete(columnNames(schema.allColumns, columnsToDelete, mask))
                                  .from(schema.keyspace, schema.table);
+        }
 
         Delete.Where where = delete.where();
         List<Object> bindings = new ArrayList<>();
 
         addRelations(schema, where, bindings, pd, relations);
         delete.using(QueryBuilder.timestamp(ts));
-
+        delete.setForceNoValues(true);
         Object[] bindingsArr = bindings.toArray(new Object[bindings.size()]);
-        return new CompiledStatement(delete.toString(), bindingsArr);
+        String compiled = delete.getQueryString();
+        if (compiled.contains("built query (could not generate with default codec registry:"))
+            throw new IllegalArgumentException(String.format("Could not generate the query: %s. Bindings: (%s)",
+                                                             delete,
+                                                             CompiledStatement.bindingsToString(bindingsArr)));
+        return new CompiledStatement(compiled, bindingsArr);
     }
 
     private static void addRelations(SchemaSpec schema, Delete.Where where, List<Object> bindings, long pd, List<Relation> relations)
@@ -110,10 +166,10 @@ public class DeleteHelper
                                 });
     }
 
-    private static String[] columnNames(List<ColumnSpec<?>> columns, BitSet mask)
+    private static String[] columnNames(List<ColumnSpec<?>> columns, BitSet selectedColumns, BitSet mask)
     {
-        String[] columnNames = new String[mask.setCount()];
-        mask.eachSetBit(new IntConsumer()
+        String[] columnNames = new String[selectedColumns.setCount(mask)];
+        selectedColumns.eachSetBit(new IntConsumer()
         {
             int i = 0;
 
@@ -121,7 +177,7 @@ public class DeleteHelper
             {
                 columnNames[i++] = columns.get(idx).name;
             }
-        });
+        }, mask);
         return columnNames;
     }
 }

@@ -33,6 +33,10 @@ public interface SystemUnderTest
 
     public void shutdown();
 
+    default void afterSchemaInit()
+    {
+    }
+
     default void schemaChange(String statement)
     {
         execute(statement, ConsistencyLevel.ALL, new Object[]{});
@@ -53,7 +57,7 @@ public interface SystemUnderTest
     }
 
     enum ConsistencyLevel {
-        ALL, QUORUM, NODE_LOCAL
+        ALL, QUORUM, NODE_LOCAL, ONE
     }
 
     public static final SystemUnderTest NO_OP = new NoOpSut();
@@ -80,6 +84,12 @@ public interface SystemUnderTest
             return CompletableFuture.supplyAsync(() -> execute(statement, cl, bindings),
                                                  Runnable::run);
         }
+    }
+
+    public static interface FaultInjectingSut extends SystemUnderTest
+    {
+        public Object[][] executeWithWriteFailure(String statement, ConsistencyLevel cl, Object... bindings);
+        public CompletableFuture<Object[][]> executeAsyncWithWriteFailure(String statement, ConsistencyLevel cl, Object... bindings);
     }
 
 }

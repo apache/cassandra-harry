@@ -18,11 +18,7 @@
 
 package harry.runner;
 
-import java.util.HashSet;
-import java.util.Set;
-
 import harry.ddl.SchemaSpec;
-import harry.model.Model;
 import harry.model.OpSelectors;
 
 public abstract class AbstractPartitionVisitor implements PartitionVisitor
@@ -51,24 +47,14 @@ public abstract class AbstractPartitionVisitor implements PartitionVisitor
 
         int modificationsCount = descriptorSelector.numberOfModifications(lts);
         int opsPerModification = descriptorSelector.opsPerModification(lts);
-        int maxPartitionSize = descriptorSelector.maxPartitionSize();
-        assert opsPerModification * modificationsCount <= maxPartitionSize : "Number of operations exceeds partition width";
 
         for (int m = 0; m < modificationsCount; m++)
         {
-            Set<Long> visitedCds = new HashSet<>(); // for debug purposes
             beforeBatch(lts, pd, m);
             for (int i = 0; i < opsPerModification; i++)
             {
                 long opId = m * opsPerModification + i;
                 long cd = descriptorSelector.cd(pd, lts, opId, schema);
-                if (!visitedCds.add(cd))
-                {
-                    throw new Model.ValidationException("Can't visit the same row twice in same LTS. Visited: %s. Current: %d. " +
-                                                        opId + " " + maxPartitionSize,
-                                                        visitedCds, cd);
-                }
-
                 operation(lts, pd, cd, m, opId);
             }
             afterBatch(lts, pd, m);

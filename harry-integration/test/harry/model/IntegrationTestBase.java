@@ -40,7 +40,7 @@ public class IntegrationTestBase extends TestBaseImpl
     public static void before() throws Throwable
     {
         cluster = init(Cluster.build()
-                              .withNodes(3)
+                              .withNodes(1)
                               .start());
         sut = new InJvmSut(cluster, 1);
     }
@@ -55,7 +55,7 @@ public class IntegrationTestBase extends TestBaseImpl
     public void beforeEach()
     {
         cluster.schemaChange("DROP KEYSPACE IF EXISTS harry");
-        cluster.schemaChange("CREATE KEYSPACE harry WITH replication = {'class': 'SimpleStrategy', 'replication_factor': 3};");
+        cluster.schemaChange("CREATE KEYSPACE harry WITH replication = {'class': 'SimpleStrategy', 'replication_factor': 1};");
     }
 
     private static long seed = 0;
@@ -68,6 +68,24 @@ public class IntegrationTestBase extends TestBaseImpl
         };
     }
 
+    public static Configuration.CDSelectorConfigurationBuilder sharedCDSelectorConfiguration()
+    {
+        return new Configuration.CDSelectorConfigurationBuilder()
+               .setNumberOfModificationsDistribution(new Configuration.ConstantDistributionConfig(2))
+               .setRowsPerModificationDistribution(new Configuration.ConstantDistributionConfig(2))
+               .setMaxPartitionSize(100)
+               .setOperationKindWeights(new Configuration.OperationKindSelectorBuilder()
+                                        .addWeight(OpSelectors.OperationKind.DELETE_ROW, 1)
+                                        .addWeight(OpSelectors.OperationKind.DELETE_COLUMN, 1)
+                                        .addWeight(OpSelectors.OperationKind.DELETE_RANGE, 1)
+                                        .addWeight(OpSelectors.OperationKind.DELETE_SLICE, 1)
+                                        .addWeight(OpSelectors.OperationKind.DELETE_PARTITION, 1)
+                                        .addWeight(OpSelectors.OperationKind.DELETE_COLUMN_WITH_STATICS, 5)
+                                        .addWeight(OpSelectors.OperationKind.WRITE_WITH_STATICS, 45)
+                                        .addWeight(OpSelectors.OperationKind.WRITE, 45)
+                                        .build());
+    }
+
     public static Configuration.ConfigurationBuilder sharedConfiguration(long seed, SchemaSpec schema)
     {
         return new Configuration.ConfigurationBuilder().setSeed(seed)
@@ -76,17 +94,7 @@ public class IntegrationTestBase extends TestBaseImpl
                                                        .setTruncateTable(false)
                                                        .setDropSchema(true)
                                                        .setSchemaProvider(seed1 -> schema)
-                                                       .setClusteringDescriptorSelector((builder) -> {
-                                                           builder
-                                                           .setNumberOfModificationsDistribution(new Configuration.ConstantDistributionConfig(1))
-                                                           .setRowsPerModificationDistribution(new Configuration.ConstantDistributionConfig(1))
-                                                           .setOperationKindWeights(new Configuration.OperationKindSelectorBuilder()
-                                                                                    .addWeight(OpSelectors.OperationKind.DELETE_ROW, 10)
-                                                                                    .addWeight(OpSelectors.OperationKind.DELETE_COLUMN, 10)
-                                                                                    .addWeight(OpSelectors.OperationKind.WRITE, 80)
-                                                                                    .build())
-                                                           .setMaxPartitionSize(100);
-                                                       })
+                                                       .setClusteringDescriptorSelector(sharedCDSelectorConfiguration().build())
                                                        .setPartitionDescriptorSelector(new Configuration.DefaultPDSelectorConfiguration(1, 200))
                                                        .setSUT(() -> sut);
     }

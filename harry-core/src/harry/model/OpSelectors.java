@@ -19,8 +19,8 @@
 package harry.model;
 
 import java.util.EnumMap;
+import java.util.List;
 import java.util.Map;
-import java.util.function.Function;
 
 import com.google.common.annotations.VisibleForTesting;
 
@@ -37,15 +37,15 @@ import harry.util.BitSet;
 import static harry.generators.DataGenerators.UNSET_DESCR;
 
 /**
- * Row (uninflated) data selectors. Not calling them generators, since their output is entirely
+ * Row (deflated) data selectors. Not calling them generators, since their output is entirely
  * deterministic, and for each input they are able to produce a single output.
  * <p>
  * This is more or less a direct translation of the formalization.
  * <p>
  * All functions implemented by this interface have to _always_ produce same outputs for same inputs.
- * Most of the functions, with the exception of real-time clock translations, shouold be pure.
+ * Most of the functions, with the exception of real-time clock translations, should be pure.
  * <p>
- * Functions that are reverse of their coutnerparts are prefixed with "un"
+ * Functions that are reverse of their counterparts are prefixed with "un"
  */
 public interface OpSelectors
 {
@@ -179,23 +179,34 @@ public interface OpSelectors
 
         public long[] vds(long pd, long cd, long lts, long opId, SchemaSpec schema)
         {
-            long[] vds = new long[schema.regularColumns.size()];
-            BitSet mask = columnMask(pd, cd, opId);
+            return descriptors(pd, cd, lts, opId, schema.regularColumns, schema.regularColumnsMask(), schema.regularColumnsOffset);
+        }
 
-            for (int col = 0; col < vds.length; col++)
+        public long[] sds(long pd, long cd, long lts, long opId, SchemaSpec schema)
+        {
+            return descriptors(pd, cd, lts, opId, schema.staticColumns, schema.staticColumnsMask(), schema.staticColumnsOffset);
+        }
+
+        public long[] descriptors(long pd, long cd, long lts, long opId, List<ColumnSpec<?>> columns, BitSet mask, int offset)
+        {
+            long[] descriptors = new long[columns.size()];
+            BitSet setColumns = columnMask(pd, cd, opId);
+
+            for (int i = 0; i < descriptors.length; i++)
             {
-                if (mask.isSet(col))
+                int col = offset + i;
+                if (setColumns.isSet(col, mask))
                 {
-                    ColumnSpec spec = schema.regularColumns.get(col);
-                    long vd = vd(pd, cd, lts, opId, col) & Bytes.signMaskFor(spec.type.maxSize());
-                    vds[col] = vd;
+                    ColumnSpec<?> spec = columns.get(i);
+                    long vd = vd(pd, cd, lts, opId, col) & Bytes.bytePatternFor(spec.type.maxSize());
+                    descriptors[i] = vd;
                 }
                 else
                 {
-                    vds[col] = UNSET_DESCR;
+                    descriptors[i] = UNSET_DESCR;
                 }
             }
-            return vds;
+            return descriptors;
         }
 
         public abstract OperationKind operationType(long pd, long lts, long opId);
@@ -352,6 +363,7 @@ public interface OpSelectors
 
     // TODO: add weights/probabilities to this
     // TODO: this looks like a hierarchical surjection
+
     public static class ColumnSelectorBuilder
     {
         private Map<OperationKind, Surjections.Surjection<BitSet>> m;
@@ -361,37 +373,58 @@ public interface OpSelectors
             this.m = new EnumMap<>(OperationKind.class);
         }
 
-        public ColumnSelectorBuilder forAll(int regularColumnsCount)
+        public ColumnSelectorBuilder forAll(SchemaSpec schema)
         {
-            return forAll(BitSet.surjection(regularColumnsCount));
+            return forAll(schema, BitSet.surjection(schema.allColumns.size()));
         }
 
-        public ColumnSelectorBuilder forAll(Surjections.Surjection<BitSet> orig)
+        // TODO: change bitsets to take into account _all_ columns not only regulars
+        public ColumnSelectorBuilder forAll(SchemaSpec schema, Surjections.Surjection<BitSet> orig)
         {
             for (OperationKind type : OperationKind.values())
             {
                 Surjections.Surjection<BitSet> gen = orig;
-                if (type == OperationKind.DELETE_COLUMN)
-                {
-                    gen = (descriptor) -> {
-                        while (true)
-                        {
-                            BitSet bitSet = orig.inflate(descriptor);
-                            if (!bitSet.allUnset())
-                                return bitSet;
 
-                            descriptor = RngUtils.next(descriptor);
-                        }
-                    };
+                switch (type)
+                {
+                    case DELETE_COLUMN_WITH_STATICS:
+                        gen = (descriptor) -> {
+                            long counter = 0;
+                            while (counter <= 100)
+                            {
+                                BitSet bitSet = orig.inflate(descriptor);
+
+                                if ((schema.regularColumns.isEmpty() || !bitSet.allUnset(schema.regularColumnsMask))
+                                    && (schema.staticColumns.isEmpty() || !bitSet.allUnset(schema.staticColumnsMask)))
+                                    return bitSet;
+
+                                descriptor = RngUtils.next(descriptor);
+                                counter++;
+                            }
+                            throw new RuntimeException(String.format("Could not generate a value after %d attempts.", counter));
+                        };
+                        break;
+                    case DELETE_COLUMN:
+                        gen = (descriptor) -> {
+                            long counter = 0;
+                            while (counter <= 100)
+                            {
+                                BitSet bitSet = orig.inflate(descriptor);
+                                BitSet mask = schema.regularColumnsMask;
+
+                                if (!bitSet.allUnset(mask))
+                                    return bitSet;
+
+                                descriptor = RngUtils.next(descriptor);
+                                counter++;
+                            }
+                            throw new RuntimeException(String.format("Could not generate a value after %d attempts.", counter));
+                        };
+                        break;
                 }
                 this.m.put(type, gen);
             }
             return this;
-        }
-
-        public ColumnSelectorBuilder forAll(BitSet... pickFrom)
-        {
-            return forAll(Surjections.pick(pickFrom));
         }
 
         public ColumnSelectorBuilder forWrite(Surjections.Surjection<BitSet> gen)
@@ -427,10 +460,19 @@ public interface OpSelectors
             return forColumnDelete(Surjections.pick(pickFrom));
         }
 
-        public Function<OperationKind, Surjections.Surjection<BitSet>> build()
+        public ColumnSelector build()
         {
-            return m::get;
+            return (kind, descriptor) -> m.get(kind).inflate(descriptor);
         }
+    }
+
+
+    /**
+     * ColumnSelector has to return BitSet specifying _all_ columns
+     */
+    public static interface ColumnSelector
+    {
+        public BitSet columnMask(OperationKind operationKind, long descriptor);
     }
 
     // TODO: this can actually be further improved upon. Maybe not generation-wise, this part seems to be ok,
@@ -442,13 +484,18 @@ public interface OpSelectors
         public HierarchicalDescriptorSelector(Rng rng,
                                               // how many parts (at most) each subsequent "level" should contain
                                               int[] fractions,
-                                              Function<OperationKind, Surjections.Surjection<BitSet>> columnMaskSelector,
-                                              Surjections.Surjection<OperationKind> operationTypeSelector,
+                                              ColumnSelector columnSelector,
+                                              OperationSelector operationSelector,
                                               Distribution modificationsPerLtsDistribution,
                                               Distribution rowsPerModificationsDistribution,
                                               int maxPartitionSize)
         {
-            super(rng, columnMaskSelector, operationTypeSelector, modificationsPerLtsDistribution, rowsPerModificationsDistribution, maxPartitionSize);
+            super(rng,
+                  columnSelector,
+                  operationSelector,
+                  modificationsPerLtsDistribution,
+                  rowsPerModificationsDistribution,
+                  maxPartitionSize);
             this.fractions = fractions;
         }
 
@@ -499,26 +546,34 @@ public interface OpSelectors
         protected final static long ROWS_PER_OPERATION_STREAM = 0x5e03812e293L;
         protected final static long BITSET_IDX_STREAM = 0x92eb607bef1L;
 
-        public static Surjections.Surjection<OperationKind> DEFAULT_OP_TYPE_SELECTOR = Surjections.enumValues(OperationKind.class);
+        public static OperationSelector DEFAULT_OP_SELECTOR = OperationSelector.weighted(Surjections.weights(45, 45, 3, 2, 2, 1, 1, 1),
+                                                                                         OperationKind.WRITE,
+                                                                                         OperationKind.WRITE_WITH_STATICS,
+                                                                                         OperationKind.DELETE_ROW,
+                                                                                         OperationKind.DELETE_COLUMN,
+                                                                                         OperationKind.DELETE_COLUMN_WITH_STATICS,
+                                                                                         OperationKind.DELETE_PARTITION,
+                                                                                         OperationKind.DELETE_RANGE,
+                                                                                         OperationKind.DELETE_SLICE);
 
         protected final OpSelectors.Rng rng;
-        protected final Surjections.Surjection<OperationKind> operationTypeSelector;
-        protected final Function<OperationKind, Surjections.Surjection<BitSet>> columnMaskSelector;
+        protected final OperationSelector operationSelector;
+        protected final ColumnSelector columnSelector;
         protected final Distribution modificationsPerLtsDistribution;
         protected final Distribution rowsPerModificationsDistribution;
         protected final int maxPartitionSize;
 
         public DefaultDescriptorSelector(OpSelectors.Rng rng,
-                                         Function<OperationKind, Surjections.Surjection<BitSet>> columnMaskSelector,
-                                         Surjections.Surjection<OperationKind> operationTypeSelector,
+                                         ColumnSelector columnMaskSelector,
+                                         OperationSelector operationSelector,
                                          Distribution modificationsPerLtsDistribution,
                                          Distribution rowsPerModificationsDistribution,
                                          int maxPartitionSize)
         {
             this.rng = rng;
 
-            this.operationTypeSelector = operationTypeSelector;
-            this.columnMaskSelector = columnMaskSelector;
+            this.operationSelector = operationSelector;
+            this.columnSelector = columnMaskSelector;
 
             this.modificationsPerLtsDistribution = modificationsPerLtsDistribution;
             this.rowsPerModificationsDistribution = rowsPerModificationsDistribution;
@@ -561,7 +616,6 @@ public interface OpSelectors
 
         protected long cd(long pd, long lts, long opId)
         {
-            assert opId <= maxPartitionSize;
             int partitionSize = maxPartitionSize();
             int clusteringOffset = clusteringOffset(lts);
             if (clusteringOffset == 0)
@@ -571,7 +625,6 @@ public interface OpSelectors
             // So if we have 10 modifications per lts and 10 rows per modification,
             // we'll visit the same row twice per lts.
             int positionInPartition = (int) ((clusteringOffset + opId) % partitionSize);
-
             return rng.prev(positionInPartition, pd);
         }
 
@@ -596,15 +649,30 @@ public interface OpSelectors
 
         public OperationKind operationType(long pd, long lts, long opId)
         {
-            return operationTypeSelector.inflate(pd ^ lts ^ opId);
+            return operationType(pd, lts, opId, partitionLevelOperationsMask(pd, lts));
+        }
+
+        // TODO: create this bitset once per lts
+        public BitSet partitionLevelOperationsMask(long pd, long lts)
+        {
+            int totalOps = opsPerModification(lts) * numberOfModifications(lts);
+            long seed = rng.randomNumber(pd, lts);
+
+            int partitionLevelOps = (int) Math.ceil(operationSelector.partitionLevelThreshold * totalOps);
+            long partitionLevelOpsMask = RngUtils.randomBits(partitionLevelOps, totalOps, seed);
+
+            return BitSet.create(partitionLevelOpsMask, totalOps);
+        }
+
+        public OperationKind operationType(long pd, long lts, long opId, BitSet partitionLevelOperationsMask)
+        {
+            return operationSelector.inflate(pd ^ lts ^ opId, partitionLevelOperationsMask.isSet((int) opId));
         }
 
         public BitSet columnMask(long pd, long lts, long opId)
         {
-            Surjections.Surjection<BitSet> gen = columnMaskSelector.apply(operationType(pd, lts, opId));
-            if (gen == null)
-                throw new IllegalArgumentException("Can't find a selector for " + gen);
-            return gen.inflate(rng.randomNumber(pd ^ lts ^ opId, BITSET_IDX_STREAM));
+            long descriptor = rng.randomNumber(pd ^ lts ^ opId, BITSET_IDX_STREAM);
+            return columnSelector.columnMask(operationType(pd, lts, opId), descriptor);
         }
 
         public long vd(long pd, long cd, long lts, long opId, int col)
@@ -620,10 +688,104 @@ public interface OpSelectors
 
     public enum OperationKind
     {
-        WRITE,
-        DELETE_ROW,
-        DELETE_COLUMN,
-        DELETE_RANGE,
-        DELETE_SLICE
+        WRITE(false),
+        WRITE_WITH_STATICS(true),
+        DELETE_PARTITION(true),
+        DELETE_ROW(false),
+        DELETE_COLUMN(false),
+        DELETE_COLUMN_WITH_STATICS(true),
+        DELETE_RANGE(false),
+        DELETE_SLICE(false);
+
+        public final boolean partititonLevel;
+
+        OperationKind(boolean partitionLevel)
+        {
+            this.partititonLevel = partitionLevel;
+        }
+    }
+
+    public static class OperationSelector
+    {
+        public final Surjections.Surjection<OperationKind> partitionLevelOperationSelector;
+        public final Surjections.Surjection<OperationKind> rowLevelOperationSelector;
+        // TODO: start using partitionLevelThreshold
+        public final double partitionLevelThreshold;
+
+        public OperationSelector(Surjections.Surjection<OperationKind> partitionLevelOperationSelector,
+                                 Surjections.Surjection<OperationKind> rowLevelOperationSelector,
+                                 double partitionLevelThreshold)
+        {
+            this.partitionLevelOperationSelector = partitionLevelOperationSelector;
+            this.rowLevelOperationSelector = rowLevelOperationSelector;
+            this.partitionLevelThreshold = partitionLevelThreshold;
+        }
+
+        public OperationKind inflate(long descriptor, boolean partitionLevel)
+        {
+            OperationKind operationKind = partitionLevel ? partitionLevelOperationSelector.inflate(descriptor) : rowLevelOperationSelector.inflate(descriptor);
+            assert operationKind.partititonLevel == partitionLevel : "Generated operation with an incorrect partition level. Check your generators.";
+            return operationKind;
+        }
+
+        public static OperationSelector weighted(Map<OperationKind, Integer> weightsMap)
+        {
+            int[] weights = new int[weightsMap.size()];
+            OperationKind[] operationKinds = new OperationKind[weightsMap.size()];
+            int i = 0;
+            for (Map.Entry<OperationKind, Integer> entry : weightsMap.entrySet())
+            {
+                weights[i] = entry.getValue();
+                operationKinds[i] = entry.getKey();
+                i++;
+            }
+            return weighted(Surjections.weights(weights), operationKinds);
+        }
+
+        public static OperationSelector weighted(long[] weights, OperationKind... operationKinds)
+        {
+            assert weights.length == operationKinds.length;
+
+            Map<OperationKind, Integer> partitionLevel = new EnumMap<OperationKind, Integer>(OperationKind.class);
+            Map<OperationKind, Integer> rowLevel = new EnumMap<OperationKind, Integer>(OperationKind.class);
+
+            int partitionLevelSum = 0;
+            int rowLevelSum = 0;
+            for (int i = 0; i < weights.length; i++)
+            {
+                int v = (int) (weights[i] >> 32);
+                if (operationKinds[i].partititonLevel)
+                {
+                    partitionLevel.put(operationKinds[i], v);
+                    partitionLevelSum += v;
+                }
+                else
+                {
+                    rowLevel.put(operationKinds[i], v);
+                    rowLevelSum += v;
+                }
+            }
+            int sum = (partitionLevelSum + rowLevelSum);
+
+            return new OperationSelector(Surjections.weighted(normalize(partitionLevel)),
+                                         Surjections.weighted(normalize(rowLevel)),
+                                         (partitionLevelSum * 1.0) / sum);
+        }
+
+        public static Map<OperationKind, Integer> normalize(Map<OperationKind, Integer> weights)
+        {
+            Map<OperationKind, Integer> normalized = new EnumMap<OperationKind, Integer>(OperationKind.class);
+            int sum = 0;
+            for (Integer value : weights.values())
+                sum += value;
+
+            for (OperationKind kind : weights.keySet())
+            {
+                double dbl = (sum * ((double) weights.get(kind)) / sum);
+                normalized.put(kind, (int) Math.round(dbl));
+            }
+
+            return normalized;
+        }
     }
 }

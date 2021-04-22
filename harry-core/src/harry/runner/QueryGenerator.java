@@ -19,6 +19,7 @@
 package harry.runner;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 import java.util.function.LongSupplier;
@@ -197,7 +198,18 @@ public class QueryGenerator
                             minBound[i] = minSupplier.getAsLong();
                             maxBound[i] = maxSupplier.getAsLong();
                         }
-                        else if (i > 0 && schema.clusteringKeys.get(i - 1).isReversed())
+                        // If we have a non-eq case, all subsequent bounds have to correspond to the maximum in normal case,
+                        // or minimum in case the last bound locked with a relation was reversed.
+                        //
+                        // For example, if we have (ck1, ck2, ck3) as (ASC, DESC, ASC), and query ck1 > X, we'll have:
+                        //  [xxxxx | max_value | max_value]
+                        //    ck1       ck2         ck3
+                        // which will exclude xxxx, but take every possible (ck1 > xxxxx) prefixed value.
+                        //
+                        // Similarly, if we have (ck1, ck2, ck3) as (ASC, DESC, ASC), and query ck1 <= X, we'll have:
+                        //  [xxxxx | max_value | max_value]
+                        // which will include every (ck1 < xxxxx), and any clustering prefixed with xxxxx.
+                        else if (schema.clusteringKeys.get(nonEqFrom).isReversed())
                             maxBound[i] = minBound[i] = isGt ? minSupplier.getAsLong() : maxSupplier.getAsLong();
                         else
                             maxBound[i] = minBound[i] = isGt ? maxSupplier.getAsLong() : minSupplier.getAsLong();
@@ -236,13 +248,12 @@ public class QueryGenerator
                 long cd1 = descriptorSelector.randomCd(pd, descriptor, schema);
                 boolean isMinEq = RngUtils.asBoolean(descriptor);
                 long cd2 = descriptorSelector.randomCd(pd, rng.next(descriptor, lts), schema);
-
                 boolean isMaxEq = RngUtils.asBoolean(rng.next(descriptor, lts));
 
                 long[] minBound = schema.ckGenerator.slice(cd1);
                 long[] maxBound = schema.ckGenerator.slice(cd2);
 
-                int lock = RngUtils.asInt(descriptor, 0, schema.clusteringKeys.size() - 1);
+                int nonEqFrom = RngUtils.asInt(descriptor, 0, schema.clusteringKeys.size() - 1);
 
                 // Logic here is similar to how clustering slices are implemented, except for both lower and upper bound
                 // get their values from sliced value in (1) and (2) cases:
@@ -263,75 +274,43 @@ public class QueryGenerator
                 for (int i = 0; i < schema.clusteringKeys.size(); i++)
                 {
                     ColumnSpec<?> col = schema.clusteringKeys.get(i);
-                    if (i < lock)
+                    if (i < nonEqFrom)
                     {
                         relations.add(Relation.eqRelation(col, minBound[i]));
                         maxBound[i] = minBound[i];
                     }
-                    else if (i == lock)
+                    else if (i == nonEqFrom)
                     {
-                        long minLocked = Math.min(minBound[lock], maxBound[lock]);
-                        long maxLocked = Math.max(minBound[lock], maxBound[lock]);
+                        long minLocked = Math.min(minBound[nonEqFrom], maxBound[nonEqFrom]);
+                        long maxLocked = Math.max(minBound[nonEqFrom], maxBound[nonEqFrom]);
+                        relations.add(Relation.relation(relationKind(true, col.isReversed() ? isMaxEq : isMinEq), col,
+                                                        col.isReversed() ? maxLocked : minLocked));
+                        relations.add(Relation.relation(relationKind(false, col.isReversed() ? isMinEq : isMaxEq), col,
+                                                        col.isReversed() ? minLocked : maxLocked));
+                        minBound[i] = minLocked;
+                        maxBound[i] = maxLocked;
 
-                        relations.add(Relation.relation(relationKind(true, isMinEq), col, minLocked));
-                        minBound[i] = col.isReversed() ? maxLocked : minLocked;
-                        relations.add(Relation.relation(relationKind(false, isMaxEq), col, maxLocked));
-                        maxBound[i] = col.isReversed() ? minLocked : maxLocked;
+                        // Impossible query
+                        if (i == 0 && minLocked == maxLocked)
+                        {
+                            return inflate(lts, modifier + 1, queryKind);
+                        }
                     }
                     else
                     {
-//                        if (i > 0 && schema.clusteringKeys.get(i - 1).isReversed())
-//                        {
-//                            minBound[i] = isMinEq ? schema.ckGenerator.maxValue(i) : schema.ckGenerator.minValue(i);
-//                            maxBound[i] = isMaxEq ? schema.ckGenerator.minValue(i) : schema.ckGenerator.maxValue(i);
-//                        }
-//                        else
-                        {
-                            minBound[i] = isMinEq ? schema.ckGenerator.minValue(i) : schema.ckGenerator.maxValue(i);
-                            maxBound[i] = isMaxEq ? schema.ckGenerator.maxValue(i) : schema.ckGenerator.minValue(i);
-                        }
+                        minBound[i] = isMinEq ? schema.ckGenerator.minValue(i) : schema.ckGenerator.maxValue(i);
+                        maxBound[i] = isMaxEq ? schema.ckGenerator.maxValue(i) : schema.ckGenerator.minValue(i);
                     }
                 }
 
                 long stitchedMin = schema.ckGenerator.stitch(minBound);
                 long stitchedMax = schema.ckGenerator.stitch(maxBound);
 
-//                if (stitchedMin > stitchedMax)
-//                {
-//                    long[] tmp = minBound;
-//                    minBound = maxBound;
-//                    maxBound = tmp;
-//                    stitchedMin = schema.ckGenerator.stitch(minBound);
-//                    stitchedMax = schema.ckGenerator.stitch(maxBound);
-//                }
-//
-//                for (int i = 0; i <= lock; i++)
-//                {
-//                    ColumnSpec<?> col = schema.clusteringKeys.get(i);
-//                    if (i < lock)
-//                    {
-//                        relations.add(Relation.eqRelation(col, minBound[i]));
-//                    }
-//                    else
-//                    {
-//                        relations.add(Relation.relation(relationKind(true, isMinEq), col, minBound[lock]));
-//                        relations.add(Relation.relation(relationKind(false, isMaxEq), col, maxBound[lock]));
-//                    }
-//                }
-
                 // if we're about to create an "impossible" query, just bump the modifier and re-generate
-                // TODO: so this isn't considered "normal" that we do it this way, but I'd rather fix it with
+                // TODO: this isn't considered "normal" that we do it this way, but I'd rather fix it with
                 //       a refactoring that's mentioned below
                 if (stitchedMin == stitchedMax)
                 {
-//                    if (modifier > 10)
-//                    {
-//                        logger.error(String.format("Unsuccessfully tried to generate query for %s%s;%s%s %s %d times. Schema: %s",
-//                                                   isMinEq ? "[" : "(", stitchedMin,
-//                                                   stitchedMax, isMaxEq ? "]" : ")",
-//                                                   queryKind, modifier, schema.compile().cql()),
-//                                     new RuntimeException());
-//                    }
                     return inflate(lts, modifier + 1, queryKind);
                 }
 

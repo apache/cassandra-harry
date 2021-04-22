@@ -29,14 +29,13 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import harry.ddl.SchemaSpec;
-import harry.model.ExhaustiveChecker;
 import harry.model.SelectHelper;
 import harry.operations.CompiledStatement;
 import harry.operations.DeleteHelper;
 import harry.operations.Relation;
 import harry.util.Ranges;
 
-import static harry.model.ExhaustiveChecker.FORWARD_COMPARATOR;
+import static harry.operations.Relation.FORWARD_COMPARATOR;
 
 public abstract class Query
 {
@@ -205,7 +204,8 @@ public abstract class Query
 
         public boolean match(long cd)
         {
-            ExhaustiveChecker.LongComparator cmp = FORWARD_COMPARATOR;
+            // TODO: looks like we don't really need comparator here.
+            Relation.LongComparator cmp = FORWARD_COMPARATOR;
             boolean res = minRelation.match(cmp, cd, cdMin) && maxRelation.match(cmp, cd, cdMax);
             if (!logger.isDebugEnabled())
                 return res;
@@ -258,7 +258,7 @@ public abstract class Query
 
     public CompiledStatement toDeleteStatement(long rts)
     {
-        return DeleteHelper.delete(schemaSpec, pd, relations, null, rts);
+        return DeleteHelper.delete(schemaSpec, pd, relations, null, null, rts);
     }
 
     public abstract Ranges.Range toRange(long ts);

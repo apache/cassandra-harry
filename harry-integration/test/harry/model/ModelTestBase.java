@@ -18,8 +18,9 @@
 
 package harry.model;
 
+import java.util.Arrays;
+import java.util.concurrent.TimeUnit;
 import java.util.function.BiConsumer;
-import java.util.function.Consumer;
 import java.util.function.Function;
 import java.util.function.Supplier;
 
@@ -30,6 +31,7 @@ import harry.ddl.SchemaSpec;
 import harry.runner.LoggingPartitionVisitor;
 import harry.runner.MutatingRowVisitor;
 import harry.runner.PartitionVisitor;
+import harry.runner.Runner;
 import harry.runner.SinglePartitionValidator;
 
 public abstract class ModelTestBase extends IntegrationTestBase
@@ -44,39 +46,67 @@ public abstract class ModelTestBase extends IntegrationTestBase
         }
     }
 
+    void negativeIntegrationTest(Model.ModelFactory factory) throws Throwable
+    {
+        Supplier<SchemaSpec> supplier = SchemaGenerators.progression(1);
+        for (int i = 0; i < SchemaGenerators.DEFAULT_RUNS; i++)
+        {
+            SchemaSpec schema = supplier.get();
+            Configuration.ConfigurationBuilder builder = configuration(i, schema);
+            builder.setClock(new Configuration.ApproximateMonotonicClockConfiguration((int) TimeUnit.MINUTES.toMillis(10),
+                                                                                      1, TimeUnit.SECONDS))
+                   .setRunTime(1, TimeUnit.MINUTES)
+                   .setCreateSchema(false)
+                   .setDropSchema(false)
+                   .setRunner(new Configuration.SequentialRunnerConfig(Arrays.asList(new Configuration.LoggingPartitionVisitorConfiguration(new Configuration.MutatingRowVisitorConfiguration()),
+                                                                                     new Configuration.RecentPartitionsValidatorConfiguration(10, 10, 1, factory::make),
+                                                                                     new Configuration.AllPartitionsValidatorConfiguration(10, 10, factory::make))));
+            Runner runner = builder.build().createRunner();
+            try
+            {
+                Run run = runner.getRun();
+                beforeEach();
+                run.sut.schemaChange(run.schemaSpec.compile().cql());
+
+                runner.initAndStartAll().get(2, TimeUnit.MINUTES);
+            }
+            catch (Throwable t)
+            {
+                throw t;
+            }
+            finally
+            {
+                runner.shutdown();
+            }
+        }
+    }
+
     abstract Configuration.ModelConfiguration modelConfiguration();
 
     protected PartitionVisitor validator(Run run)
     {
-        return new SinglePartitionValidator(100, run, modelConfiguration());
+        return new SinglePartitionValidator(100, run , modelConfiguration());
+    }
+
+    public Configuration.ConfigurationBuilder configuration(long seed, SchemaSpec schema)
+    {
+        return sharedConfiguration(seed, schema);
     }
 
     void negativeTest(Function<Run, Boolean> corrupt, BiConsumer<Throwable, Run> validate, int counter, SchemaSpec schemaSpec)
     {
-        Configuration config = sharedConfiguration(counter, schemaSpec)
-                               .setClusteringDescriptorSelector((builder) -> {
-                                   builder.setNumberOfModificationsDistribution(new Configuration.ConstantDistributionConfig(10))
-                                          .setRowsPerModificationDistribution(new Configuration.ConstantDistributionConfig(10))
-                                          .setMaxPartitionSize(100)
-                                          .setOperationKindWeights(new Configuration.OperationKindSelectorBuilder()
-                                                                   .addWeight(OpSelectors.OperationKind.DELETE_ROW, 1)
-                                                                   .addWeight(OpSelectors.OperationKind.DELETE_COLUMN, 1)
-                                                                   .addWeight(OpSelectors.OperationKind.DELETE_RANGE, 1)
-                                                                   .addWeight(OpSelectors.OperationKind.DELETE_SLICE, 1)
-                                                                   .addWeight(OpSelectors.OperationKind.WRITE, 96)
-                                                                   .build());
-                               })
-                               .build();
+        Configuration config = configuration(counter, schemaSpec).build();
 
         Run run = config.createRun();
         beforeEach();
         run.sut.schemaChange(run.schemaSpec.compile().cql());
+        System.out.println(run.schemaSpec.compile().cql());
         OpSelectors.MonotonicClock clock = run.clock;
 
         PartitionVisitor validator = validator(run);
         PartitionVisitor partitionVisitor = new LoggingPartitionVisitor(run, MutatingRowVisitor::new);
 
-        for (int i = 0; i < 200; i++)
+        for (int i = 0; i < 20000; i++)
         {
             long lts = clock.nextLts();
             partitionVisitor.visitPartition(lts);
@@ -100,3 +130,4 @@ public abstract class ModelTestBase extends IntegrationTestBase
         }
     }
 }
+

@@ -50,7 +50,34 @@ public class CompiledStatement
     {
         return "CompiledStatement{" +
                "cql='" + cql + '\'' +
-               ", bindings=" + Arrays.toString(bindings) +
+               ", bindings=" + bindingsToString(bindings) +
                '}';
+    }
+
+    public static String bindingsToString(Object... bindings)
+    {
+        StringBuilder sb = new StringBuilder();
+        boolean isFirst = true;
+        for (Object binding : bindings)
+        {
+            if (isFirst)
+                isFirst = false;
+            else
+                sb.append(",");
+
+            if (binding instanceof String)
+                sb.append("\"").append(binding).append("\"");
+            else if (binding instanceof Short)
+                sb.append("(short)").append(binding);
+            else if (binding instanceof Byte)
+                sb.append("(byte)").append(binding);
+            else if (binding instanceof Float)
+                sb.append("(float)").append(binding);
+            else if (binding instanceof Long)
+                sb.append(binding).append("L");
+            else
+                sb.append(binding);
+        }
+        return sb.toString();
     }
 }

@@ -25,6 +25,7 @@ import java.util.stream.Stream;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Iterables;
+import com.google.common.collect.Streams;
 
 import harry.generators.DataGenerators;
 import harry.operations.CompiledStatement;
@@ -52,18 +53,25 @@ public class SchemaSpec
     public final List<ColumnSpec<?>> partitionKeys;
     public final List<ColumnSpec<?>> clusteringKeys;
     public final List<ColumnSpec<?>> regularColumns;
+    public final List<ColumnSpec<?>> staticColumns;
     public final List<ColumnSpec<?>> allColumns;
 
     public final BitSet ALL_COLUMNS_BITSET;
+    public final int regularColumnsOffset;
+    public final int staticColumnsOffset;
+    public final BitSet regularColumnsMask;
+    public final BitSet regularAndStaticColumnsMask;
+    public final BitSet staticColumnsMask;
 
     // TODO: forbid this constructor; add the one where column specs would be initialized through builder and have indexes
     public SchemaSpec(String keyspace,
                       String table,
                       List<ColumnSpec<?>> partitionKeys,
                       List<ColumnSpec<?>> clusteringKeys,
-                      List<ColumnSpec<?>> regularColumns)
+                      List<ColumnSpec<?>> regularColumns,
+                      List<ColumnSpec<?>> staticColumns)
     {
-        this(keyspace, table, partitionKeys, clusteringKeys, regularColumns, false);
+        this(keyspace, table, partitionKeys, clusteringKeys, regularColumns, staticColumns, false);
     }
 
     public SchemaSpec(String keyspace,
@@ -71,6 +79,7 @@ public class SchemaSpec
                       List<ColumnSpec<?>> partitionKeys,
                       List<ColumnSpec<?>> clusteringKeys,
                       List<ColumnSpec<?>> regularColumns,
+                      List<ColumnSpec<?>> staticColumns,
                       boolean isCompactStorage)
     {
         assert !isCompactStorage || clusteringKeys.size() == 0 || regularColumns.size() <= 1;
@@ -84,27 +93,83 @@ public class SchemaSpec
         this.clusteringKeys = ImmutableList.copyOf(clusteringKeys);
         for (int i = 0; i < clusteringKeys.size(); i++)
             clusteringKeys.get(i).setColumnIndex(i);
+        this.staticColumns = ImmutableList.copyOf(staticColumns);
+        for (int i = 0; i < staticColumns.size(); i++)
+            staticColumns.get(i).setColumnIndex(i);
         this.regularColumns = ImmutableList.copyOf(regularColumns);
         for (int i = 0; i < regularColumns.size(); i++)
             regularColumns.get(i).setColumnIndex(i);
         this.allColumns = ImmutableList.copyOf(Iterables.concat(partitionKeys,
                                                                 clusteringKeys,
+                                                                staticColumns,
                                                                 regularColumns));
         this.pkGenerator = DataGenerators.createKeyGenerator(partitionKeys);
         this.ckGenerator = DataGenerators.createKeyGenerator(clusteringKeys);
 
         this.ALL_COLUMNS_BITSET = BitSet.allSet(regularColumns.size());
+
+        this.staticColumnsOffset = partitionKeys.size() + clusteringKeys.size();
+        this.regularColumnsOffset = staticColumnsOffset + staticColumns.size();
+
+        this.regularColumnsMask = regularColumnsMask(this);
+        this.regularAndStaticColumnsMask = regularAndStaticColumnsMask(this);
+        this.staticColumnsMask = staticColumnsMask(this);
+    }
+
+    public static BitSet allColumnsMask(SchemaSpec schema)
+    {
+        return BitSet.allSet(schema.allColumns.size());
+    }
+
+    // todo: bitset views?
+
+    public BitSet regularColumnsMask()
+    {
+        return this.regularColumnsMask;
+    }
+
+    public BitSet regularAndStaticColumnsMask()
+    {
+        return this.regularAndStaticColumnsMask;
+    }
+
+    public BitSet staticColumnsMask()
+    {
+        return this.staticColumnsMask;
+    }
+
+    private static BitSet regularColumnsMask(SchemaSpec schema)
+    {
+        BitSet mask = BitSet.allUnset(schema.allColumns.size());
+        for (int i = 0; i < schema.regularColumns.size(); i++)
+            mask.set(schema.regularColumnsOffset + i);
+        return mask;
+    }
+
+    private static BitSet regularAndStaticColumnsMask(SchemaSpec schema)
+    {
+        BitSet mask = BitSet.allUnset(schema.allColumns.size());
+        for (int i = 0; i < schema.staticColumns.size() + schema.regularColumns.size(); i++)
+            mask.set(schema.staticColumnsOffset + i);
+        return mask;
+    }
+
+    private static BitSet staticColumnsMask(SchemaSpec schema)
+    {
+        BitSet mask = BitSet.allUnset(schema.allColumns.size());
+        for (int i = 0; i < schema.staticColumns.size(); i++)
+            mask.set(schema.staticColumnsOffset + i);
+        return mask;
     }
 
     public void validate()
     {
         assert pkGenerator.byteSize() == Long.BYTES : partitionKeys.toString();
-        assert ckGenerator.byteSize() == Long.BYTES : clusteringKeys.toString();
     }
 
-    public static interface AddRelationCallback
+    public interface AddRelationCallback
     {
-        public void accept(ColumnSpec spec, Relation.RelationKind kind, Object value);
+        public void accept(ColumnSpec<?> spec, Relation.RelationKind kind, Object value);
     }
 
     public void inflateRelations(long pd,
@@ -134,6 +199,11 @@ public class SchemaSpec
         return DataGenerators.inflateData(regularColumns, vds);
     }
 
+    public Object[] inflateStaticColumns(long[] sds)
+    {
+        return DataGenerators.inflateData(staticColumns, sds);
+    }
+
     // TODO: remove indirection; call directly
     public long adjustPdEntropy(long descriptor)
     {
@@ -153,6 +223,11 @@ public class SchemaSpec
     public long deflateClusteringKey(Object[] ck)
     {
         return ckGenerator.deflate(ck);
+    }
+
+    public long[] deflateStaticColumns(Object[] statics)
+    {
+        return DataGenerators.deflateData(staticColumns, statics);
     }
 
     public long[] deflateRegularColumns(Object[] regulars)
@@ -179,8 +254,9 @@ public class SchemaSpec
                 sb.append(" PRIMARY KEY");
         }
 
-        Stream.concat(clusteringKeys.stream(),
-                      regularColumns.stream())
+        Streams.concat(clusteringKeys.stream(),
+                       staticColumns.stream(),
+                       regularColumns.stream())
               .forEach((cd) -> {
                   commaAppender.accept(sb);
                   sb.append(cd.toCQL());

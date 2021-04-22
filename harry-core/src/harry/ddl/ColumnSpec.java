@@ -30,6 +30,8 @@ import com.google.common.collect.ImmutableList;
 import harry.generators.Bijections;
 import harry.generators.StringBijection;
 
+import static harry.generators.StringBijection.getByte;
+
 public class ColumnSpec<T>
 {
     public final String name;
@@ -133,7 +135,7 @@ public class ColumnSpec<T>
 
     public static ColumnSpec<?> staticColumn(String name, DataType<?> type)
     {
-        return new ColumnSpec<>(name, type, Kind.CLUSTERING);
+        return new ColumnSpec<>(name, type, Kind.STATIC);
     }
 
     public enum Kind
@@ -155,6 +157,21 @@ public class ColumnSpec<T>
             return false;
         }
 
+        /**
+         * Cassandra uses lexicographical oder for resolving timestamp ties
+         */
+        public int compareLexicographically(long l, long r)
+        {
+            for (int i = Long.BYTES - 1; i >= 0; i--)
+            {
+                int cmp = Integer.compare((int) ((l >> (i * 8)) & 0xffL),
+                                          (int) ((r >> (i * 8)) & 0xffL));
+                if (cmp != 0)
+                    return cmp;
+            }
+            return 0;
+        }
+
         public abstract Bijections.Bijection<T> generator();
 
         public int maxSize()
@@ -163,6 +180,11 @@ public class ColumnSpec<T>
         }
 
         public String toString()
+        {
+            return cqlName;
+        }
+
+        public String nameForParser()
         {
             return cqlName;
         }
@@ -206,6 +228,11 @@ public class ColumnSpec<T>
         {
             return Bijections.BOOLEAN_GENERATOR;
         }
+
+        public int compareLexicographically(long l, long r)
+        {
+            throw new RuntimeException("Boolean does not support custom comparators");
+        }
     };
 
     public static final DataType<Float> floatType = new DataType<Float>("float")
@@ -232,17 +259,35 @@ public class ColumnSpec<T>
         {
             return gen;
         }
+
+        public int compareLexicographically(long l, long r)
+        {
+            return Long.compare(l, r);
+        }
     };
 
-    public static DataType<String> asciiType(int nibbleSize, int maxRandomNibbles)
+    public static DataType<String> asciiType(int nibbleSize, int maxRandomBytes)
     {
-        Bijections.Bijection<String> gen = new StringBijection(nibbleSize, maxRandomNibbles);
+        Bijections.Bijection<String> gen = new StringBijection(nibbleSize, maxRandomBytes);
 
         return new DataType<String>("ascii")
         {
             public Bijections.Bijection<String> generator()
             {
                 return gen;
+            }
+
+            public int compareLexicographically(long l, long r)
+            {
+                return Long.compare(l, r);
+            }
+
+            public String nameForParser()
+            {
+                return String.format("%s(%d,%d)",
+                                     super.nameForParser(),
+                                     nibbleSize,
+                                     maxRandomBytes);
             }
         };
     }
@@ -253,6 +298,11 @@ public class ColumnSpec<T>
         {
             return Bijections.UUID_GENERATOR;
         }
+
+        public int compareLexicographically(long l, long r)
+        {
+            throw new RuntimeException("UUID does not support custom comparators");
+        }
     };
 
     public static final DataType<Date> timestampType = new DataType<Date>("timestamp")
@@ -260,6 +310,11 @@ public class ColumnSpec<T>
         public Bijections.Bijection<Date> generator()
         {
             return Bijections.TIMESTAMP_GENERATOR;
+        }
+
+        public int compareLexicographically(long l, long r)
+        {
+            throw new RuntimeException("Date does not support custom comparators");
         }
     };
 
