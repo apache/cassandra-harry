@@ -27,12 +27,12 @@ import harry.generators.Surjections;
 import harry.generators.distribution.Distribution;
 import harry.util.BitSet;
 
-import static harry.model.OpSelectors.DefaultDescriptorSelector.DEFAULT_OP_TYPE_SELECTOR;
+import static harry.model.OpSelectors.DefaultDescriptorSelector.DEFAULT_OP_SELECTOR;
 
 public class DescriptorSelectorBuilder implements Configuration.CDSelectorConfiguration
 {
-    private Function<SchemaSpec, Function<OpSelectors.OperationKind, Surjections.Surjection<BitSet>>> columnMaskSelector;
-    private Surjections.Surjection<OpSelectors.OperationKind> operationTypeSelector = DEFAULT_OP_TYPE_SELECTOR;
+    private Function<SchemaSpec, OpSelectors.ColumnSelector> columnSelectorFactory;
+    private OpSelectors.OperationSelector operationSelector = DEFAULT_OP_SELECTOR;
     private Distribution numberOfRowsDistribution = new Distribution.ScaledDistribution(2, 30);
     private Distribution numberOfModificationsDistribution = new Distribution.ScaledDistribution(1, 3);
     private int maxPartitionSize = Integer.MAX_VALUE;
@@ -50,21 +50,21 @@ public class DescriptorSelectorBuilder implements Configuration.CDSelectorConfig
         return this;
     }
 
-    public DescriptorSelectorBuilder setColumnMaskSelector(Surjections.Surjection<BitSet> selector)
+    public DescriptorSelectorBuilder setColumnSelector(Surjections.Surjection<BitSet> selector)
     {
-        this.columnMaskSelector = (schemaSpec) -> new OpSelectors.ColumnSelectorBuilder().forAll(selector).build();
+        this.columnSelectorFactory = (schemaSpec) -> new OpSelectors.ColumnSelectorBuilder().forAll(schemaSpec, selector).build();
         return this;
     }
 
-    public DescriptorSelectorBuilder setColumnMaskSelector(Function<SchemaSpec, Function<OpSelectors.OperationKind, Surjections.Surjection<BitSet>>> columnMaskSelector)
+    public DescriptorSelectorBuilder setColumnSelectorFactory(Function<SchemaSpec, OpSelectors.ColumnSelector> columnMaskSelector)
     {
-        this.columnMaskSelector = Objects.requireNonNull(columnMaskSelector, "mask");
+        this.columnSelectorFactory = Objects.requireNonNull(columnMaskSelector, "mask");
         return this;
     }
 
-    public DescriptorSelectorBuilder setOperationTypeSelector(Surjections.Surjection<OpSelectors.OperationKind> operationTypeSelector)
+    public DescriptorSelectorBuilder setOperationSelector(OpSelectors.OperationSelector operationSelector)
     {
-        this.operationTypeSelector = Objects.requireNonNull(operationTypeSelector, "type");
+        this.operationSelector = Objects.requireNonNull(operationSelector, "type");
         return this;
     }
 
@@ -95,8 +95,8 @@ public class DescriptorSelectorBuilder implements Configuration.CDSelectorConfig
     public OpSelectors.DescriptorSelector make(OpSelectors.Rng rng, SchemaSpec schemaSpec)
     {
         return new OpSelectors.DefaultDescriptorSelector(rng,
-                                                         columnMaskSelector.apply(schemaSpec),
-                                                         operationTypeSelector,
+                                                         columnSelectorFactory.apply(schemaSpec),
+                                                         operationSelector,
                                                          numberOfModificationsDistribution,
                                                          numberOfRowsDistribution,
                                                          maxPartitionSize);

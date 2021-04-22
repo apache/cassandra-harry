@@ -23,7 +23,6 @@ import java.util.List;
 
 import com.datastax.driver.core.querybuilder.Clause;
 import harry.ddl.ColumnSpec;
-import harry.model.ExhaustiveChecker;
 
 import static com.datastax.driver.core.querybuilder.QueryBuilder.bindMarker;
 import static com.datastax.driver.core.querybuilder.QueryBuilder.eq;
@@ -150,7 +149,7 @@ public class Relation
                 return "<";
             }
 
-            public boolean match(ExhaustiveChecker.LongComparator comparator, long l, long r)
+            public boolean match(LongComparator comparator, long l, long r)
             {
                 return comparator.compare(l, r) < 0;
             }
@@ -188,7 +187,7 @@ public class Relation
                 return ">";
             }
 
-            public boolean match(ExhaustiveChecker.LongComparator comparator, long l, long r)
+            public boolean match(LongComparator comparator, long l, long r)
             {
                 return comparator.compare(l, r) > 0;
             }
@@ -231,7 +230,7 @@ public class Relation
                 return "<=";
             }
 
-            public boolean match(ExhaustiveChecker.LongComparator comparator, long l, long r)
+            public boolean match(LongComparator comparator, long l, long r)
             {
                 return comparator.compare(l, r) <= 0;
             }
@@ -274,7 +273,7 @@ public class Relation
                 return ">=";
             }
 
-            public boolean match(ExhaustiveChecker.LongComparator comparator, long l, long r)
+            public boolean match(LongComparator comparator, long l, long r)
             {
                 return comparator.compare(l, r) >= 0;
             }
@@ -322,13 +321,13 @@ public class Relation
                 return "=";
             }
 
-            public boolean match(ExhaustiveChecker.LongComparator comparator, long l, long r)
+            public boolean match(LongComparator comparator, long l, long r)
             {
                 return comparator.compare(l, r) == 0;
             }
         };
 
-        public abstract boolean match(ExhaustiveChecker.LongComparator comparator, long l, long r);
+        public abstract boolean match(LongComparator comparator, long l, long r);
 
         public abstract Clause getClause(String name, Object obj);
 
@@ -347,4 +346,11 @@ public class Relation
 
         public abstract long nextMatch(long n);
     }
+
+    public static interface LongComparator
+    {
+        public int compare(long l, long r);
+    }
+
+    public static LongComparator FORWARD_COMPARATOR = Long::compare;
 }

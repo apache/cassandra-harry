@@ -18,32 +18,48 @@
 
 package harry.runner;
 
+import java.io.BufferedWriter;
+import java.io.File;
+import java.io.FileNotFoundException;
+import java.io.FileOutputStream;
+import java.io.IOException;
+import java.io.OutputStreamWriter;
+import java.util.Arrays;
+import java.util.concurrent.atomic.AtomicLong;
+
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import harry.core.MetricReporter;
 import harry.core.Run;
 import harry.generators.Surjections;
 import harry.model.Model;
 import harry.model.OpSelectors;
+import harry.operations.CompiledStatement;
 
 public class RecentPartitionValidator implements PartitionVisitor
 {
+    private final BufferedWriter validationLog;
+    private static final Logger logger = LoggerFactory.getLogger(RecentPartitionValidator.class);
     private final Model model;
 
-    private final OpSelectors.MonotonicClock clock;
     private final OpSelectors.PdSelector pdSelector;
     private final QueryGenerator.TypedQueryGenerator querySelector;
     private final MetricReporter metricReporter;
     private final int partitionCount;
     private final int triggerAfter;
+    private final int queries;
 
     public RecentPartitionValidator(int partitionCount,
+                                    int queries,
                                     int triggerAfter,
                                     Run run,
                                     Model.ModelFactory modelFactory)
     {
         this.partitionCount = partitionCount;
         this.triggerAfter = triggerAfter;
+        this.queries = queries;
         this.metricReporter = run.metricReporter;
-        this.clock = run.clock;
         this.pdSelector = run.pdSelector;
 
         this.querySelector = new QueryGenerator.TypedQueryGenerator(run.rng,
@@ -51,21 +67,36 @@ public class RecentPartitionValidator implements PartitionVisitor
                                                                     Surjections.enumValues(Query.QueryKind.class),
                                                                     run.rangeSelector);
         this.model = modelFactory.make(run);
+        File f = new File("validation.log");
+        try
+        {
+            validationLog = new BufferedWriter(new OutputStreamWriter(new FileOutputStream(f)));
+        }
+        catch (FileNotFoundException e)
+        {
+            throw new RuntimeException(e);
+        }
     }
 
+    private final AtomicLong maxPos = new AtomicLong(-1);
+
     // TODO: expose metric, how many times validated recent partitions
-    private void validateRecentPartitions(int partitionCount)
+    private void validateRecentPartitions(long lts)
     {
-        long maxLts = clock.maxLts();
-        long pos = pdSelector.positionFor(maxLts);
+        long pos = maxPos.get();
 
         int maxPartitions = partitionCount;
-        while (pos > 0 && maxPartitions > 0 && !Thread.currentThread().isInterrupted())
+        while (pos >= 0 && maxPartitions > 0 && !Thread.currentThread().isInterrupted())
         {
             long visitLts = pdSelector.minLtsAt(pos);
-
-            metricReporter.validateRandomQuery();
-            model.validate(querySelector.inflate(visitLts, 0));
+            for (int i = 0; i < queries; i++)
+            {
+                metricReporter.validateRandomQuery();
+                Query query = querySelector.inflate(visitLts, i);
+                // TODO: add pd skipping from shrinker here, too
+                log(lts, i, query);
+                model.validate(query);
+            }
 
             pos--;
             maxPartitions--;
@@ -74,11 +105,32 @@ public class RecentPartitionValidator implements PartitionVisitor
 
     public void visitPartition(long lts)
     {
-        if (lts % triggerAfter == 0)
-            validateRecentPartitions(partitionCount);
+        maxPos.updateAndGet(current -> Math.max(pdSelector.positionFor(lts), current));
+
+        if (triggerAfter > 0 && lts % triggerAfter == 0)
+        {
+            logger.info("Validating {} recent partitions", partitionCount);
+            validateRecentPartitions(lts);
+        }
     }
 
     public void shutdown() throws InterruptedException
     {
+    }
+
+    private void log(long lts, int modifier, Query query)
+    {
+        try
+        {
+            validationLog.write("LTS: " + lts + ". Modifier: " + modifier + ". PD: " + query.pd);
+            validationLog.write("\t");
+            validationLog.write(query.toSelectStatement().toString());
+            validationLog.write("\n");
+            validationLog.flush();
+        }
+        catch (IOException e)
+        {
+            // ignore
+        }
     }
 }

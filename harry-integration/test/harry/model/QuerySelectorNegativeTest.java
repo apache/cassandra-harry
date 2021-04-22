@@ -50,7 +50,7 @@ import static harry.corruptor.QueryResponseCorruptor.SimpleQueryResponseCorrupto
 @RunWith(Parameterized.class)
 public class QuerySelectorNegativeTest extends IntegrationTestBase
 {
-    private final int ltss = 1000;
+    private final int CYCLES = 1000;
 
     private final Random rnd = new Random();
 
@@ -78,7 +78,8 @@ public class QuerySelectorNegativeTest extends IntegrationTestBase
                                                                        HideRowCorruptor::new),
                              (run) -> new AddExtraRowCorruptor(run.schemaSpec,
                                                                run.clock,
-                                                               run.descriptorSelector));
+                                                               run.descriptorSelector)
+        );
     }
 
     interface QueryResponseCorruptorFactory
@@ -99,21 +100,23 @@ public class QuerySelectorNegativeTest extends IntegrationTestBase
         {
             beforeEach();
             Configuration config = gen.get()
-                                      .setClusteringDescriptorSelector((builder) -> {
-                                          builder.setMaxPartitionSize(2000);
-                                      })
+                                      .setClusteringDescriptorSelector(sharedCDSelectorConfiguration()
+                                                                       .setNumberOfModificationsDistribution(new Configuration.ConstantDistributionConfig(2))
+                                                                       .setRowsPerModificationDistribution(new Configuration.ConstantDistributionConfig(2))
+                                                                       .setMaxPartitionSize(2000)
+                                                                       .build())
                                       .build();
             Run run = config.createRun();
             run.sut.schemaChange(run.schemaSpec.compile().cql());
-
+            System.out.println(run.schemaSpec.compile().cql());
             OpSelectors.MonotonicClock clock = run.clock;
 
             PartitionVisitor partitionVisitor = new MutatingPartitionVisitor(run, MutatingRowVisitor::new);
-            Model model = new ExhaustiveChecker(run);
+            Model model = new QuiescentChecker(run);
 
             QueryResponseCorruptor corruptor = this.corruptorFactory.create(run);
 
-            for (int i = 0; i < ltss; i++)
+            for (int i = 0; i < CYCLES; i++)
             {
                 long lts = clock.nextLts();
                 partitionVisitor.visitPartition(lts);

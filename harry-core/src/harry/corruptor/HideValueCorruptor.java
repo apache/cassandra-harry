@@ -56,6 +56,31 @@ public class HideValueCorruptor implements RowCorruptor
 
     public CompiledStatement corrupt(ResultSetRow row)
     {
+        BitSet mask;
+        if (row.slts != null && rng.nextBoolean())
+        {
+            int cnt = 0;
+            int idx;
+            do
+            {
+                idx = rng.nextInt(row.slts.length - 1);
+                cnt++;
+            }
+            while (row.slts[idx] == Model.NO_TIMESTAMP && cnt < 10);
+
+            if (row.slts[idx] != Model.NO_TIMESTAMP)
+            {
+                mask = BitSet.allUnset(schema.allColumns.size());
+                mask.set(schema.staticColumnsOffset + idx);
+
+                return DeleteHelper.deleteColumn(schema,
+                                                 row.pd,
+                                                 mask,
+                                                 schema.regularAndStaticColumnsMask(),
+                                                 clock.rts(clock.maxLts()) + 1);
+            }
+        }
+
         int idx;
         do
         {
@@ -63,12 +88,14 @@ public class HideValueCorruptor implements RowCorruptor
         }
         while (row.lts[idx] == Model.NO_TIMESTAMP);
 
-        BitSet mask = BitSet.allUnset(schema.regularColumns.size());
-        mask.set(idx);
+        mask = BitSet.allUnset(schema.allColumns.size());
+        mask.set(schema.regularColumnsOffset + idx);
+
         return DeleteHelper.deleteColumn(schema,
                                          row.pd,
                                          row.cd,
                                          mask,
+                                         schema.regularAndStaticColumnsMask(),
                                          clock.rts(clock.maxLts()) + 1);
     }
 }

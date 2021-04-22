@@ -19,6 +19,7 @@
 package harry.model;
 
 import harry.core.Run;
+import harry.reconciler.Reconciler;
 import harry.runner.Query;
 
 public interface Model
@@ -34,19 +35,13 @@ public interface Model
 
     class ValidationException extends RuntimeException
     {
-        public ValidationException(String message)
+        public ValidationException(String partitionState, String observedState, String format, Object... objects)
         {
-            super(message);
-        }
-
-        public ValidationException(String format, Object... objects)
-        {
-            super(String.format(format, objects));
-        }
-
-        public ValidationException(String message, Throwable cause)
-        {
-            super(message, cause);
+            super(String.format(format, objects) +
+                  "\nPartition state:\n" + partitionState +
+                  "\nObserved state:\n" + observedState);
         }
     }
+
+
 }

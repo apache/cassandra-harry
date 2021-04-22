@@ -21,9 +21,11 @@ package harry.model;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.Collections;
+import java.util.EnumMap;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Map;
+import java.util.Random;
 import java.util.Set;
 import java.util.TreeSet;
 import java.util.function.BiConsumer;
@@ -37,6 +39,7 @@ import harry.core.Run;
 import harry.ddl.ColumnSpec;
 import harry.ddl.SchemaGenerators;
 import harry.ddl.SchemaSpec;
+import harry.generators.RngUtils;
 import harry.generators.Surjections;
 import harry.generators.distribution.Distribution;
 import harry.model.clock.OffsetClock;
@@ -45,10 +48,8 @@ import harry.operations.CompiledStatement;
 import harry.runner.DataTracker;
 import harry.runner.MutatingPartitionVisitor;
 import harry.runner.PartitionVisitor;
-import harry.runner.RowVisitor;
+import harry.runner.Operation;
 import harry.util.BitSet;
-
-import static harry.model.OpSelectors.DefaultDescriptorSelector.DEFAULT_OP_TYPE_SELECTOR;
 
 public class OpSelectorsTest
 {
@@ -58,13 +59,19 @@ public class OpSelectorsTest
     public void testRowDataDescriptorSupplier()
     {
         OpSelectors.Rng rng = new OpSelectors.PCGFast(1);
+        SchemaSpec schema = new SchemaSpec("ks", "tbl1",
+                                           Arrays.asList(ColumnSpec.pk("pk1", ColumnSpec.asciiType),
+                                                         ColumnSpec.pk("pk2", ColumnSpec.int64Type)),
+                                           Arrays.asList(ColumnSpec.ck("ck1", ColumnSpec.asciiType, false),
+                                                         ColumnSpec.ck("ck2", ColumnSpec.int64Type, false)),
+                                           Arrays.asList(ColumnSpec.regularColumn("v1", ColumnSpec.int32Type),
+                                                         ColumnSpec.regularColumn("v2", ColumnSpec.int64Type)),
+                                           Arrays.asList(ColumnSpec.staticColumn("static1", ColumnSpec.asciiType),
+                                                         ColumnSpec.staticColumn("static2", ColumnSpec.int64Type)));
         OpSelectors.DefaultDescriptorSelector descriptorSelector = new OpSelectors.DefaultDescriptorSelector(rng,
-                                                                                                             new OpSelectors.ColumnSelectorBuilder()
-                                                                                                             .forAll(BitSet.create(0b001, 3),
-                                                                                                                     BitSet.create(0b011, 3),
-                                                                                                                     BitSet.create(0b111, 3))
-                                                                                                             .build(),
-                                                                                                             DEFAULT_OP_TYPE_SELECTOR,
+                                                                                                             new OpSelectors.ColumnSelectorBuilder().forAll(schema)
+                                                                                                                                                    .build(),
+                                                                                                             OpSelectors.DefaultDescriptorSelector.DEFAULT_OP_SELECTOR,
                                                                                                              new Distribution.ScaledDistribution(1, 3),
                                                                                                              new Distribution.ScaledDistribution(2, 10),
                                                                                                              50);
@@ -178,11 +185,11 @@ public class OpSelectorsTest
         OpSelectors.Rng rng = new OpSelectors.PCGFast(1);
         OpSelectors.PdSelector pdSelector = new OpSelectors.DefaultPdSelector(rng, 10, 10);
         OpSelectors.DescriptorSelector ckSelector = new OpSelectors.DefaultDescriptorSelector(rng,
-                                                                                              new OpSelectors.ColumnSelectorBuilder().forAll(BitSet.allUnset(0)).build(),
-                                                                                              Surjections.weighted(Surjections.weights(10, 10, 80),
-                                                                                                                   OpSelectors.OperationKind.DELETE_ROW,
-                                                                                                                   OpSelectors.OperationKind.DELETE_COLUMN,
-                                                                                                                   OpSelectors.OperationKind.WRITE),
+                                                                                              new OpSelectors.ColumnSelectorBuilder().forAll(schema, Surjections.pick(BitSet.allUnset(0))).build(),
+                                                                                              OpSelectors.OperationSelector.weighted(Surjections.weights(10, 10, 80),
+                                                                                                                                     OpSelectors.OperationKind.DELETE_ROW,
+                                                                                                                                     OpSelectors.OperationKind.DELETE_COLUMN,
+                                                                                                                                     OpSelectors.OperationKind.WRITE),
                                                                                               new Distribution.ConstantDistribution(2),
                                                                                               new Distribution.ConstantDistribution(5),
                                                                                               10);
@@ -208,7 +215,7 @@ public class OpSelectorsTest
                 MetricReporter.NO_OP);
 
         PartitionVisitor partitionVisitor = new MutatingPartitionVisitor(run,
-                                                                         (r) -> new RowVisitor()
+                                                                         (r) -> new Operation()
                                                                          {
                                                                              public CompiledStatement write(long lts, long pd, long cd, long m)
                                                                              {
@@ -222,7 +229,25 @@ public class OpSelectorsTest
                                                                                  return compiledStatement;
                                                                              }
 
+                                                                             public CompiledStatement deleteColumnWithStatics(long lts, long pd, long cd, long opId)
+                                                                             {
+                                                                                 consumer.accept(pd, cd);
+                                                                                 return compiledStatement;
+                                                                             }
+
                                                                              public CompiledStatement deleteRow(long lts, long pd, long cd, long m)
+                                                                             {
+                                                                                 consumer.accept(pd, cd);
+                                                                                 return compiledStatement;
+                                                                             }
+
+                                                                             public CompiledStatement deletePartition(long lts, long pd, long opId)
+                                                                             {
+                                                                                 // ignore
+                                                                                 return compiledStatement;
+                                                                             }
+
+                                                                             public CompiledStatement writeWithStatics(long lts, long pd, long cd, long opId)
                                                                              {
                                                                                  consumer.accept(pd, cd);
                                                                                  return compiledStatement;
@@ -258,16 +283,17 @@ public class OpSelectorsTest
                                            Arrays.asList(ColumnSpec.ck("ck1", ColumnSpec.asciiType),
                                                          ColumnSpec.ck("ck2", ColumnSpec.asciiType),
                                                          ColumnSpec.ck("ck3", ColumnSpec.asciiType)),
-                                           Collections.singletonList(ColumnSpec.regularColumn("v1", ColumnSpec.asciiType)));
+                                           Collections.singletonList(ColumnSpec.regularColumn("v1", ColumnSpec.asciiType)),
+                                           Collections.emptyList());
 
         OpSelectors.Rng rng = new OpSelectors.PCGFast(1);
         OpSelectors.DescriptorSelector ckSelector = new OpSelectors.HierarchicalDescriptorSelector(rng,
                                                                                                    new int[] {10, 20},
-                                                                                                   OpSelectors.columnSelectorBuilder().forAll(BitSet.allUnset(0)).build(),
-                                                                                                   Surjections.weighted(Surjections.weights(10, 10, 80),
-                                                                                                                        OpSelectors.OperationKind.DELETE_ROW,
-                                                                                                                        OpSelectors.OperationKind.DELETE_COLUMN,
-                                                                                                                        OpSelectors.OperationKind.WRITE),
+                                                                                                   OpSelectors.columnSelectorBuilder().forAll(schema, Surjections.pick(BitSet.allUnset(0))).build(),
+                                                                                                   OpSelectors.OperationSelector.weighted(Surjections.weights(10, 10, 80),
+                                                                                                                                          OpSelectors.OperationKind.DELETE_ROW,
+                                                                                                                                          OpSelectors.OperationKind.DELETE_COLUMN,
+                                                                                                                                          OpSelectors.OperationKind.WRITE),
                                                                                                    new Distribution.ConstantDistribution(2),
                                                                                                    new Distribution.ConstantDistribution(5),
                                                                                                    100);
@@ -285,5 +311,62 @@ public class OpSelectorsTest
         Assert.assertEquals(10, ck1.size());
         Assert.assertEquals(20, ck2.size());
         Assert.assertEquals(100, ck3.size());
+    }
+
+    @Test
+    public void testWeights()
+    {
+        Map<OpSelectors.OperationKind, Integer> config = new EnumMap<>(OpSelectors.OperationKind.class);
+        config.put(OpSelectors.OperationKind.DELETE_RANGE, 1);
+        config.put(OpSelectors.OperationKind.DELETE_SLICE, 1);
+        config.put(OpSelectors.OperationKind.DELETE_ROW, 1);
+        config.put(OpSelectors.OperationKind.DELETE_COLUMN, 1);
+        config.put(OpSelectors.OperationKind.DELETE_PARTITION, 1);
+        config.put(OpSelectors.OperationKind.DELETE_COLUMN_WITH_STATICS, 1);
+        config.put(OpSelectors.OperationKind.WRITE_WITH_STATICS, 1000);
+        config.put(OpSelectors.OperationKind.WRITE, 1000);
+
+        int[] weights = new int[config.size()];
+        for (int i = 0; i < config.values().size(); i++)
+            weights[i] = config.get(OpSelectors.OperationKind.values()[i]);
+        OpSelectors.OperationSelector selector = OpSelectors.OperationSelector.weighted(Surjections.weights(weights),
+        OpSelectors.OperationKind.values());
+
+        OpSelectors.Rng rng = new OpSelectors.PCGFast(1);
+        OpSelectors.PdSelector pdSelector = new OpSelectors.DefaultPdSelector(rng, 10, 10);
+        OpSelectors.DescriptorSelector descriptorSelector = new OpSelectors.DefaultDescriptorSelector(rng,
+                                                                                                      null,
+                                                                                                      selector,
+                                                                                                      new Distribution.ConstantDistribution(2),
+                                                                                                      new Distribution.ConstantDistribution(2),
+                                                                                                      100);
+
+        EnumMap<OpSelectors.OperationKind, Integer> m = new EnumMap<OpSelectors.OperationKind, Integer>(OpSelectors.OperationKind.class);
+        for (int lts = 0; lts < 1000000; lts++)
+        {
+            int total = descriptorSelector.numberOfModifications(lts) * descriptorSelector.numberOfModifications(lts);
+            long pd = pdSelector.pd(lts);
+            for (int opId = 0; opId < total; opId++)
+            {
+                m.compute(descriptorSelector.operationType(pd, lts, opId),
+                          (OpSelectors.OperationKind k, Integer old) -> {
+                              if (old == null) return 1;
+                              else return old + 1;
+                          });
+            }
+        }
+
+        for (OpSelectors.OperationKind l : OpSelectors.OperationKind.values())
+        {
+            for (OpSelectors.OperationKind r : OpSelectors.OperationKind.values())
+            {
+                if (l != r)
+                {
+                    Assert.assertEquals(m.get(l) * 1.0 / m.get(r),
+                                        config.get(l) * 1.0 / config.get(r),
+                                        (config.get(l) * 1.0 / config.get(r)) * 0.10);
+                }
+            }
+        }
     }
 }

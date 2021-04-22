@@ -19,7 +19,11 @@
 package harry.corruptor;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
+
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import harry.data.ResultSetRow;
 import harry.ddl.SchemaSpec;
@@ -27,10 +31,13 @@ import harry.model.OpSelectors;
 import harry.model.SelectHelper;
 import harry.model.sut.SystemUnderTest;
 import harry.operations.CompiledStatement;
+import harry.runner.HarryRunner;
 import harry.runner.Query;
 
 public interface QueryResponseCorruptor
 {
+    Logger logger = LoggerFactory.getLogger(QueryResponseCorruptor.class);
+
     boolean maybeCorrupt(Query query, SystemUnderTest sut);
 
     class SimpleQueryResponseCorruptor implements QueryResponseCorruptor
@@ -52,7 +59,8 @@ public interface QueryResponseCorruptor
         {
             List<ResultSetRow> result = new ArrayList<>();
             CompiledStatement statement = query.toSelectStatement();
-            for (Object[] obj : sut.execute(statement.cql(), SystemUnderTest.ConsistencyLevel.ALL, statement.bindings()))
+            Object[][] before = sut.execute(statement.cql(), SystemUnderTest.ConsistencyLevel.ALL, statement.bindings());
+            for (Object[] obj : before)
                 result.add(SelectHelper.resultSetToRow(schema, clock, obj));
 
             // TODO: technically, we can do this just depends on corruption strategy
@@ -63,7 +71,23 @@ public interface QueryResponseCorruptor
             for (ResultSetRow row : result)
             {
                 if (rowCorruptor.maybeCorrupt(row, sut))
+                {
+                    Object[][] after = sut.execute(statement.cql(), SystemUnderTest.ConsistencyLevel.ALL, statement.bindings());
+                    boolean mismatch = false;
+                    for (int i = 0; i < before.length && i < after.length; i++)
+                    {
+                        if (!Arrays.equals(before[i], after[i]))
+                        {
+                            logger.info("Corrupted: \nBefore: {}\n" +
+                                        "After:  {}\n",
+                                        Arrays.toString(before[i]),
+                                        Arrays.toString(after[i]));
+                            mismatch = true;
+                        }
+                    }
+                    assert mismatch || before.length != after.length;
                     return true;
+                }
             }
             return false;
         }

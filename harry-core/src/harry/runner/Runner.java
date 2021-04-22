@@ -28,8 +28,10 @@ import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.BooleanSupplier;
 
 import org.slf4j.Logger;
@@ -46,6 +48,7 @@ public abstract class Runner
 
     protected final Run run;
     protected final Configuration config;
+
     // If there's an error, there's a good chance we're going to hit it more than once
     //  since we have multiple concurrent checkers running
     protected final CopyOnWriteArrayList<Throwable> errors;
@@ -83,6 +86,8 @@ public abstract class Runner
                                                run.schemaSpec.keyspace,
                                                run.schemaSpec.table));
         }
+
+        run.sut.afterSchemaInit();
     }
 
     public void teardown()
@@ -98,7 +103,7 @@ public abstract class Runner
             }
 
             logger.info("Dropping table: " + run.schemaSpec.table);
-            run.sut.schemaChange(String.format("DROP TABLE %s.%s;",
+            run.sut.schemaChange(String.format("DROP TABLE IF EXISTS %s.%s;",
                                                run.schemaSpec.keyspace,
                                                run.schemaSpec.table));
         }
@@ -110,11 +115,11 @@ public abstract class Runner
             dumpStateToFile(run, config, errors);
     }
 
-    public abstract CompletableFuture initAndStartAll() throws InterruptedException;
+    public abstract CompletableFuture<?> initAndStartAll() throws InterruptedException;
 
     public abstract void shutdown() throws InterruptedException;
 
-    protected Runnable reportThrowable(Runnable runnable, CompletableFuture future)
+    protected Runnable reportThrowable(Runnable runnable, CompletableFuture<?> future)
     {
         return () -> {
             try
@@ -152,23 +157,24 @@ public abstract class Runner
                 partitionVisitors.add(factory.make(run));
         }
 
-        public CompletableFuture initAndStartAll()
+        public CompletableFuture<?> initAndStartAll()
         {
             init();
-            CompletableFuture future = new CompletableFuture();
+            CompletableFuture<?> future = new CompletableFuture<>();
             future.whenComplete((a, b) -> maybeReportErrors());
 
+            AtomicBoolean completed = new AtomicBoolean(false);
             shutdownExceutor.schedule(() -> {
                 logger.info("Completed");
                 // TODO: wait for the last full validation?
-                future.complete(null);
+                completed.set(true);
             }, config.run_time, config.run_time_unit);
 
             executor.submit(reportThrowable(() -> {
                                                 try
                                                 {
-                                                    run(partitionVisitors, run.clock,
-                                                        () -> Thread.currentThread().isInterrupted() || future.isDone());
+                                                    SequentialRunner.run(partitionVisitors, run.clock, future,
+                                                                         () -> Thread.currentThread().isInterrupted() || future.isDone() || completed.get());
                                                 }
                                                 catch (Throwable t)
                                                 {
@@ -180,16 +186,33 @@ public abstract class Runner
             return future;
         }
 
-        void run(List<PartitionVisitor> visitors,
-                 OpSelectors.MonotonicClock clock,
-                 BooleanSupplier exitCondition)
+        static void run(List<PartitionVisitor> visitors,
+                        OpSelectors.MonotonicClock clock,
+                        CompletableFuture<?> future,
+                        BooleanSupplier exitCondition)
         {
             while (!exitCondition.getAsBoolean())
             {
                 long lts = clock.nextLts();
-                for (PartitionVisitor partitionVisitor : visitors)
-                    partitionVisitor.visitPartition(lts);
+
+                if (lts > 0 && lts % 10_000 == 0)
+                    logger.info("Visited {} logical timestamps", lts);
+
+                for (int i = 0; i < visitors.size() && !exitCondition.getAsBoolean(); i++)
+                {
+                    try
+                    {
+                        PartitionVisitor partitionVisitor = visitors.get(i);
+                        partitionVisitor.visitPartition(lts);
+                    }
+                    catch (Throwable t)
+                    {
+                        future.completeExceptionally(t);
+                        throw t;
+                    }
+                }
             }
+            future.complete(null);
         }
 
         public void shutdown() throws InterruptedException
@@ -238,10 +261,10 @@ public abstract class Runner
             this.allVisitors = new CopyOnWriteArrayList<>();
         }
 
-        public CompletableFuture initAndStartAll()
+        public CompletableFuture<?> initAndStartAll()
         {
             init();
-            CompletableFuture future = new CompletableFuture();
+            CompletableFuture<?> future = new CompletableFuture<>();
             future.whenComplete((a, b) -> maybeReportErrors());
 
             shutdownExecutor.schedule(() -> {
@@ -255,11 +278,9 @@ public abstract class Runner
             {
                 List<PartitionVisitor> partitionVisitors = new ArrayList<>();
                 executor.submit(reportThrowable(() -> {
-
                                                     for (PartitionVisitor.PartitionVisitorFactory factory : partitionVisitorFactories)
-                                                    {
                                                         partitionVisitors.add(factory.make(run));
-                                                    }
+
                                                     allVisitors.addAll(partitionVisitors);
                                                     run(partitionVisitors, run.clock, exitCondition);
                                                 },

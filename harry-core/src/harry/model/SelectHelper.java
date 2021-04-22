@@ -19,6 +19,7 @@
 package harry.model;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 
@@ -53,6 +54,9 @@ public class SelectHelper
 
         if (includeWriteTime)
         {
+            for (ColumnSpec<?> column : schema.staticColumns)
+                select.writeTime(column.name);
+
             for (ColumnSpec<?> column : schema.regularColumns)
                 select.writeTime(column.name);
         }
@@ -62,6 +66,20 @@ public class SelectHelper
 
         addRelations(schema, where, bindings, pd, relations);
         addOrderBy(schema, where, reverse);
+
+        Object[] bindingsArr = bindings.toArray(new Object[bindings.size()]);
+        return new CompiledStatement(where.toString(), bindingsArr);
+    }
+
+    public static CompiledStatement count(SchemaSpec schema, long pd)
+    {
+        Select.Selection select = QueryBuilder.select();
+        select.countAll();
+
+        Select.Where where = select.from(schema.keyspace, schema.table).where();
+        List<Object> bindings = new ArrayList<>(schema.partitionKeys.size());
+
+        addRelations(schema, where, bindings, pd, Collections.emptyList());
 
         Object[] bindingsArr = bindings.toArray(new Object[bindings.size()]);
         return new CompiledStatement(where.toString(), bindingsArr);
@@ -95,21 +113,32 @@ public class SelectHelper
     {
         Object[] partitionKey = new Object[schema.partitionKeys.size()];
         Object[] clusteringKey = new Object[schema.clusteringKeys.size()];
+        Object[] staticColumns = new Object[schema.staticColumns.size()];
         Object[] regularColumns = new Object[schema.regularColumns.size()];
 
         System.arraycopy(result, 0, partitionKey, 0, partitionKey.length);
         System.arraycopy(result, partitionKey.length, clusteringKey, 0, clusteringKey.length);
-        System.arraycopy(result, partitionKey.length + clusteringKey.length, regularColumns, 0, regularColumns.length);
+        System.arraycopy(result, partitionKey.length + clusteringKey.length, staticColumns, 0, staticColumns.length);
+        System.arraycopy(result, partitionKey.length + clusteringKey.length + staticColumns.length, regularColumns, 0, regularColumns.length);
+
+        long[] slts = new long[schema.staticColumns.size()];
+        for (int i = 0; i < slts.length; i++)
+        {
+            Object v = result[schema.allColumns.size() + i];
+            slts[i] = v == null ? Model.NO_TIMESTAMP : clock.lts((long) v);
+        }
 
         long[] lts = new long[schema.regularColumns.size()];
         for (int i = 0; i < lts.length; i++)
         {
-            Object v = result[schema.allColumns.size() + i];
+            Object v = result[schema.allColumns.size() + slts.length + i];
             lts[i] = v == null ? Model.NO_TIMESTAMP : clock.lts((long) v);
         }
 
         return new ResultSetRow(schema.deflatePartitionKey(partitionKey),
                                 schema.deflateClusteringKey(clusteringKey),
+                                schema.staticColumns.isEmpty() ? null : schema.deflateStaticColumns(staticColumns),
+                                schema.staticColumns.isEmpty() ? null : slts,
                                 schema.deflateRegularColumns(regularColumns),
                                 lts);
     }

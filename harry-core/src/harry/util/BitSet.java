@@ -55,10 +55,13 @@ public interface BitSet
     public void eachBit(BitConsumer iter);
 
     public void eachSetBit(IntConsumer iter);
+    public void eachSetBit(IntConsumer iter, BitSet mask);
 
     public void eachUnsetBit(IntConsumer iter);
 
     public boolean allUnset();
+
+    public boolean allUnset(BitSet mask);
 
     public boolean allSet();
 
@@ -67,13 +70,26 @@ public interface BitSet
     public void unset(int idx);
 
     public boolean isSet(int idx);
+    public boolean isSet(int idx, BitSet mask);
 
     public static boolean isSet(long bits, int idx)
     {
         return (bits & (1L << idx)) != 0;
     }
 
+    public static int setCount(long bits, int size)
+    {
+        int count = 0;
+        for (int i = 0; i < size; i++)
+        {
+            if (BitSet.isSet(bits, i))
+                count++;
+        }
+        return count;
+    }
+
     public int setCount();
+    public int setCount(BitSet mask);
 
     public int size();
 
@@ -101,6 +117,12 @@ public interface BitSet
             return bits == 0;
         }
 
+        public boolean allUnset(BitSet mask)
+        {
+            assert mask instanceof BitSet64Bit;
+            return (((BitSet64Bit) mask).bits & bits) == 0;
+        }
+
         public boolean allSet()
         {
             return bits == bitMask(count);
@@ -117,6 +139,18 @@ public interface BitSet
             for (int i = 0; i < count; i++)
             {
                 boolean isSet = isSet(i);
+                if (isSet)
+                    iter.accept(i);
+            }
+        }
+
+        public void eachSetBit(IntConsumer iter, BitSet mask)
+        {
+            assert mask instanceof BitSet64Bit;
+            long bits = (((BitSet64Bit) mask).bits & this.bits);
+            for (int i = 0; i < count; i++)
+            {
+                boolean isSet = BitSet.isSet(bits, i);
                 if (isSet)
                     iter.accept(i);
             }
@@ -144,18 +178,26 @@ public interface BitSet
 
         public boolean isSet(int idx)
         {
+            assert idx < size();
             return BitSet.isSet(bits, idx);
+        }
+
+        public boolean isSet(int idx, BitSet mask)
+        {
+            assert idx < size();
+            assert mask instanceof BitSet64Bit;
+            return BitSet.isSet(bits & ((BitSet64Bit) mask).bits, idx);
         }
 
         public int setCount()
         {
-            int count = 0;
-            for (int i = 0; i < size(); i++)
-            {
-                if (isSet(i))
-                    count++;
-            }
-            return count;
+            return BitSet.setCount(bits, size());
+        }
+
+        public int setCount(BitSet mask)
+        {
+            assert mask instanceof BitSet64Bit;
+            return BitSet.setCount(bits & ((BitSet64Bit) mask).bits, size());
         }
 
         public int size()

@@ -26,7 +26,6 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Consumer;
-import java.util.function.Function;
 
 import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonProperty;
@@ -39,22 +38,24 @@ import harry.ddl.SchemaGenerators;
 import harry.ddl.SchemaSpec;
 import harry.generators.Surjections;
 import harry.generators.distribution.Distribution;
-import harry.model.ExhaustiveChecker;
 import harry.model.Model;
 import harry.model.OpSelectors;
 import harry.model.QuiescentChecker;
 import harry.model.clock.ApproximateMonotonicClock;
 import harry.model.sut.SystemUnderTest;
 import harry.runner.AllPartitionsValidator;
+import harry.runner.CorruptingPartitionVisitor;
 import harry.runner.DataTracker;
 import harry.runner.DefaultDataTracker;
 import harry.runner.LoggingPartitionVisitor;
 import harry.runner.MutatingPartitionVisitor;
 import harry.runner.MutatingRowVisitor;
+import harry.runner.Operation;
+import harry.runner.ParallelRecentPartitionValidator;
 import harry.runner.PartitionVisitor;
 import harry.runner.RecentPartitionValidator;
-import harry.runner.RowVisitor;
 import harry.runner.Runner;
+import harry.runner.Sampler;
 import harry.util.BitSet;
 
 public class Configuration
@@ -73,9 +74,10 @@ public class Configuration
         mapper.registerSubtypes(Configuration.ConcurrentRunnerConfig.class);
         mapper.registerSubtypes(Configuration.SequentialRunnerConfig.class);
         mapper.registerSubtypes(Configuration.DefaultDataTrackerConfiguration.class);
+        mapper.registerSubtypes(Configuration.NoOpDataTrackerConfiguration.class);
 
-        mapper.registerSubtypes(Configuration.ExhaustiveCheckerConfig.class);
         mapper.registerSubtypes(Configuration.QuiescentCheckerConfig.class);
+        mapper.registerSubtypes(NoOpCheckerConfig.class);
         mapper.registerSubtypes(Configuration.DefaultCDSelectorConfiguration.class);
         mapper.registerSubtypes(Configuration.DefaultPDSelectorConfiguration.class);
         mapper.registerSubtypes(Configuration.ConstantDistributionConfig.class);
@@ -85,6 +87,9 @@ public class Configuration
         mapper.registerSubtypes(MutatingPartitionVisitorConfiguation.class);
         mapper.registerSubtypes(LoggingPartitionVisitorConfiguration.class);
         mapper.registerSubtypes(AllPartitionsValidatorConfiguration.class);
+        mapper.registerSubtypes(ParallelRecentPartitionValidator.ParallelRecentPartitionValidatorConfig.class);
+        mapper.registerSubtypes(Sampler.SamplerConfiguration.class);
+        mapper.registerSubtypes(CorruptingPartitionVisitorConfiguration.class);
         mapper.registerSubtypes(RecentPartitionsValidatorConfiguration.class);
         mapper.registerSubtypes(FixedSchemaProviderConfiguration.class);
     }
@@ -226,7 +231,7 @@ public class Configuration
 
         OpSelectors.PdSelector pdSelector = snapshot.partition_descriptor_selector.make(rng);
         OpSelectors.DescriptorSelector descriptorSelector = snapshot.clustering_descriptor_selector.make(rng, schemaSpec);
-
+        // TODO: validate that operation kind is compactible with schema, due to statics etc
         SystemUnderTest sut = snapshot.system_under_test.make();
 
         return new Run(rng,
@@ -402,6 +407,46 @@ public class Configuration
 
     }
 
+    @JsonTypeName("no_op_tracker")
+    public static class NoOpDataTrackerConfiguration implements DataTrackerConfiguration
+    {
+        @JsonCreator
+        public NoOpDataTrackerConfiguration()
+        {
+        }
+
+        public DataTracker make()
+        {
+            return new DataTracker()
+            {
+                public void started(long lts)
+                {
+                }
+
+                public void finished(long lts)
+                {
+
+                }
+
+                public long maxStarted()
+                {
+                    return 0;
+                }
+
+                public long maxConsecutiveFinished()
+                {
+                    return 0;
+                }
+
+                public DataTrackerConfiguration toConfig()
+                {
+                    return null;
+                }
+            };
+        }
+    }
+
+
     @JsonTypeName("default")
     public static class DefaultDataTrackerConfiguration implements DataTrackerConfiguration
     {
@@ -554,21 +599,6 @@ public class Configuration
     {
     }
 
-    @JsonTypeName("exhaustive_checker")
-    public static class ExhaustiveCheckerConfig implements ModelConfiguration
-    {
-        @JsonCreator
-        public ExhaustiveCheckerConfig()
-        {
-
-        }
-
-        public Model make(Run run)
-        {
-            return new ExhaustiveChecker(run);
-        }
-    }
-
     @JsonTypeName("quiescent_checker")
     public static class QuiescentCheckerConfig implements ModelConfiguration
     {
@@ -580,6 +610,20 @@ public class Configuration
         public Model make(Run run)
         {
             return new QuiescentChecker(run);
+        }
+    }
+
+    @JsonTypeName("no_op_checker")
+    public static class NoOpCheckerConfig implements ModelConfiguration
+    {
+        @JsonCreator
+        public NoOpCheckerConfig()
+        {
+        }
+
+        public Model make(Run run)
+        {
+            return new harry.model.NoOpChecker(run);
         }
     }
 
@@ -685,9 +729,10 @@ public class Configuration
             return this;
         }
 
-        public void setFractions(int[] fractions)
+        public CDSelectorConfigurationBuilder setFractions(int[] fractions)
         {
             this.fractions = fractions;
+            return this;
         }
 
         public DefaultCDSelectorConfiguration build()
@@ -735,12 +780,12 @@ public class Configuration
             this.column_mask_bitsets = column_mask_bitsets;
         }
 
-        protected Function<OpSelectors.OperationKind, Surjections.Surjection<BitSet>> columnSelector(SchemaSpec schemaSpec)
+        protected OpSelectors.ColumnSelector columnSelector(SchemaSpec schemaSpec)
         {
-            Function<OpSelectors.OperationKind, Surjections.Surjection<BitSet>> columnSelector;
+            OpSelectors.ColumnSelector columnSelector;
             if (column_mask_bitsets == null)
             {
-                columnSelector = OpSelectors.columnSelectorBuilder().forAll(schemaSpec.regularColumns.size()).build();
+                columnSelector = OpSelectors.columnSelectorBuilder().forAll(schemaSpec).build();
             }
             else
             {
@@ -749,11 +794,13 @@ public class Configuration
                 {
                     List<BitSet> bitSets = new ArrayList<>(entry.getValue().length);
                     for (long raw_bitset : entry.getValue())
-                        bitSets.add(BitSet.create(raw_bitset, schemaSpec.regularColumns.size()));
+                    {
+                        bitSets.add(BitSet.create(raw_bitset, schemaSpec.allColumns.size()));
+                    }
                     Surjections.Surjection<BitSet> selector = Surjections.pick(bitSets);
                     m.put(entry.getKey(), selector);
                 }
-                columnSelector = m::get;
+                columnSelector = (opKind, descr) -> m.get(opKind).inflate(descr);
             }
 
             return columnSelector;
@@ -763,7 +810,7 @@ public class Configuration
         {
             return new OpSelectors.DefaultDescriptorSelector(rng,
                                                              columnSelector(schemaSpec),
-                                                             Surjections.weighted(operation_kind_weights),
+                                                             OpSelectors.OperationSelector.weighted(operation_kind_weights),
                                                              modifications_per_lts.make(),
                                                              rows_per_modification.make(),
                                                              max_partition_size);
@@ -790,7 +837,7 @@ public class Configuration
             return new OpSelectors.HierarchicalDescriptorSelector(rng,
                                                                   fractions,
                                                                   columnSelector(schemaSpec),
-                                                                  Surjections.weighted(operation_kind_weights),
+                                                                  OpSelectors.OperationSelector.weighted(operation_kind_weights),
                                                                   modifications_per_lts.make(),
                                                                   rows_per_modification.make(),
                                                                   max_partition_size);
@@ -876,7 +923,7 @@ public class Configuration
     @JsonTypeName("mutating")
     public static class MutatingPartitionVisitorConfiguation implements PartitionVisitorConfiguration
     {
-        protected final RowVisitorConfiguration row_visitor;
+        public final RowVisitorConfiguration row_visitor;
 
         @JsonCreator
         public MutatingPartitionVisitorConfiguation(@JsonProperty("row_visitor") RowVisitorConfiguration row_visitor)
@@ -912,9 +959,9 @@ public class Configuration
     @JsonTypeName("validate_all_partitions")
     public static class AllPartitionsValidatorConfiguration implements Configuration.PartitionVisitorConfiguration
     {
-        private final int concurrency;
-        private final int trigger_after;
-        private final Configuration.ModelConfiguration modelConfiguration;
+        public final int concurrency;
+        public final int trigger_after;
+        public final Configuration.ModelConfiguration modelConfiguration;
 
         @JsonCreator
         public AllPartitionsValidatorConfiguration(@JsonProperty("concurrency") int concurrency,
@@ -932,19 +979,40 @@ public class Configuration
         }
     }
 
+    @JsonTypeName("corrupt")
+    public static class CorruptingPartitionVisitorConfiguration implements Configuration.PartitionVisitorConfiguration
+    {
+        public final int trigger_after;
+
+        @JsonCreator
+        public CorruptingPartitionVisitorConfiguration(@JsonProperty("trigger_after") int trigger_after)
+        {
+            this.trigger_after = trigger_after;
+        }
+
+        public PartitionVisitor make(Run run)
+        {
+            return new CorruptingPartitionVisitor(trigger_after, run);
+        }
+    }
+
     @JsonTypeName("validate_recent_partitions")
     public static class RecentPartitionsValidatorConfiguration implements Configuration.PartitionVisitorConfiguration
     {
-        private final int partition_count;
-        private final int trigger_after;
-        private final Configuration.ModelConfiguration modelConfiguration;
+        public final int partition_count;
+        public final int trigger_after;
+        public final int queries;
+        public final Configuration.ModelConfiguration modelConfiguration;
 
+        // TODO: make query selector configurable
         @JsonCreator
         public RecentPartitionsValidatorConfiguration(@JsonProperty("partition_count") int partition_count,
                                                       @JsonProperty("trigger_after") int trigger_after,
+                                                      @JsonProperty("queries_per_partition") int queries,
                                                       @JsonProperty("model") Configuration.ModelConfiguration model)
         {
             this.partition_count = partition_count;
+            this.queries = queries;
             this.trigger_after = trigger_after;
             this.modelConfiguration = model;
         }
@@ -952,12 +1020,12 @@ public class Configuration
         @Override
         public PartitionVisitor make(Run run)
         {
-            return new RecentPartitionValidator(partition_count, trigger_after, run, modelConfiguration);
+            return new RecentPartitionValidator(partition_count, queries, trigger_after, run, modelConfiguration);
         }
     }
 
     @JsonTypeInfo(use = JsonTypeInfo.Id.NAME, include = JsonTypeInfo.As.WRAPPER_OBJECT)
-    public interface RowVisitorConfiguration extends RowVisitor.RowVisitorFactory
+    public interface RowVisitorConfiguration extends Operation.RowVisitorFactory
     {
     }
 
@@ -965,7 +1033,7 @@ public class Configuration
     public static class MutatingRowVisitorConfiguration implements RowVisitorConfiguration
     {
         @Override
-        public RowVisitor make(Run run)
+        public Operation make(Run run)
         {
             return new MutatingRowVisitor(run);
         }
@@ -996,10 +1064,11 @@ public class Configuration
                                                 @JsonProperty("table") String table,
                                                 @JsonProperty("partition_keys") Map<String, String> pks,
                                                 @JsonProperty("clustering_keys") Map<String, String> cks,
-                                                @JsonProperty("regular_columns") Map<String, String> regulars)
+                                                @JsonProperty("regular_columns") Map<String, String> regulars,
+                                                @JsonProperty("static_columns") Map<String, String> statics)
         {
             this.schemaSpec = SchemaGenerators.parse(keyspace, table,
-                                                     pks, cks, regulars);
+                                                     pks, cks, regulars, statics);
         }
 
         public SchemaSpec make(long seed)

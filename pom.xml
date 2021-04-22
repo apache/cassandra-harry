@@ -20,12 +20,26 @@
 <project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
          xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/maven-v4_0_0.xsd">
 
+    <parent>
+        <groupId>org.apache</groupId>
+        <artifactId>apache</artifactId>
+        <version>23</version>
+    </parent>
+
+    <licenses>
+        <license>
+            <name>Apache License, Version 2.0</name>
+            <url>http://www.apache.org/licenses/LICENSE-2.0.txt</url>
+            <distribution>repo</distribution>
+        </license>
+    </licenses>
+
     <modelVersion>4.0.0</modelVersion>
     <packaging>pom</packaging>
 
     <groupId>org.apache.cassandra</groupId>
-    <version>0.0.1-SNAPSHOT</version>
     <artifactId>harry-parent</artifactId>
+    <version>0.0.1-SNAPSHOT</version>
 
     <name>Harry</name>
 
@@ -249,4 +263,11 @@
             </plugin>
         </plugins>
     </build>
+
+    <scm>
+        <connection>scm:git:https://gitbox.apache.org/repos/asf/cassandra-harry.git</connection>
+        <developerConnection>scm:git:https://gitbox.apache.org/repos/asf/cassandra-harry.git</developerConnection>
+        <url>https://gitbox.apache.org/repos/asf/cassandra-harry.git</url>
+        <tag>0.0.1</tag>
+    </scm>
 </project>

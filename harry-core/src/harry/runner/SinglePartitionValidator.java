@@ -26,7 +26,7 @@ public class SinglePartitionValidator implements PartitionVisitor
     protected final int iterations;
     protected final Model model;
     protected final QueryGenerator queryGenerator;
-
+    protected final Run run;
     public SinglePartitionValidator(int iterations,
                                     Run run,
                                     Model.ModelFactory modelFactory)
@@ -34,6 +34,7 @@ public class SinglePartitionValidator implements PartitionVisitor
         this.iterations = iterations;
         this.model = modelFactory.make(run);
         this.queryGenerator = new QueryGenerator(run);
+        this.run = run;
     }
 
     public void shutdown() throws InterruptedException
@@ -44,6 +45,11 @@ public class SinglePartitionValidator implements PartitionVisitor
     public void visitPartition(long lts)
     {
         model.validate(queryGenerator.inflate(lts, 0, Query.QueryKind.SINGLE_PARTITION));
+
+        for (boolean reverse : new boolean[]{ true, false })
+        {
+            model.validate(Query.selectPartition(run.schemaSpec, run.pdSelector.pd(lts, run.schemaSpec), reverse));
+        }
 
         for (Query.QueryKind queryKind : new Query.QueryKind[]{ Query.QueryKind.CLUSTERING_RANGE, Query.QueryKind.CLUSTERING_SLICE, Query.QueryKind.SINGLE_CLUSTERING })
         {

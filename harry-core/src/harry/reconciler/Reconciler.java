@@ -23,12 +23,16 @@ import java.util.Arrays;
 import java.util.Collection;
 import java.util.Iterator;
 import java.util.List;
+import java.util.Map;
 import java.util.NavigableMap;
-import java.util.Set;
 import java.util.TreeMap;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+import harry.core.Run;
+import harry.ddl.ColumnSpec;
 import harry.ddl.SchemaSpec;
-import harry.model.ExhaustiveChecker;
 import harry.model.OpSelectors;
 import harry.runner.AbstractPartitionVisitor;
 import harry.runner.PartitionVisitor;
@@ -46,49 +50,194 @@ import static harry.model.Model.NO_TIMESTAMP;
  * <p>
  * It is useful both as a testing/debugging tool (to avoid starting Cassandra
  * cluster to get a result set), and as a quiescent model checker.
+ *
+ * TODO: it might be useful to actually record deletions instead of just removing values as we do right now.
  */
 public class Reconciler
 {
+    private static final Logger logger = LoggerFactory.getLogger(Reconciler.class);
+
+    private static long STATIC_CLUSTERING = NIL_DESCR;
+
     private final OpSelectors.DescriptorSelector descriptorSelector;
     private final OpSelectors.PdSelector pdSelector;
     private final QueryGenerator rangeSelector;
     private final SchemaSpec schema;
 
-    public Reconciler(SchemaSpec schema,
-                      OpSelectors.PdSelector pdSelector,
-                      OpSelectors.DescriptorSelector descriptorSelector,
-                      QueryGenerator rangeSelector)
+    public Reconciler(Run run)
     {
-        this.descriptorSelector = descriptorSelector;
-        this.pdSelector = pdSelector;
-        this.schema = schema;
-        this.rangeSelector = rangeSelector;
+        this.descriptorSelector = run.descriptorSelector;
+        this.pdSelector = run.pdSelector;
+        this.schema = run.schemaSpec;
+        this.rangeSelector = run.rangeSelector;
     }
+
+    private final long debugCd = Long.getLong("harry.reconciler.debug_cd", -1L);
 
     public PartitionState inflatePartitionState(final long pd, long maxLts, Query query)
     {
-        List<Ranges.Range> ranges = new ArrayList<>();
+        PartitionState partitionState = new PartitionState();
 
-        // TODO: we should think of a single-pass algorithm that would allow us to inflate all deletes and range deletes for a partition
-        PartitionVisitor partitionVisitor = new AbstractPartitionVisitor(pdSelector, descriptorSelector, schema)
+        class Processor extends AbstractPartitionVisitor
         {
+            public Processor(OpSelectors.PdSelector pdSelector, OpSelectors.DescriptorSelector descriptorSelector, SchemaSpec schema)
+            {
+                super(pdSelector, descriptorSelector, schema);
+            }
+
+            // Whether or not a partition deletion was encountered on this LTS.
+            private boolean hadPartitionDeletion = false;
+            private final List<Ranges.Range> rangeDeletes = new ArrayList<>();
+            private final List<Long> writes = new ArrayList<>();
+            private final List<Long> columnDeletes = new ArrayList<>();
+
+            @Override
             public void operation(long lts, long pd, long cd, long m, long opId)
             {
+                if (hadPartitionDeletion)
+                    return;
+
                 OpSelectors.OperationKind opType = descriptorSelector.operationType(pd, lts, opId);
-                if (opType == OpSelectors.OperationKind.DELETE_RANGE)
+                switch (opType)
                 {
-                    ranges.add(rangeSelector.inflate(lts, opId, Query.QueryKind.CLUSTERING_RANGE).toRange(lts));
-                }
-                else if (opType == OpSelectors.OperationKind.DELETE_SLICE)
-                {
-                    ranges.add(rangeSelector.inflate(lts, opId, Query.QueryKind.CLUSTERING_SLICE).toRange(lts));
-                }
-                else if (opType == OpSelectors.OperationKind.DELETE_ROW)
-                {
-                    ranges.add(new Ranges.Range(cd, cd, true, true, lts));
+                    case DELETE_RANGE:
+                        Query query = rangeSelector.inflate(lts, opId, Query.QueryKind.CLUSTERING_RANGE);
+                        Ranges.Range range = query.toRange(lts);
+                        rangeDeletes.add(range);
+                        partitionState.delete(range, lts);
+                        break;
+                    case DELETE_SLICE:
+                        query = rangeSelector.inflate(lts, opId, Query.QueryKind.CLUSTERING_SLICE);
+                        range = query.toRange(lts);
+                        rangeDeletes.add(range);
+                        partitionState.delete(range, lts);
+                        break;
+                    case DELETE_ROW:
+                        range = new Ranges.Range(cd, cd, true, true, lts);
+                        rangeDeletes.add(range);
+                        partitionState.delete(cd, lts);
+                        break;
+                    case DELETE_PARTITION:
+                        partitionState.deletePartition(lts);
+                        rangeDeletes.clear();
+                        writes.clear();
+                        columnDeletes.clear();
+
+                        hadPartitionDeletion = true;
+                        break;
+                    case WRITE_WITH_STATICS:
+                    case WRITE:
+                        if (debugCd != -1 && cd == debugCd)
+                            logger.info("Writing {} ({}) at {}/{}", cd, opType, lts, opId);
+                        writes.add(opId);
+                        break;
+                    case DELETE_COLUMN_WITH_STATICS:
+                    case DELETE_COLUMN:
+                        columnDeletes.add(opId);
+                        break;
+                    default:
+                        throw new IllegalStateException();
                 }
             }
-        };
+
+            @Override
+            protected void beforeLts(long lts, long pd)
+            {
+                rangeDeletes.clear();
+                writes.clear();
+                columnDeletes.clear();
+                hadPartitionDeletion = false;
+            }
+
+            @Override
+            protected void afterLts(long lts, long pd)
+            {
+                if (hadPartitionDeletion)
+                    return;
+
+                outer: for (Long opIdBoxed : writes)
+                {
+                    long opId = opIdBoxed;
+                    long cd = descriptorSelector.cd(pd, lts, opId, schema);
+
+                    OpSelectors.OperationKind opType = descriptorSelector.operationType(pd, lts, opId);
+
+                    switch (opType)
+                    {
+                        case WRITE_WITH_STATICS:
+                            // We could apply static columns during the first iteration, but it's more convenient
+                            // to reconcile static-level deletions.
+                            partitionState.writeStaticRow(descriptorSelector.sds(pd, cd, lts, opId, schema),
+                                                          lts);
+                        case WRITE:
+                            if (!query.match(cd))
+                            {
+                                if (debugCd != -1 && cd == debugCd)
+                                    logger.info("Hiding {} at {}/{} because there was no query match", debugCd, lts, opId);
+                                continue outer;
+                            }
+
+                            for (Ranges.Range range : rangeDeletes)
+                            {
+                                if (range.timestamp >= lts && range.contains(cd))
+                                {
+                                    if (debugCd != -1 && cd == debugCd)
+                                        logger.info("Hiding {} at {}/{} because of range tombstone {}", debugCd, lts, opId, range);
+                                    continue outer;
+                                }
+                            }
+
+                            partitionState.write(cd,
+                                                 descriptorSelector.vds(pd, cd, lts, opId, schema),
+                                                 lts);
+                            break;
+                        default:
+                            throw new IllegalStateException();
+                    }
+                }
+
+                outer: for (Long opIdBoxed : columnDeletes)
+                {
+                    long opId = opIdBoxed;
+                    long cd = descriptorSelector.cd(pd, lts, opId, schema);
+
+                    OpSelectors.OperationKind opType = descriptorSelector.operationType(pd, lts, opId);
+
+                    switch (opType)
+                    {
+                        case DELETE_COLUMN_WITH_STATICS:
+                            partitionState.deleteStaticColumns(schema.staticColumnsOffset,
+                                                               descriptorSelector.columnMask(pd, lts, opId),
+                                                               schema.staticColumnsMask());
+                        case DELETE_COLUMN:
+                            if (!query.match(cd))
+                            {
+                                if (debugCd != -1 && cd == debugCd)
+                                    logger.info("Hiding {} at {}/{} because there was no query match", debugCd, lts, opId);
+                                continue outer;
+                            }
+
+                            for (Ranges.Range range : rangeDeletes)
+                            {
+                                if (range.timestamp >= lts && range.contains(cd))
+                                {
+                                    if (debugCd != -1 && cd == debugCd)
+                                        logger.info("Hiding {} at {}/{} because of range tombstone {}", debugCd, lts, opId, range);
+                                    continue outer;
+                                }
+                            }
+
+                            partitionState.deleteRegularColumns(cd,
+                                                                schema.regularColumnsOffset,
+                                                                descriptorSelector.columnMask(pd, lts, opId),
+                                                                schema.regularColumnsMask());
+                            break;
+                    }
+                }
+            }
+        }
+
+        PartitionVisitor partitionVisitor = new Processor(pdSelector, descriptorSelector, schema);
 
         long currentLts = pdSelector.minLtsFor(pd);
 
@@ -98,72 +247,73 @@ public class Reconciler
             currentLts = pdSelector.nextLts(currentLts);
         }
 
-        PartitionState partitionState = new PartitionState();
-        partitionVisitor = new AbstractPartitionVisitor(pdSelector, descriptorSelector, schema)
-        {
-            public void operation(long lts, long pd, long cd, long m, long opId)
-            {
-                if (!query.match(cd))
-                    return;
-
-                OpSelectors.OperationKind opType = descriptorSelector.operationType(pd, lts, opId);
-
-                if (opType == OpSelectors.OperationKind.DELETE_ROW
-                    || opType == OpSelectors.OperationKind.DELETE_RANGE
-                    || opType == OpSelectors.OperationKind.DELETE_SLICE)
-                    return;
-
-                // TODO: avoid linear scan
-                for (Ranges.Range range : ranges)
-                {
-                    if (range.timestamp >= lts && range.contains(cd))
-                        return;
-                }
-
-                if (opType == OpSelectors.OperationKind.WRITE)
-                {
-                    partitionState.add(cd,
-                                       descriptorSelector.vds(pd, cd, lts, opId, schema),
-                                       lts);
-                }
-                else if (opType == OpSelectors.OperationKind.DELETE_COLUMN)
-                {
-                    partitionState.deleteColumns(cd,
-                                                 descriptorSelector.columnMask(pd, lts, opId));
-                }
-                else
-                {
-                    throw new AssertionError();
-                }
-            }
-        };
-
-        currentLts = pdSelector.minLtsFor(pd);
-        while (currentLts <= maxLts && currentLts >= 0)
-        {
-            partitionVisitor.visitPartition(currentLts);
-            currentLts = pdSelector.nextLts(currentLts);
-        }
-
         return partitionState;
     }
 
-    public static class PartitionState implements Iterable<RowState>
+    public class PartitionState implements Iterable<RowState>
     {
-        private NavigableMap<Long, RowState> rows;
+        private final NavigableMap<Long, RowState> rows;
+        private RowState staticRow;
 
         private PartitionState()
         {
             rows = new TreeMap<>();
+            if (!schema.staticColumns.isEmpty())
+            {
+                staticRow = new RowState(STATIC_CLUSTERING,
+                                         arr(schema.staticColumns.size(), NIL_DESCR),
+                                         arr(schema.staticColumns.size(), NO_TIMESTAMP));
+            }
         }
 
-        private void add(long cd,
-                         long[] vds,
-                         long lts)
+        private void writeStaticRow(long[] staticVds,
+                                    long lts)
         {
-            RowState state = rows.get(cd);
+            if (staticRow != null)
+                staticRow = updateRowState(staticRow, schema.staticColumns, STATIC_CLUSTERING, staticVds, lts);
+        }
 
-            if (state == null)
+        private void write(long cd,
+                           long[] vds,
+                           long lts)
+        {
+            rows.compute(cd, (cd_, current) -> updateRowState(current, schema.regularColumns, cd, vds, lts));
+        }
+
+        private void delete(Ranges.Range range,
+                            long lts)
+        {
+            if (range.minBound > range.maxBound)
+                return;
+
+            Iterator<Map.Entry<Long, RowState>> iter = rows.subMap(range.minBound, range.minInclusive,
+                                                                   range.maxBound, range.maxInclusive)
+                                                           .entrySet()
+                                                           .iterator();
+            while (iter.hasNext())
+            {
+                Map.Entry<Long, RowState> e = iter.next();
+                if (debugCd != -1 && e.getKey() == debugCd)
+                    logger.info("Hiding {} at {} because of range tombstone {}", debugCd, lts, range);
+
+                // assert row state doesn't have fresher lts
+                iter.remove();
+            }
+        }
+
+        private void delete(long cd,
+                            long lts)
+        {
+            rows.remove(cd);
+        }
+        public boolean isEmpty()
+        {
+            return rows.isEmpty();
+        }
+
+        private RowState updateRowState(RowState currentState, List<ColumnSpec<?>> columns, long cd, long[] vds, long lts)
+        {
+            if (currentState == null)
             {
                 long[] ltss = new long[vds.length];
                 long[] vdsCopy = new long[vds.length];
@@ -181,36 +331,72 @@ public class Reconciler
                     }
                 }
 
-                state = new RowState(cd, vdsCopy, ltss);
-                rows.put(cd, state);
+                currentState = new RowState(cd, vdsCopy, ltss);
             }
             else
             {
+                assert currentState.vds.length == vds.length;
                 for (int i = 0; i < vds.length; i++)
                 {
-                    if (vds[i] != UNSET_DESCR)
+                    if (vds[i] == UNSET_DESCR)
+                        continue;
+
+                    assert lts >= currentState.lts[i] : String.format("Out-of-order LTS: %d. Max seen: %s", lts, currentState.lts[i]); // sanity check; we're iterating in lts order
+
+                    if (currentState.lts[i] == lts)
                     {
-                        state.vds[i] = vds[i];
-                        assert lts > state.lts[i]; // sanity check; we're iterating in lts order
-                        state.lts[i] = lts;
+                        // Timestamp collision case
+                        ColumnSpec<?> column = columns.get(i);
+                        if (column.type.compareLexicographically(vds[i], currentState.vds[i]) > 0)
+                            currentState.vds[i] = vds[i];
+                    }
+                    else
+                    {
+                        currentState.vds[i] = vds[i];
+                        assert lts > currentState.lts[i];
+                        currentState.lts[i] = lts;
                     }
                 }
             }
+
+            return currentState;
         }
 
-        private void deleteColumns(long cd, BitSet mask)
+        private void deleteRegularColumns(long cd, int columnOffset, BitSet columns, BitSet mask)
         {
-            RowState state = rows.get(cd);
+            deleteColumns(rows.get(cd), columnOffset, columns, mask);
+        }
+
+        private void deleteStaticColumns(int columnOffset, BitSet columns, BitSet mask)
+        {
+            deleteColumns(staticRow, columnOffset, columns, mask);
+        }
+
+        private void deleteColumns(RowState state, int columnOffset, BitSet columns, BitSet mask)
+        {
             if (state == null)
                 return;
 
-            for (int i = 0; i < mask.size(); i++)
+            for (int i = 0; i < state.vds.length; i++)
             {
-                if (mask.isSet(i))
+                if (columns.isSet(columnOffset + i, mask))
                 {
                     state.vds[i] = NIL_DESCR;
                     state.lts[i] = NO_TIMESTAMP;
                 }
+            }
+        }
+
+        private void deletePartition(long lts)
+        {
+            if (debugCd != -1)
+                logger.info("Hiding {} at {} because partition deletion", debugCd, lts);
+
+            rows.clear();
+            if (!schema.staticColumns.isEmpty())
+            {
+                Arrays.fill(staticRow.vds, NIL_DESCR);
+                Arrays.fill(staticRow.lts, NO_TIMESTAMP);
             }
         }
 
@@ -234,6 +420,31 @@ public class Reconciler
 
             return rows.values();
         }
+
+        public RowState staticRow()
+        {
+            return staticRow;
+        }
+
+        public String toString(SchemaSpec schema)
+        {
+            StringBuilder sb = new StringBuilder();
+
+            if (staticRow != null)
+                sb.append("Static row: " + staticRow.toString(schema)).append("\n");
+
+            for (RowState row : rows.values())
+                sb.append(row.toString(schema)).append("\n");
+
+            return sb.toString();
+        }
+    }
+
+    public static long[] arr(int length, long fill)
+    {
+        long[] arr = new long[length];
+        Arrays.fill(arr, fill);
+        return arr;
     }
 
     public static class RowState
@@ -254,9 +465,20 @@ public class Reconciler
         public String toString()
         {
             return "RowState{" +
-                   "cd=" + cd +
+                   "cd=" + (cd == STATIC_CLUSTERING ? "static" : cd) +
                    ", vds=" + Arrays.toString(vds) +
                    ", lts=" + Arrays.toString(lts) +
+                   '}';
+        }
+
+        public String toString(SchemaSpec schema)
+        {
+            return "RowState{" +
+                   "cd=" + (cd == STATIC_CLUSTERING ? "static" : cd) +
+                   ", vds=" + Arrays.toString(vds) +
+                   ", lts=" + Arrays.toString(lts) +
+                   ", clustering=" + (cd == STATIC_CLUSTERING ? "static" : Arrays.toString(schema.inflateClusteringKey(cd))) +
+                   ", values=" + Arrays.toString(cd == STATIC_CLUSTERING ? schema.inflateStaticColumns(vds) : schema.inflateRegularColumns(vds)) +
                    '}';
         }
     }

@@ -26,9 +26,11 @@ import harry.generators.DataGenerators;
 
 import static com.datastax.driver.core.querybuilder.QueryBuilder.bindMarker;
 import static com.datastax.driver.core.querybuilder.QueryBuilder.eq;
+import static com.datastax.driver.core.querybuilder.QueryBuilder.in;
 import static com.datastax.driver.core.querybuilder.QueryBuilder.insertInto;
 import static com.datastax.driver.core.querybuilder.QueryBuilder.set;
 import static com.datastax.driver.core.querybuilder.QueryBuilder.timestamp;
+import static com.datastax.driver.core.querybuilder.QueryBuilder.truncate;
 import static com.datastax.driver.core.querybuilder.QueryBuilder.update;
 
 public class WriteHelper
@@ -37,10 +39,12 @@ public class WriteHelper
                                                   long pd,
                                                   long cd,
                                                   long[] vds,
+                                                  long[] sds,
                                                   long timestamp)
     {
         Object[] partitionKey = schema.inflatePartitionKey(pd);
         Object[] clusteringKey = schema.inflateClusteringKey(cd);
+        Object[] staticColumns = sds == null ? null : schema.inflateStaticColumns(sds);
         Object[] regularColumns = schema.inflateRegularColumns(vds);
 
         Object[] bindings = new Object[schema.allColumns.size()];
@@ -50,6 +54,8 @@ public class WriteHelper
 
         bindingsCount += addValue(insert, bindings, schema.partitionKeys, partitionKey, bindingsCount);
         bindingsCount += addValue(insert, bindings, schema.clusteringKeys, clusteringKey, bindingsCount);
+        if (staticColumns != null)
+            bindingsCount += addValue(insert, bindings, schema.staticColumns, staticColumns, bindingsCount);
         bindingsCount += addValue(insert, bindings, schema.regularColumns, regularColumns, bindingsCount);
 
         insert.using(timestamp(timestamp));
@@ -61,9 +67,19 @@ public class WriteHelper
             System.arraycopy(bindings, 0, tmp, 0, bindingsCount);
             bindings = tmp;
         }
+
         return CompiledStatement.create(insert.toString(), bindings);
     }
 
+    public static boolean allUnset(long[] descriptors)
+    {
+        for (long descriptor : descriptors)
+        {
+            if (descriptor != DataGenerators.UNSET_DESCR)
+                return false;
+        }
+        return true;
+    }
     private static int addValue(com.datastax.driver.core.querybuilder.Insert insert,
                                 Object[] bindings,
                                 List<ColumnSpec<?>> columns,

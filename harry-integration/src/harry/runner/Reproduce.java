@@ -18,51 +18,34 @@
 
 package harry.runner;
 
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import java.io.File;
 
 import harry.core.Configuration;
 import harry.core.Run;
-import harry.model.sut.InJvmSut;
-import org.apache.cassandra.distributed.test.TestBaseImpl;
+import harry.model.sut.PrintlnSut;
+import harry.reconciler.Reconciler;
 
-public class Reproduce extends TestBaseImpl
+public class Reproduce
 {
 
-    private static final Logger logger = LoggerFactory.getLogger(HarryRunner.class);
-
-    public void runWithInJvmDtest() throws Throwable
+    public static void main(String[] args) throws Throwable
     {
-        InJvmSut.init();
+        File configFile = HarryRunner.loadConfig(args);
+        Configuration configuration = Configuration.fromFile(configFile);
+        System.out.println(Configuration.toYamlString(configuration));
+        configuration = configuration.unbuild().setSUT(PrintlnSut::new).build();
 
-        System.setProperty("cassandra.disable_tcactive_openssl", "true");
-        System.setProperty("relocated.shaded.io.netty.transport.noNative", "true");
-        System.setProperty("org.apache.cassandra.disable_mbean_registration", "true");
+        Run run = configuration.createRun();
 
-        Configuration configuration = Configuration.fromFile("shared/run.yaml");
+        Reconciler reconciler = new Reconciler(run);
+        long pd = 8135884698435133227L;
+        System.out.println(reconciler.inflatePartitionState(pd,
+                                                            5908L,
+                                                            Query.selectPartition(run.schemaSpec,
+                                                                                  pd,
+                                                                                  false))
+                                     .toString(run.schemaSpec));
 
-        Runner runner = configuration.createRunner();
-        Run run = runner.getRun();
-
-        try
-        {
-//            run.validator.validatePartition(0L);
-        }
-        catch(Throwable t)
-        {
-            logger.error(t.getMessage(), t);
-        }
-    }
-
-    public static void main(String[] args) throws Throwable {
-        try
-        {
-            new Reproduce().runWithInJvmDtest();
-        }
-        catch (Throwable t)
-        {
-            logger.error("Error: ", t);
-        }
+        // Try out everything you might want to try with a given run
     }
 }
-

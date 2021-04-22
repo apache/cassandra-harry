@@ -37,6 +37,8 @@ import harry.runner.PartitionVisitor;
 import harry.runner.Query;
 import harry.runner.QueryGenerator;
 
+import static harry.generators.DataGenerators.NIL_DESCR;
+
 public class QuerySelectorTest extends IntegrationTestBase
 {
     private static int CYCLES = 300;
@@ -60,11 +62,12 @@ public class QuerySelectorTest extends IntegrationTestBase
             }
 
             Configuration config = sharedConfiguration(cnt, schemaSpec)
-                                   .setClusteringDescriptorSelector((builder) -> {
-                                       builder.setMaxPartitionSize(partitionSize)
-                                              .setFractions(fractions);
-                                   })
+                                   .setClusteringDescriptorSelector(sharedCDSelectorConfiguration()
+                                                                    .setMaxPartitionSize(partitionSize)
+                                                                    .setFractions(fractions)
+                                                                    .build())
                                    .build();
+
             Run run = config.createRun();
             run.sut.schemaChange(run.schemaSpec.compile().cql());
             OpSelectors.MonotonicClock clock = run.clock;
@@ -103,8 +106,16 @@ public class QuerySelectorTest extends IntegrationTestBase
                                                           run.clock,
                                                           row).cd;
 
-                    Assert.assertEquals(matchingClusterings.contains(cd),
-                                        query.match(cd));
+                    // Skip static clustering
+                    if (cd == NIL_DESCR)
+                        continue;
+
+                    boolean expected = matchingClusterings.contains(cd);
+                    boolean actual = query.match(cd);
+                    Assert.assertEquals(String.format("Mismatch for clustering: %d. Expected: %s. Actual: %s.\nQuery: %s",
+                                                      cd, expected, actual, query.toSelectStatement()),
+                                        expected,
+                                        actual);
                 }
             }
         }
@@ -127,10 +138,10 @@ public class QuerySelectorTest extends IntegrationTestBase
             }
 
             Configuration config = sharedConfiguration(cnt, schemaSpec)
-                                   .setClusteringDescriptorSelector((builder) -> {
-                                       builder.setMaxPartitionSize(partitionSize)
-                                              .setFractions(fractions);
-                                   })
+                                   .setClusteringDescriptorSelector(sharedCDSelectorConfiguration()
+                                                                    .setMaxPartitionSize(partitionSize)
+                                                                    .setFractions(fractions)
+                                                                    .build())
                                    .build();
             Run run = config.createRun();
             run.sut.schemaChange(run.schemaSpec.compile().cql());
@@ -144,7 +155,7 @@ public class QuerySelectorTest extends IntegrationTestBase
             }
 
             QueryGenerator.TypedQueryGenerator querySelector = new QueryGenerator.TypedQueryGenerator(run);
-            Model model = new ExhaustiveChecker(run);
+            Model model = new QuiescentChecker(run);
 
             long verificationLts = 10;
             for (int i = 0; i < CYCLES; i++)

@@ -35,12 +35,21 @@ import com.datastax.driver.core.Row;
 import com.datastax.driver.core.Session;
 import com.datastax.driver.core.SimpleStatement;
 import com.datastax.driver.core.Statement;
+import com.fasterxml.jackson.annotation.JsonProperty;
+import com.fasterxml.jackson.annotation.JsonTypeName;
+import harry.core.Configuration;
 
 public class ExternalClusterSut implements SystemUnderTest
 {
+    public static void init()
+    {
+        Configuration.registerSubtypes(ExternalClusterSutConfiguration.class);
+    }
+
     private final Session session;
     private final ExecutorService executor;
 
+    // TODO: pass cluster, not session
     public ExternalClusterSut(Session session)
     {
         this(session, 10);
@@ -54,7 +63,6 @@ public class ExternalClusterSut implements SystemUnderTest
 
     public static ExternalClusterSut create()
     {
-        // TODO: close Cluster and Session!
         return new ExternalClusterSut(Cluster.builder()
                                              .withQueryOptions(new QueryOptions().setConsistencyLevel(toDriverCl(ConsistencyLevel.QUORUM)))
                                              .addContactPoints("127.0.0.1")
@@ -157,5 +165,23 @@ public class ExternalClusterSut implements SystemUnderTest
             case QUORUM: return com.datastax.driver.core.ConsistencyLevel.QUORUM;
         }
         throw new IllegalArgumentException("Don't know a CL: " + cl);
+    }
+
+    @JsonTypeName("external")
+    public static class ExternalClusterSutConfiguration implements Configuration.SutConfiguration
+    {
+        public final String[] hosts;
+
+        public ExternalClusterSutConfiguration(@JsonProperty(value = "hosts") String[] hosts)
+        {
+            this.hosts = hosts;
+        }
+
+        public SystemUnderTest make()
+        {
+            Cluster cluster = Cluster.builder().addContactPoints(hosts).build();
+            Session session = cluster.newSession().init();
+            return new ExternalClusterSut(session);
+        }
     }
 }

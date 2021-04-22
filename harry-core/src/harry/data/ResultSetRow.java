@@ -18,6 +18,10 @@
 
 package harry.data;
 
+import java.util.Arrays;
+
+import harry.ddl.SchemaSpec;
+
 public class ResultSetRow
 {
     public final long pd;
@@ -25,8 +29,13 @@ public class ResultSetRow
     public final long[] vds;
     public final long[] lts;
 
+    public final long[] sds;
+    public final long[] slts;
+
     public ResultSetRow(long pd,
                         long cd,
+                        long[] sds,
+                        long[] slts,
                         long[] vds,
                         long[] lts)
     {
@@ -34,6 +43,8 @@ public class ResultSetRow
         this.cd = cd;
         this.vds = vds;
         this.lts = lts;
+        this.sds = sds;
+        this.slts = slts;
     }
 
     public String toString()
@@ -41,8 +52,11 @@ public class ResultSetRow
         return "resultSetRow("
                + pd +
                "L, " + cd +
-               "L, values(" + toString(vds) + ")" +
-               ", lts(" + toString(lts) + "))";
+               (sds == null ? "" : "L, values(" + toString(sds) + ")") +
+               (slts == null ? "" : ", lts(" + toString(slts) + ")") +
+               ", values(" + toString(vds) + ")" +
+               ", lts(" + toString(lts) + ")" +
+               ")";
     }
 
     public String toString(long[] arr)
@@ -56,5 +70,20 @@ public class ResultSetRow
                 s += ',';
         }
         return s;
+    }
+
+    public String toString(SchemaSpec schema)
+    {
+        return "resultSetRow("
+               + pd +
+               "L, " + cd +
+               (sds == null ? "" : "L, staticValues(" + toString(sds) + ")") +
+               (slts == null ? "" : ", slts(" + toString(slts) + ")") +
+               ", values(" + toString(vds) + ")" +
+               ", lts(" + toString(lts) + ")" +
+               ", clustering=" + Arrays.toString(schema.inflateClusteringKey(cd)) +
+               ", values=" + Arrays.toString(schema.inflateRegularColumns(vds)) +
+               (sds == null ? "" : ", statics=" + Arrays.toString(schema.inflateStaticColumns(sds))) +
+               ")";
     }
 }

@@ -22,14 +22,14 @@ import harry.core.Run;
 import harry.model.OpSelectors;
 import harry.operations.CompiledStatement;
 
-public interface RowVisitor
+public interface Operation
 {
     interface RowVisitorFactory
     {
-        RowVisitor make(Run run);
+        Operation make(Run run);
     }
 
-    default CompiledStatement visitRow(OpSelectors.OperationKind op, long lts, long pd, long cd, long opId)
+    default CompiledStatement perform(OpSelectors.OperationKind op, long lts, long pd, long cd, long opId)
     {
         switch (op)
         {
@@ -39,8 +39,14 @@ public interface RowVisitor
                 return write(lts, pd, cd, opId);
             case DELETE_ROW:
                 return deleteRow(lts, pd, cd, opId);
+            case WRITE_WITH_STATICS:
+                return writeWithStatics(lts, pd, cd, opId);
+            case DELETE_PARTITION:
+                return deletePartition(lts, pd, opId);
             case DELETE_COLUMN:
                 return deleteColumn(lts, pd, cd, opId);
+            case DELETE_COLUMN_WITH_STATICS:
+                return deleteColumnWithStatics(lts, pd, cd, opId);
             case DELETE_RANGE:
                 return deleteRange(lts, pd, opId);
             case DELETE_SLICE:
@@ -54,7 +60,13 @@ public interface RowVisitor
 
     CompiledStatement deleteColumn(long lts, long pd, long cd, long opId);
 
+    CompiledStatement deleteColumnWithStatics(long lts, long pd, long cd, long opId);
+
     CompiledStatement deleteRow(long lts, long pd, long cd, long opId);
+
+    CompiledStatement deletePartition(long lts, long pd, long opId);
+
+    CompiledStatement writeWithStatics(long lts, long pd, long cd, long opId);
 
     CompiledStatement deleteRange(long lts, long pd, long opId);
 

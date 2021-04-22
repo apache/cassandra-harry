@@ -84,7 +84,7 @@ public class AddExtraRowCorruptor implements QueryResponseCorruptor
         // written value and tombstone are resolved in favour of tombstone, so we're
         // just going to take the next lts.
         logger.info("Corrupting the resultset by writing a row with cd {}", cd);
-        sut.execute(WriteHelper.inflateInsert(schema, query.pd, cd, vds, clock.rts(maxLts) + 1), SystemUnderTest.ConsistencyLevel.ALL);
+        sut.execute(WriteHelper.inflateInsert(schema, query.pd, cd, vds, null, clock.rts(maxLts) + 1), SystemUnderTest.ConsistencyLevel.ALL);
         return true;
     }
 }

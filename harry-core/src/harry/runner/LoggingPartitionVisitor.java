@@ -32,7 +32,7 @@ public class LoggingPartitionVisitor extends MutatingPartitionVisitor
 {
     private final BufferedWriter operationLog;
 
-    public LoggingPartitionVisitor(Run run, RowVisitor.RowVisitorFactory rowVisitorFactory)
+    public LoggingPartitionVisitor(Run run, Operation.RowVisitorFactory rowVisitorFactory)
     {
         super(run, rowVisitorFactory);
 
@@ -62,27 +62,6 @@ public class LoggingPartitionVisitor extends MutatingPartitionVisitor
                           lts, pd, cd, m, opId, statement));
 
         return statement;
-    }
-
-    public static String bindingsToString(Object... bindings)
-    {
-        StringBuilder sb = new StringBuilder();
-        boolean isFirst = true;
-        for (Object binding : bindings)
-        {
-            if (isFirst)
-                isFirst = false;
-            else
-                sb.append(",");
-
-            if (binding instanceof String)
-                sb.append("\"").append(binding).append("\"");
-            else if (binding instanceof Long)
-                sb.append(binding).append("L");
-            else
-                sb.append(binding);
-        }
-        return sb.toString();
     }
 
     private void log(String format, Object... objects)

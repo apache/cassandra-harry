@@ -42,6 +42,8 @@ public class DataGenerators
             ColumnSpec columnSpec = columns.get(i);
             if (descriptors[i] == UNSET_DESCR)
                 data[i] = UNSET_VALUE;
+            else if (descriptors[i] == NIL_DESCR)
+                data[i] = null;
             else
                 data[i] = columnSpec.inflate(descriptors[i]);
         }
@@ -154,11 +156,20 @@ public class DataGenerators
         int fixedPart = Math.min(4, columns.size());
 
         long[] slices = new long[fixedPart];
+        boolean allNulls = true;
         for (int i = 0; i < fixedPart; i++)
         {
             ColumnSpec spec = columns.get(i);
-            slices[i] = spec.deflate(values[i]);
+            Object value = values[i];
+            if (value != null)
+                allNulls = false;
+
+            slices[i] = value == null ? NIL_DESCR : spec.deflate(value);
         }
+
+        if (allNulls)
+            return null;
+
         return slices;
     }
 
@@ -311,12 +322,15 @@ public class DataGenerators
 
         public boolean shouldInvertSign()
         {
-            return totalSize != Long.BYTES && !keyGen.byteOrdered();
+            return totalSize != Long.BYTES && !keyGen.unsigned();
         }
 
         public long deflate(Object[] value)
         {
-            long descriptor = keyGen.deflate(value[0]);
+            Object v = value[0];
+            if (v == null)
+                return NIL_DESCR;
+            long descriptor = keyGen.deflate(v);
             return stitch(new long[] { descriptor });
         }
 
@@ -352,7 +366,10 @@ public class DataGenerators
 
         public long deflate(Object[] values)
         {
-            return stitch(DataGenerators.deflateKey(columns, values));
+            long[] stiched = DataGenerators.deflateKey(columns, values);
+            if (stiched == null)
+                return NIL_DESCR;
+            return stitch(stiched);
         }
 
         public Object[] inflate(long descriptor)
@@ -368,29 +385,33 @@ public class DataGenerators
             int maxSliceSize = gen.byteSize();
             int actualSliceSize = sizes[idx];
 
+
             if (idx == 0)
             {
                 // We consume a sign of a descriptor (long, long), (int, int), etc.
                 if (totalSize == Long.BYTES)
                 {
-                    // if we use only 3 bytes for a 4-byte int, or 4 bytes for a 8-byte int,
+                    // If we use only 3 bytes for a 4-byte int, or 4 bytes for a 8-byte int,
                     // they're effectively unsigned/byte-ordered, so their order won't match
                     if (maxSliceSize > actualSliceSize)
                         return true;
-                    // Since descriptor is signed, invert sign of all byte-ordered types, since
-                    // their order won't match
+                    // Sign of the current descriptor should match the sign of the slice.
+                    // For example, (tinyint, double) or (double, tinyint). In the first case (tinyint first),
+                    // sign of the first component is going to match the sign of the descriptor.
+                    // In the second case (double first), double is 7-bit, but its most significant bit
+                    // does not hold a sign, so we have to invert it to match sign of the descriptor.
                     else
-                        return gen.byteOrdered();
+                        return gen.unsigned();
                 }
                 // We do not consume a sign of a descriptor (float, tinyint), (int, tinyint), etc,
                 // so we have to only invert signs of the values, since their order doesn't match.
                 else
                 {
                     assert maxSliceSize == actualSliceSize;
-                    return !gen.byteOrdered();
+                    return !gen.unsigned();
                 }
             }
-            else if (gen.byteOrdered())
+            else if (gen.unsigned())
                 return false;
             else
                 // We invert sign of all subsequent chunks if they have enough entropy to have a sign bit set

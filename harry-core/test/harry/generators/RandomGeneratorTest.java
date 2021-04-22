@@ -23,6 +23,7 @@ import java.util.Random;
 import org.junit.Assert;
 import org.junit.Test;
 
+import harry.generators.distribution.Distribution;
 import harry.model.OpSelectors;
 
 import static junit.framework.TestCase.assertEquals;
@@ -32,6 +33,32 @@ import static junit.framework.TestCase.fail;
 public class RandomGeneratorTest
 {
     private static int RUNS = 100000;
+
+    @Test
+    public void testScale()
+    {
+        Random rand = new Random();
+        for (int cycle = 0; cycle < RUNS; cycle++)
+        {
+            int a = rand.nextInt(100);
+            int b = rand.nextInt(100);
+            while (a == b)
+                b = rand.nextInt(100);
+
+            int min = Math.min(a, b);
+            int max = Math.max(a, b);
+            long[] cardinality = new long[max - min];
+            for (int i = 0; i < 100000; i++)
+            {
+                long rnd = rand.nextLong();
+                long scaled = Distribution.ScaledDistribution.scale(rnd, min, max);
+                cardinality[(int) scaled - min]++;
+            }
+
+            for (long c : cardinality)
+                Assert.assertTrue(c > 0);
+        }
+    }
 
     @Test
     public void testShuffleUnshuffle()

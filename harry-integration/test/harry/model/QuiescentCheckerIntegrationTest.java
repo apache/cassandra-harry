@@ -18,7 +18,6 @@
 
 package harry.model;
 
-import org.junit.Assert;
 import org.junit.Test;
 
 import harry.core.Configuration;
@@ -29,6 +28,7 @@ import harry.corruptor.HideRowCorruptor;
 import harry.corruptor.HideValueCorruptor;
 import harry.corruptor.QueryResponseCorruptor;
 import harry.corruptor.QueryResponseCorruptor.SimpleQueryResponseCorruptor;
+import harry.ddl.SchemaSpec;
 import harry.runner.PartitionVisitor;
 import harry.runner.Query;
 import harry.runner.SinglePartitionValidator;
@@ -44,13 +44,19 @@ public class QuiescentCheckerIntegrationTest extends ModelTestBase
     @Test
     public void testNormalCondition()
     {
-        negativeTest((run) -> { return  true; },
+        negativeTest((run) -> true,
                      (t, run) -> {
                          if (t != null)
                              throw new AssertionError(String.format("Throwable was supposed to be null. Schema: %s",
                                                                     run.schemaSpec.compile().cql()),
                                                       t);
                      });
+    }
+
+    @Test
+    public void normalConditionIntegrationTest() throws Throwable
+    {
+        negativeIntegrationTest(modelConfiguration()::make);
     }
 
     @Test
@@ -71,8 +77,12 @@ public class QuiescentCheckerIntegrationTest extends ModelTestBase
                          // TODO: We can actually pinpoint the difference
                          String expected = "Expected results to have the same number of results, but expected result iterator has more results";
                          String expected2 = "Found a row in the model that is not present in the resultset";
-                         Assert.assertTrue(String.format("Exception string mismatch.\nExpected error: %s.\nActual error: %s", expected, t.getMessage()),
-                                           t.getMessage().contains(expected) || t.getMessage().contains(expected2));
+
+                         if (t.getMessage().contains(expected) || t.getMessage().contains(expected2))
+                             return;
+
+                         throw new AssertionError(String.format("Exception string mismatch.\nExpected error: %s.\nActual error: %s", expected, t.getMessage()),
+                                                  t);
                      });
     }
 
@@ -93,8 +103,11 @@ public class QuiescentCheckerIntegrationTest extends ModelTestBase
                          String expected = "Found a row in the model that is not present in the resultset";
                          String expected2 = "Expected results to have the same number of results, but actual result iterator has more results";
 
-                         Assert.assertTrue(String.format("Exception string mismatch.\nExpected error: %s.\nActual error: %s", expected, t.getMessage()),
-                                           t.getMessage().contains(expected) || t.getMessage().contains(expected2));
+                         if (t.getMessage().contains(expected) || t.getMessage().contains(expected2))
+                             return;
+
+                         throw new AssertionError(String.format("Exception string mismatch.\nExpected error: %s.\nActual error: %s", expected, t.getMessage()),
+                                                  t);
                      });
     }
 
@@ -113,9 +126,13 @@ public class QuiescentCheckerIntegrationTest extends ModelTestBase
                                                        run.sut);
                      },
                      (t, run) -> {
-                         String expected = "Returned row state doesn't match the one predicted by the model";
-                         Assert.assertTrue(String.format("Exception string mismatch.\nExpected error: %s.\nActual error: %s", expected, t.getMessage()),
-                                           t.getMessage().contains(expected));
+                         String expected = "doesn't match the one predicted by the model";
+                         String expected2 = "don't match ones predicted by the model";
+                         if (t.getMessage().contains(expected) || t.getMessage().contains(expected2))
+                             return;
+
+                         throw new AssertionError(String.format("Exception string mismatch.\nExpected error: %s.\nActual error: %s", expected, t.getMessage()),
+                                                  t);
                      });
     }
 
@@ -135,13 +152,29 @@ public class QuiescentCheckerIntegrationTest extends ModelTestBase
                      },
                      (t, run) -> {
                          String expected = "Returned row state doesn't match the one predicted by the model";
-                         Assert.assertTrue(String.format("Exception string mismatch.\nExpected error: %s.\nActual error: %s", expected, t.getMessage()),
-                                           t.getMessage().contains(expected));
+                         String expected2 = "Timestamps in the row state don't match ones predicted by the model";
+
+                         if (t.getMessage().contains(expected) || t.getMessage().contains(expected2))
+                             return;
+
+                         throw new AssertionError(String.format("Exception string mismatch.\nExpected error: %s.\nActual error: %s", expected, t.getMessage()),
+                                                  t);
                      });
     }
 
+    @Override
     Configuration.ModelConfiguration modelConfiguration()
     {
         return new Configuration.QuiescentCheckerConfig();
+    }
+
+    public Configuration.ConfigurationBuilder configuration(long seed, SchemaSpec schema)
+    {
+        return super.configuration(seed, schema)
+                    .setClusteringDescriptorSelector(sharedCDSelectorConfiguration()
+                                                     .setNumberOfModificationsDistribution(new Configuration.ConstantDistributionConfig(2))
+                                                     .setRowsPerModificationDistribution(new Configuration.ConstantDistributionConfig(2))
+                                                     .setMaxPartitionSize(100)
+                                                     .build());
     }
 }

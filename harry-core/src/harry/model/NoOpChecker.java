@@ -18,17 +18,22 @@
 
 package harry.model;
 
-import harry.core.Configuration;
+import harry.core.Run;
+import harry.model.sut.SystemUnderTest;
 import harry.runner.Query;
 
-public class DoNothingModel implements Model
+public class NoOpChecker implements Model
 {
-    public void validate(Query query)
+    private final Run run;
+
+    public NoOpChecker(Run run)
     {
+        this.run = run;
     }
 
-    public Configuration.ModelConfiguration toConfig()
+    public void validate(Query query)
     {
-        throw new RuntimeException("not implemented");
+        run.sut.execute(query.toSelectStatement(),
+                        SystemUnderTest.ConsistencyLevel.ALL);
     }
 }
