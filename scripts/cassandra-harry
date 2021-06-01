@@ -4,6 +4,54 @@ if [ "x$HARRY_HOME" == 'x' ]; then
     HARRY_HOME=~/cassandra-harry
 fi
 
+print_usage() {
+    cat <<EOF
+Usage: cassandra-harry [options]
+
+Options:
+  -node      ip address  node's ip
+  -run-time  number      run time, unit: hours
+  -run-time-unit unit    unit of run time, HOURS, MINUTES
+  -help                  this helpful message
+EOF
+    exit 1
+}
+
+while [ $# -gt 0 ]; do
+    case "$1" in
+        "-node")
+            node="$2"
+            shift 2
+            ;;
+        "-run-time")
+            run_time="$2"
+            shift 2
+            ;;
+        "-run-time-unit")
+            run_time_unit="$2"
+            shift 2
+            ;;
+        "-help")
+            shift 1
+	    print_usage
+            ;;
+        *)
+	    print_usage
+            ;;
+    esac
+done
+
+
+if [[ ! -z $node ]]; then
+    sed -i -e "s/contact_points:.*/contact_points: $node/g" $HARRY_HOME/conf/external.yaml
+fi
+if [[ ! -z $run_time ]]; then
+    sed -i -e "s/run_time:.*/run_time: $run_time/g" $HARRY_HOME/conf/external.yaml
+fi
+if [[ ! -z $run_time_unit ]]; then
+    sed -i -e "s/run_time_unit:.*/run_time_unit: \"$run_time_unit\"/g" $HARRY_HOME/conf/external.yaml
+fi
+
 java -Dlogback.configurationFile=$HARRY_HOME/test/conf/logback-dtest.xml \
      -jar $HARRY_HOME/harry-integration-external/target/harry-integration-external-0.0.1-SNAPSHOT.jar \
      $HARRY_HOME/conf/external.yaml
