@@ -11,5 +11,5 @@ sudo ln -s `realpath scripts/cassandra-harry` /usr/bin/cassandra-harry
 ### Execute
 
 ```
-HARRY_HOME=~/cassandra-harry cassandra-harry
+HARRY_HOME=~/cassandra-harry cassandra-harry -run-time 2 -run-time-unit HOURS
 ```
