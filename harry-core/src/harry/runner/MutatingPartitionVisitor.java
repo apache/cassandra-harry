@@ -127,6 +127,7 @@ public class MutatingPartitionVisitor extends AbstractPartitionVisitor
         if (sut.isShutdown())
             throw new IllegalStateException("System under test is shut down");
 
+        // TODO: limit a number of retries
         sut.executeAsync(statement.cql(), SystemUnderTest.ConsistencyLevel.QUORUM, statement.bindings())
            .whenComplete((res, t) -> {
                if (t != null)

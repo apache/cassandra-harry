@@ -18,14 +18,12 @@
 
 package harry.ddl;
 
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Objects;
 import java.util.function.Consumer;
-import java.util.stream.Stream;
-
-import com.google.common.collect.ImmutableList;
-import com.google.common.collect.Iterables;
-import com.google.common.collect.Streams;
 
 import harry.generators.DataGenerators;
 import harry.operations.CompiledStatement;
@@ -87,22 +85,30 @@ public class SchemaSpec
         this.keyspace = keyspace;
         this.table = table;
         this.isCompactStorage = isCompactStorage;
-        this.partitionKeys = ImmutableList.copyOf(partitionKeys);
+
+        this.partitionKeys = Collections.unmodifiableList(new ArrayList<>(partitionKeys));
         for (int i = 0; i < partitionKeys.size(); i++)
             partitionKeys.get(i).setColumnIndex(i);
-        this.clusteringKeys = ImmutableList.copyOf(clusteringKeys);
+        this.clusteringKeys = Collections.unmodifiableList(new ArrayList<>(clusteringKeys));
         for (int i = 0; i < clusteringKeys.size(); i++)
             clusteringKeys.get(i).setColumnIndex(i);
-        this.staticColumns = ImmutableList.copyOf(staticColumns);
+        this.staticColumns = Collections.unmodifiableList(new ArrayList<>(staticColumns));
         for (int i = 0; i < staticColumns.size(); i++)
             staticColumns.get(i).setColumnIndex(i);
-        this.regularColumns = ImmutableList.copyOf(regularColumns);
+        this.regularColumns = Collections.unmodifiableList(new ArrayList<>(regularColumns));
         for (int i = 0; i < regularColumns.size(); i++)
             regularColumns.get(i).setColumnIndex(i);
-        this.allColumns = ImmutableList.copyOf(Iterables.concat(partitionKeys,
-                                                                clusteringKeys,
-                                                                staticColumns,
-                                                                regularColumns));
+
+        List<ColumnSpec<?>> all = new ArrayList<>();
+        for (ColumnSpec<?> columnSpec : concat(partitionKeys,
+                                               clusteringKeys,
+                                               staticColumns,
+                                               regularColumns))
+        {
+            all.add(columnSpec);
+        }
+        this.allColumns = Collections.unmodifiableList(all);
+
         this.pkGenerator = DataGenerators.createKeyGenerator(partitionKeys);
         this.ckGenerator = DataGenerators.createKeyGenerator(clusteringKeys);
 
@@ -122,7 +128,6 @@ public class SchemaSpec
     }
 
     // todo: bitset views?
-
     public BitSet regularColumnsMask()
     {
         return this.regularColumnsMask;
@@ -254,13 +259,13 @@ public class SchemaSpec
                 sb.append(" PRIMARY KEY");
         }
 
-        Streams.concat(clusteringKeys.stream(),
-                       staticColumns.stream(),
-                       regularColumns.stream())
-              .forEach((cd) -> {
-                  commaAppender.accept(sb);
-                  sb.append(cd.toCQL());
-              });
+        for (ColumnSpec<?> cd : concat(clusteringKeys,
+                                       staticColumns,
+                                       regularColumns))
+        {
+            commaAppender.accept(sb);
+            sb.append(cd.toCQL());
+        }
 
         if (clusteringKeys.size() > 0 || partitionKeys.size() > 1)
         {
@@ -408,5 +413,60 @@ public class SchemaSpec
     public int hashCode()
     {
         return Objects.hash(keyspace, table, partitionKeys, clusteringKeys, regularColumns);
+    }
+
+    public static <T> Iterable<T> concat(Iterable<T>... iterables)
+    {
+        assert iterables != null && iterables.length > 0;
+        if (iterables.length == 1)
+            return iterables[0];
+
+        return () -> {
+            return new Iterator<T>()
+            {
+                int idx;
+                Iterator<T> current;
+                boolean hasNext;
+
+                {
+                    idx = 0;
+                    prepareNext();
+                }
+
+                private void prepareNext()
+                {
+                    if (current != null && current.hasNext())
+                    {
+                        hasNext = true;
+                        return;
+                    }
+
+                    while (idx < iterables.length)
+                    {
+                        current = iterables[idx].iterator();
+                        idx++;
+                        if (current.hasNext())
+                        {
+                            hasNext = true;
+                            return;
+                        }
+                    }
+
+                    hasNext = false;
+                }
+
+                public boolean hasNext()
+                {
+                    return hasNext;
+                }
+
+                public T next()
+                {
+                    T next = current.next();
+                    prepareNext();
+                    return next;
+                }
+            };
+        };
     }
 }

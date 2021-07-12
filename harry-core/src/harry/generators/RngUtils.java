@@ -22,8 +22,12 @@ import java.util.function.LongSupplier;
 
 public class RngUtils
 {
+    private static final long CONSTANT = 0x2545F4914F6CDD1DL;
     public static long next(long input)
     {
+        if (input == 0)
+            return next(CONSTANT);
+
         return xorshift64star(input);
     }
 
@@ -32,7 +36,7 @@ public class RngUtils
         input ^= input >> 12;
         input ^= input << 25; // b
         input ^= input >> 27; // c
-        return input * 0x2545F4914F6CDD1DL;
+        return input * CONSTANT;
     }
 
     public static long[] next(long current, int n)

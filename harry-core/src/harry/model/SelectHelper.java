@@ -19,13 +19,9 @@
 package harry.model;
 
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 
-import com.datastax.driver.core.querybuilder.Ordering;
-import com.datastax.driver.core.querybuilder.QueryBuilder;
-import com.datastax.driver.core.querybuilder.Select;
 import harry.data.ResultSetRow;
 import harry.ddl.ColumnSpec;
 import harry.ddl.SchemaSpec;
@@ -48,65 +44,117 @@ public class SelectHelper
      */
     public static CompiledStatement select(SchemaSpec schema, long pd, List<Relation> relations, boolean reverse, boolean includeWriteTime)
     {
-        Select.Selection select = QueryBuilder.select();
-        for (ColumnSpec<?> column : schema.allColumns)
-            select.column(column.name);
+        StringBuilder b = new StringBuilder();
+        b.append("SELECT ");
+
+        for (int i = 0; i < schema.allColumns.size(); i++)
+        {
+            ColumnSpec<?> spec = schema.allColumns.get(i);
+            if (i > 0)
+                b.append(", ");
+            b.append(spec.name);
+        }
 
         if (includeWriteTime)
         {
             for (ColumnSpec<?> column : schema.staticColumns)
-                select.writeTime(column.name);
+                b.append(", ")
+                 .append("writetime(")
+                 .append(column.name)
+                 .append(")");
 
             for (ColumnSpec<?> column : schema.regularColumns)
-                select.writeTime(column.name);
+                b.append(", ")
+                 .append("writetime(")
+                 .append(column.name)
+                 .append(")");
         }
 
-        Select.Where where = select.from(schema.keyspace, schema.table).where();
+        b.append(" FROM ")
+         .append(schema.keyspace)
+         .append(".")
+         .append(schema.table)
+         .append(" WHERE ");
+
         List<Object> bindings = new ArrayList<>();
 
-        addRelations(schema, where, bindings, pd, relations);
-        addOrderBy(schema, where, reverse);
-
+        schema.inflateRelations(pd,
+                                relations,
+                                new SchemaSpec.AddRelationCallback()
+                                {
+                                    boolean isFirst = true;
+                                    public void accept(ColumnSpec<?> spec, Relation.RelationKind kind, Object value)
+                                    {
+                                        if (isFirst)
+                                            isFirst = false;
+                                        else
+                                            b.append(" AND ");
+                                        b.append(kind.getClause(spec));
+                                        bindings.add(value);
+                                    }
+                                });
+        addOrderBy(schema, b, reverse);
+        b.append(";");
         Object[] bindingsArr = bindings.toArray(new Object[bindings.size()]);
-        return new CompiledStatement(where.toString(), bindingsArr);
+        return new CompiledStatement(b.toString(), bindingsArr);
     }
 
     public static CompiledStatement count(SchemaSpec schema, long pd)
     {
-        Select.Selection select = QueryBuilder.select();
-        select.countAll();
+        StringBuilder b = new StringBuilder();
+        b.append("SELECT count(*) ");
 
-        Select.Where where = select.from(schema.keyspace, schema.table).where();
+        b.append(" FROM ")
+         .append(schema.keyspace)
+         .append(".")
+         .append(schema.table)
+         .append(" WHERE ");
+
         List<Object> bindings = new ArrayList<>(schema.partitionKeys.size());
 
-        addRelations(schema, where, bindings, pd, Collections.emptyList());
+        schema.inflateRelations(pd,
+                                Collections.emptyList(),
+                                new SchemaSpec.AddRelationCallback()
+                                {
+                                    boolean isFirst = true;
+                                    public void accept(ColumnSpec<?> spec, Relation.RelationKind kind, Object value)
+                                    {
+                                        if (isFirst)
+                                            isFirst = false;
+                                        else
+                                            b.append(" AND ");
+                                        b.append(kind.getClause(spec));
+                                        bindings.add(value);
+                                    }
+                                });
 
         Object[] bindingsArr = bindings.toArray(new Object[bindings.size()]);
-        return new CompiledStatement(where.toString(), bindingsArr);
+        return new CompiledStatement(b.toString(), bindingsArr);
     }
 
-    private static void addRelations(SchemaSpec schema, Select.Where where, List<Object> bindings, long pd, List<Relation> relations)
-    {
-        schema.inflateRelations(pd,
-                                relations,
-                                (spec, kind, value) -> {
-                                    where.and(kind.getClause(spec));
-                                    bindings.add(value);
-                                });
-    }
-
-    private static void addOrderBy(SchemaSpec schema, Select.Where whereClause, boolean reverse)
+    private static void addOrderBy(SchemaSpec schema, StringBuilder b, boolean reverse)
     {
         if (reverse && schema.clusteringKeys.size() > 0)
         {
-            Ordering[] ordering = new Ordering[schema.clusteringKeys.size()];
+            b.append(" ORDER BY ");
             for (int i = 0; i < schema.clusteringKeys.size(); i++)
             {
                 ColumnSpec<?> c = schema.clusteringKeys.get(i);
-                ordering[i] = c.isReversed() ? QueryBuilder.asc(c.name) : QueryBuilder.desc(c.name);
+                if (i > 0)
+                    b.append(", ");
+                b.append(c.isReversed() ? asc(c.name) : desc(c.name));
             }
-            whereClause.orderBy(ordering);
         }
+    }
+
+    public static String asc(String name)
+    {
+        return name + " ASC";
+    }
+
+    public static String desc(String name)
+    {
+        return name + " DESC";
     }
 
     public static ResultSetRow resultSetToRow(SchemaSpec schema, OpSelectors.MonotonicClock clock, Object[] result)

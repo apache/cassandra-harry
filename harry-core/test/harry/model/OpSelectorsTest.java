@@ -25,7 +25,6 @@ import java.util.EnumMap;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Map;
-import java.util.Random;
 import java.util.Set;
 import java.util.TreeSet;
 import java.util.function.BiConsumer;
@@ -39,7 +38,6 @@ import harry.core.Run;
 import harry.ddl.ColumnSpec;
 import harry.ddl.SchemaGenerators;
 import harry.ddl.SchemaSpec;
-import harry.generators.RngUtils;
 import harry.generators.Surjections;
 import harry.generators.distribution.Distribution;
 import harry.model.clock.OffsetClock;
@@ -186,10 +184,11 @@ public class OpSelectorsTest
         OpSelectors.PdSelector pdSelector = new OpSelectors.DefaultPdSelector(rng, 10, 10);
         OpSelectors.DescriptorSelector ckSelector = new OpSelectors.DefaultDescriptorSelector(rng,
                                                                                               new OpSelectors.ColumnSelectorBuilder().forAll(schema, Surjections.pick(BitSet.allUnset(0))).build(),
-                                                                                              OpSelectors.OperationSelector.weighted(Surjections.weights(10, 10, 80),
+                                                                                              OpSelectors.OperationSelector.weighted(Surjections.weights(10, 10, 40, 40),
                                                                                                                                      OpSelectors.OperationKind.DELETE_ROW,
                                                                                                                                      OpSelectors.OperationKind.DELETE_COLUMN,
-                                                                                                                                     OpSelectors.OperationKind.WRITE),
+                                                                                                                                     OpSelectors.OperationKind.INSERT,
+                                                                                                                                     OpSelectors.OperationKind.UPDATE),
                                                                                               new Distribution.ConstantDistribution(2),
                                                                                               new Distribution.ConstantDistribution(5),
                                                                                               10);
@@ -217,7 +216,13 @@ public class OpSelectorsTest
         PartitionVisitor partitionVisitor = new MutatingPartitionVisitor(run,
                                                                          (r) -> new Operation()
                                                                          {
-                                                                             public CompiledStatement write(long lts, long pd, long cd, long m)
+                                                                             public CompiledStatement insert(long lts, long pd, long cd, long m)
+                                                                             {
+                                                                                 consumer.accept(pd, cd);
+                                                                                 return compiledStatement;
+                                                                             }
+
+                                                                             public CompiledStatement update(long lts, long pd, long cd, long opId)
                                                                              {
                                                                                  consumer.accept(pd, cd);
                                                                                  return compiledStatement;
@@ -247,7 +252,13 @@ public class OpSelectorsTest
                                                                                  return compiledStatement;
                                                                              }
 
-                                                                             public CompiledStatement writeWithStatics(long lts, long pd, long cd, long opId)
+                                                                             public CompiledStatement insertWithStatics(long lts, long pd, long cd, long opId)
+                                                                             {
+                                                                                 consumer.accept(pd, cd);
+                                                                                 return compiledStatement;
+                                                                             }
+
+                                                                             public CompiledStatement updateWithStatics(long lts, long pd, long cd, long opId)
                                                                              {
                                                                                  consumer.accept(pd, cd);
                                                                                  return compiledStatement;
@@ -290,10 +301,11 @@ public class OpSelectorsTest
         OpSelectors.DescriptorSelector ckSelector = new OpSelectors.HierarchicalDescriptorSelector(rng,
                                                                                                    new int[] {10, 20},
                                                                                                    OpSelectors.columnSelectorBuilder().forAll(schema, Surjections.pick(BitSet.allUnset(0))).build(),
-                                                                                                   OpSelectors.OperationSelector.weighted(Surjections.weights(10, 10, 80),
+                                                                                                   OpSelectors.OperationSelector.weighted(Surjections.weights(10, 10, 40, 40),
                                                                                                                                           OpSelectors.OperationKind.DELETE_ROW,
                                                                                                                                           OpSelectors.OperationKind.DELETE_COLUMN,
-                                                                                                                                          OpSelectors.OperationKind.WRITE),
+                                                                                                                                          OpSelectors.OperationKind.INSERT,
+                                                                                                                                          OpSelectors.OperationKind.UPDATE),
                                                                                                    new Distribution.ConstantDistribution(2),
                                                                                                    new Distribution.ConstantDistribution(5),
                                                                                                    100);
@@ -323,8 +335,10 @@ public class OpSelectorsTest
         config.put(OpSelectors.OperationKind.DELETE_COLUMN, 1);
         config.put(OpSelectors.OperationKind.DELETE_PARTITION, 1);
         config.put(OpSelectors.OperationKind.DELETE_COLUMN_WITH_STATICS, 1);
-        config.put(OpSelectors.OperationKind.WRITE_WITH_STATICS, 1000);
-        config.put(OpSelectors.OperationKind.WRITE, 1000);
+        config.put(OpSelectors.OperationKind.UPDATE, 500);
+        config.put(OpSelectors.OperationKind.INSERT, 500);
+        config.put(OpSelectors.OperationKind.UPDATE_WITH_STATICS, 500);
+        config.put(OpSelectors.OperationKind.INSERT_WITH_STATICS, 500);
 
         int[] weights = new int[config.size()];
         for (int i = 0; i < config.values().size(); i++)

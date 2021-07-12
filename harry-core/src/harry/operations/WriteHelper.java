@@ -18,20 +18,12 @@
 
 package harry.operations;
 
+import java.util.Arrays;
 import java.util.List;
 
 import harry.ddl.ColumnSpec;
 import harry.ddl.SchemaSpec;
 import harry.generators.DataGenerators;
-
-import static com.datastax.driver.core.querybuilder.QueryBuilder.bindMarker;
-import static com.datastax.driver.core.querybuilder.QueryBuilder.eq;
-import static com.datastax.driver.core.querybuilder.QueryBuilder.in;
-import static com.datastax.driver.core.querybuilder.QueryBuilder.insertInto;
-import static com.datastax.driver.core.querybuilder.QueryBuilder.set;
-import static com.datastax.driver.core.querybuilder.QueryBuilder.timestamp;
-import static com.datastax.driver.core.querybuilder.QueryBuilder.truncate;
-import static com.datastax.driver.core.querybuilder.QueryBuilder.update;
 
 public class WriteHelper
 {
@@ -48,117 +40,127 @@ public class WriteHelper
         Object[] regularColumns = schema.inflateRegularColumns(vds);
 
         Object[] bindings = new Object[schema.allColumns.size()];
+
+        StringBuilder b = new StringBuilder();
+        b.append("INSERT INTO ")
+         .append(schema.keyspace)
+         .append('.')
+         .append(schema.table)
+         .append(" (");
+
         int bindingsCount = 0;
-        com.datastax.driver.core.querybuilder.Insert insert = insertInto(schema.keyspace,
-                                                                         schema.table);
-
-        bindingsCount += addValue(insert, bindings, schema.partitionKeys, partitionKey, bindingsCount);
-        bindingsCount += addValue(insert, bindings, schema.clusteringKeys, clusteringKey, bindingsCount);
+        bindingsCount += appendStatements(b, bindings, schema.partitionKeys, partitionKey, bindingsCount, true, ",", "%s");
+        bindingsCount += appendStatements(b, bindings, schema.clusteringKeys, clusteringKey, bindingsCount, false, ",", "%s");
+        bindingsCount += appendStatements(b, bindings, schema.regularColumns, regularColumns, bindingsCount, false, ",", "%s");
         if (staticColumns != null)
-            bindingsCount += addValue(insert, bindings, schema.staticColumns, staticColumns, bindingsCount);
-        bindingsCount += addValue(insert, bindings, schema.regularColumns, regularColumns, bindingsCount);
+            bindingsCount += appendStatements(b, bindings, schema.staticColumns, staticColumns, bindingsCount, false, ",", "%s");
 
-        insert.using(timestamp(timestamp));
+        b.append(") VALUES (");
 
-        // Some of the values were unset
+        for (int i = 0; i < bindingsCount; i++)
+        {
+            if (i > 0)
+                b.append(", ");
+            b.append("?");
+        }
+
+        b.append(") USING TIMESTAMP ")
+         .append(timestamp);
+
+        return new CompiledStatement(b.toString(), adjustArraySize(bindings, bindingsCount));
+    }
+
+    public static Object[] adjustArraySize(Object[] bindings, int bindingsCount)
+    {
         if (bindingsCount != bindings.length)
         {
             Object[] tmp = new Object[bindingsCount];
             System.arraycopy(bindings, 0, tmp, 0, bindingsCount);
             bindings = tmp;
         }
-
-        return CompiledStatement.create(insert.toString(), bindings);
-    }
-
-    public static boolean allUnset(long[] descriptors)
-    {
-        for (long descriptor : descriptors)
-        {
-            if (descriptor != DataGenerators.UNSET_DESCR)
-                return false;
-        }
-        return true;
-    }
-    private static int addValue(com.datastax.driver.core.querybuilder.Insert insert,
-                                Object[] bindings,
-                                List<ColumnSpec<?>> columns,
-                                Object[] data,
-                                int bound)
-    {
-        assert data.length == columns.size();
-
-        int bindingsCount = 0;
-        for (int i = 0; i < data.length; i++)
-        {
-            if (data[i] == DataGenerators.UNSET_VALUE)
-                continue;
-
-            insert.value(columns.get(i).name, bindMarker());
-            bindings[bound + bindingsCount] = data[i];
-            bindingsCount++;
-        }
-
-        return bindingsCount;
+        return bindings;
     }
 
     public static CompiledStatement inflateUpdate(SchemaSpec schema,
                                                   long pd,
                                                   long cd,
                                                   long[] vds,
+                                                  long[] sds,
                                                   long timestamp)
     {
         Object[] partitionKey = schema.inflatePartitionKey(pd);
         Object[] clusteringKey = schema.inflateClusteringKey(cd);
+        Object[] staticColumns = sds == null ? null : schema.inflateStaticColumns(sds);
         Object[] regularColumns = schema.inflateRegularColumns(vds);
 
         Object[] bindings = new Object[schema.allColumns.size()];
+
+        StringBuilder b = new StringBuilder();
+        b.append("UPDATE ")
+         .append(schema.keyspace)
+         .append('.')
+         .append(schema.table)
+         .append(" USING TIMESTAMP ")
+         .append(timestamp)
+         .append(" SET ");
+
         int bindingsCount = 0;
-        com.datastax.driver.core.querybuilder.Update update = update(schema.keyspace,
-                                                                     schema.table);
+        bindingsCount += addSetStatements(b, bindings, schema.regularColumns, regularColumns, bindingsCount);
+        if (staticColumns != null)
+            bindingsCount += addSetStatements(b, bindings, schema.staticColumns, staticColumns, bindingsCount);
 
-        bindingsCount += addWith(update, bindings, schema.regularColumns, regularColumns, bindingsCount);
-        bindingsCount += addWhere(update, bindings, schema.partitionKeys, partitionKey, bindingsCount);
-        bindingsCount += addWhere(update, bindings, schema.clusteringKeys, clusteringKey, bindingsCount);
+        assert bindingsCount > 0 : "Can not have an UPDATE statement without any updates";
+        b.append(" WHERE ");
 
-        update.using(timestamp(timestamp));
-        // TODO: TTL
-        // ttl.ifPresent(ts -> update.using(ttl(ts)));
-
-        return CompiledStatement.create(update.toString(), bindings);
+        bindingsCount += addWhereStatements(b, bindings, schema.partitionKeys, partitionKey, bindingsCount, true);
+        bindingsCount += addWhereStatements(b, bindings, schema.clusteringKeys, clusteringKey, bindingsCount, false);
+        b.append(";");
+        return new CompiledStatement(b.toString(), adjustArraySize(bindings, bindingsCount));
     }
 
-    private static int addWith(com.datastax.driver.core.querybuilder.Update update,
-                               Object[] bindings,
-                               List<ColumnSpec<?>> columns,
-                               Object[] data,
-                               int bound)
+    private static int addSetStatements(StringBuilder b,
+                                        Object[] bindings,
+                                        List<ColumnSpec<?>> columns,
+                                        Object[] values,
+                                        int bound)
     {
-        assert data.length == columns.size();
-
-        for (int i = 0; i < data.length; i++)
-        {
-            update.with(set(columns.get(i).name, bindMarker()));
-            bindings[bound + i] = data[i];
-        }
-
-        return data.length;
+        return appendStatements(b, bindings, columns, values, bound, bound == 0, ", ", "%s = ?");
     }
 
-    private static int addWhere(com.datastax.driver.core.querybuilder.Update update,
-                                Object[] bindings,
-                                List<ColumnSpec<?>> columns,
-                                Object[] data,
-                                int bound)
+    private static int addWhereStatements(StringBuilder b,
+                                          Object[] bindings,
+                                          List<ColumnSpec<?>> columns,
+                                          Object[] values,
+                                          int bound,
+                                          boolean firstStatement)
     {
-        assert data.length == columns.size();
+        return appendStatements(b, bindings, columns, values, bound, firstStatement, " AND ", "%s = ?");
+    }
 
-        for (int i = 0; i < data.length; i++)
+    private static int appendStatements(StringBuilder b,
+                                        Object[] allBindings,
+                                        List<ColumnSpec<?>> columns,
+                                        Object[] values,
+                                        int bound,
+                                        boolean firstStatement,
+                                        String separator,
+                                        String nameFormatter)
+    {
+        int bindingsCount = 0;
+        for (int i = 0; i < values.length; i++)
         {
-            update.where().and(eq(columns.get(i).name, bindMarker()));
-            bindings[bound + i] = data[i];
-        }
+            Object value = values[i];
+            if (value == DataGenerators.UNSET_VALUE)
+                continue;
 
-        return data.length;
+            ColumnSpec<?> column = columns.get(i);
+            if (bindingsCount > 0 || !firstStatement)
+                b.append(separator);
+
+            b.append(String.format(nameFormatter, column.name));
+            allBindings[bound + bindingsCount] = value;
+            bindingsCount++;
+        }
+        return bindingsCount;
     }
 }

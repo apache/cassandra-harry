@@ -21,15 +21,7 @@ package harry.operations;
 import java.util.ArrayList;
 import java.util.List;
 
-import com.datastax.driver.core.querybuilder.Clause;
 import harry.ddl.ColumnSpec;
-
-import static com.datastax.driver.core.querybuilder.QueryBuilder.bindMarker;
-import static com.datastax.driver.core.querybuilder.QueryBuilder.eq;
-import static com.datastax.driver.core.querybuilder.QueryBuilder.gt;
-import static com.datastax.driver.core.querybuilder.QueryBuilder.gte;
-import static com.datastax.driver.core.querybuilder.QueryBuilder.lt;
-import static com.datastax.driver.core.querybuilder.QueryBuilder.lte;
 
 public class Relation
 {
@@ -62,9 +54,9 @@ public class Relation
         return columnSpec.name;
     }
 
-    public Clause toClause()
+    public String toClause()
     {
-        return kind.getClause(column(), bindMarker());
+        return kind.getClause(column());
     }
 
     public String toString()
@@ -101,7 +93,7 @@ public class Relation
     public static void addRelation(long[] key, List<ColumnSpec<?>> columnSpecs, List<Relation> relations, RelationKind kind)
     {
         assert key.length == columnSpecs.size() :
-        String.format("Key size (%d) should equal to column spec size (%d)", key.length, columnSpecs.size());
+        String.format("Key size (%d) should equal to column spec size (%d). Specs: %s", key.length, columnSpecs.size(), columnSpecs);
         for (int i = 0; i < key.length; i++)
         {
             ColumnSpec<?> spec = columnSpecs.get(i);
@@ -113,17 +105,6 @@ public class Relation
     {
         LT
         {
-            @Override
-            public Clause getClause(String name, Object obj)
-            {
-                return lt(name, obj);
-            }
-
-            public Clause getClause(List<String> name, List<Object> obj)
-            {
-                return lt(name, obj);
-            }
-
             public boolean isNegatable()
             {
                 return true;
@@ -156,17 +137,6 @@ public class Relation
         },
         GT
         {
-            @Override
-            public Clause getClause(String name, Object obj)
-            {
-                return gt(name, obj);
-            }
-
-            public Clause getClause(List<String> name, List<Object> obj)
-            {
-                return gt(name, obj);
-            }
-
             public boolean isNegatable()
             {
                 return true;
@@ -199,17 +169,6 @@ public class Relation
         },
         LTE
         {
-            @Override
-            public Clause getClause(String name, Object obj)
-            {
-                return lte(name, obj);
-            }
-
-            public Clause getClause(List<String> name, List<Object> obj)
-            {
-                return lt(name, obj);
-            }
-
             public boolean isNegatable()
             {
                 return true;
@@ -242,17 +201,6 @@ public class Relation
         },
         GTE
         {
-            @Override
-            public Clause getClause(String name, Object obj)
-            {
-                return gte(name, obj);
-            }
-
-            public Clause getClause(List<String> name, List<Object> obj)
-            {
-                return gte(name, obj);
-            }
-
             public boolean isNegatable()
             {
                 return true;
@@ -285,17 +233,6 @@ public class Relation
         },
         EQ
         {
-            @Override
-            public Clause getClause(String name, Object obj)
-            {
-                return eq(name, obj);
-            }
-
-            public Clause getClause(List<String> name, List<Object> obj)
-            {
-                return eq(name, obj);
-            }
-
             public boolean isNegatable()
             {
                 return false;
@@ -329,14 +266,15 @@ public class Relation
 
         public abstract boolean match(LongComparator comparator, long l, long r);
 
-        public abstract Clause getClause(String name, Object obj);
-
-        public Clause getClause(ColumnSpec<?> spec)
+        public String getClause(String name)
         {
-            return getClause(spec.name, bindMarker());
+            return String.format("%s %s ?", name, toString());
         }
 
-        public abstract Clause getClause(List<String> name, List<Object> obj);
+        public String getClause(ColumnSpec<?> spec)
+        {
+            return getClause(spec.name);
+        }
 
         public abstract boolean isNegatable();
 

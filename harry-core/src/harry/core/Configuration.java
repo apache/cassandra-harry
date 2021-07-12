@@ -38,10 +38,13 @@ import harry.ddl.SchemaGenerators;
 import harry.ddl.SchemaSpec;
 import harry.generators.Surjections;
 import harry.generators.distribution.Distribution;
+import harry.model.AlwaysSamePartitionSelector;
 import harry.model.Model;
 import harry.model.OpSelectors;
 import harry.model.QuiescentChecker;
 import harry.model.clock.ApproximateMonotonicClock;
+import harry.model.clock.OffsetClock;
+import harry.model.sut.PrintlnSut;
 import harry.model.sut.SystemUnderTest;
 import harry.runner.AllPartitionsValidator;
 import harry.runner.CorruptingPartitionVisitor;
@@ -92,7 +95,10 @@ public class Configuration
         mapper.registerSubtypes(CorruptingPartitionVisitorConfiguration.class);
         mapper.registerSubtypes(RecentPartitionsValidatorConfiguration.class);
         mapper.registerSubtypes(FixedSchemaProviderConfiguration.class);
-
+        mapper.registerSubtypes(AlwaysSamePartitionSelector.AlwaysSamePartitionSelectorConfiguration.class);
+        mapper.registerSubtypes(OffsetClock.OffsetClockConfiguration.class);
+        mapper.registerSubtypes(PrintlnSut.PrintlnSutConfiguration.class);
+        mapper.registerSubtypes(NoOpDataTrackerConfiguration.class);
         mapper.registerSubtypes(NoOpMetricReporterConfiguration.class);
     }
 
@@ -409,7 +415,7 @@ public class Configuration
 
     }
 
-    @JsonTypeName("no_op_tracker")
+    @JsonTypeName("no_op")
     public static class NoOpDataTrackerConfiguration implements DataTrackerConfiguration
     {
         @JsonCreator
@@ -615,7 +621,7 @@ public class Configuration
         }
     }
 
-    @JsonTypeName("no_op_checker")
+    @JsonTypeName("no_op")
     public static class NoOpCheckerConfig implements ModelConfiguration
     {
         @JsonCreator
@@ -694,7 +700,7 @@ public class Configuration
         private Map<OpSelectors.OperationKind, Integer> operation_kind_weights = new OperationKindSelectorBuilder()
                                                                                  .addWeight(OpSelectors.OperationKind.DELETE_ROW, 1)
                                                                                  .addWeight(OpSelectors.OperationKind.DELETE_COLUMN, 1)
-                                                                                 .addWeight(OpSelectors.OperationKind.WRITE, 98)
+                                                                                 .addWeight(OpSelectors.OperationKind.INSERT, 98)
                                                                                  .build();
         private Map<OpSelectors.OperationKind, long[]> column_mask_bitsets;
         private int[] fractions;
@@ -1059,6 +1065,12 @@ public class Configuration
     @JsonTypeName("fixed")
     public static class FixedSchemaProviderConfiguration implements SchemaProviderConfiguration
     {
+        public final String keyspace;
+        public final String table;
+        public final Map<String, String> partition_keys;
+        public final Map<String, String> clustering_keys;
+        public final Map<String, String> regular_columns;
+        public final Map<String, String> static_keys;
         private final SchemaSpec schemaSpec;
 
         @JsonCreator
@@ -1069,10 +1081,28 @@ public class Configuration
                                                 @JsonProperty("regular_columns") Map<String, String> regulars,
                                                 @JsonProperty("static_columns") Map<String, String> statics)
         {
-            this.schemaSpec = SchemaGenerators.parse(keyspace, table,
-                                                     pks, cks, regulars, statics);
+            this(SchemaGenerators.parse(keyspace, table,
+                                        pks, cks, regulars, statics),
+                 pks,
+                 cks,
+                 regulars,
+                 statics);
         }
 
+        public FixedSchemaProviderConfiguration(SchemaSpec schemaSpec,
+                                                Map<String, String> pks,
+                                                Map<String, String> cks,
+                                                Map<String, String> regulars,
+                                                Map<String, String> statics)
+        {
+            this.schemaSpec = schemaSpec;
+            this.keyspace = schemaSpec.keyspace;
+            this.table = schemaSpec.table;
+            this.partition_keys = pks;
+            this.clustering_keys = cks;
+            this.regular_columns = regulars;
+            this.static_keys = statics;
+        }
         public SchemaSpec make(long seed)
         {
             return schemaSpec;
@@ -1084,7 +1114,7 @@ public class Configuration
     {
     }
 
-    @JsonTypeName("default")
+    @JsonTypeName("no_op")
     public static class NoOpMetricReporterConfiguration implements MetricReporterConfiguration
     {
         public MetricReporter make()

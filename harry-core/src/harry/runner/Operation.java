@@ -35,12 +35,16 @@ public interface Operation
         {
             // TODO: switch to EnumMap
             // TODO: pluggable capabilities; OperationKind can/should bear its own logic
-            case WRITE:
-                return write(lts, pd, cd, opId);
+            case INSERT:
+                return insert(lts, pd, cd, opId);
+            case UPDATE:
+                return update(lts, pd, cd, opId);
             case DELETE_ROW:
                 return deleteRow(lts, pd, cd, opId);
-            case WRITE_WITH_STATICS:
-                return writeWithStatics(lts, pd, cd, opId);
+            case INSERT_WITH_STATICS:
+                return insertWithStatics(lts, pd, cd, opId);
+            case UPDATE_WITH_STATICS:
+                return updateWithStatics(lts, pd, cd, opId);
             case DELETE_PARTITION:
                 return deletePartition(lts, pd, opId);
             case DELETE_COLUMN:
@@ -56,7 +60,11 @@ public interface Operation
         }
     }
 
-    CompiledStatement write(long lts, long pd, long cd, long opId);
+    CompiledStatement insert(long lts, long pd, long cd, long opId);
+    CompiledStatement update(long lts, long pd, long cd, long opId);
+
+    CompiledStatement insertWithStatics(long lts, long pd, long cd, long opId);
+    CompiledStatement updateWithStatics(long lts, long pd, long cd, long opId);
 
     CompiledStatement deleteColumn(long lts, long pd, long cd, long opId);
 
@@ -65,8 +73,6 @@ public interface Operation
     CompiledStatement deleteRow(long lts, long pd, long cd, long opId);
 
     CompiledStatement deletePartition(long lts, long pd, long opId);
-
-    CompiledStatement writeWithStatics(long lts, long pd, long cd, long opId);
 
     CompiledStatement deleteRange(long lts, long pd, long opId);
 

@@ -25,9 +25,8 @@ import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicLongArray;
 import java.util.concurrent.locks.LockSupport;
 
-import com.google.common.annotations.VisibleForTesting;
-
 import harry.core.Configuration;
+import harry.core.VisibleForTesting;
 import harry.model.OpSelectors;
 
 /**
