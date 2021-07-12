@@ -83,10 +83,10 @@ public class RowVisitorTest extends CQLTester
             MutatingRowVisitor visitor = new MutatingRowVisitor(run);
             long[] descriptors = rand.next(4);
 
-            execute(visitor.write(Math.abs(descriptors[0]),
-                                  descriptors[1],
-                                  descriptors[2],
-                                  descriptors[3]));
+            execute(visitor.insert(Math.abs(descriptors[0]),
+                                   descriptors[1],
+                                   descriptors[2],
+                                   descriptors[3]));
         }
     }
 

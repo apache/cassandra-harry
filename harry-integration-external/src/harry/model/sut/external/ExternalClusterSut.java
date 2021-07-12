@@ -93,9 +93,7 @@ public class ExternalClusterSut implements SystemUnderTest
         {
             try
             {
-                Statement st = new SimpleStatement(statement, bindings);
-                st.setConsistencyLevel(toDriverCl(cl));
-                return resultSetToObjectArray(session.execute(st));
+                return resultSetToObjectArray(session.execute(statement, bindings));
             }
             catch (Throwable t)
             {
@@ -134,9 +132,7 @@ public class ExternalClusterSut implements SystemUnderTest
     public CompletableFuture<Object[][]> executeAsync(String statement, ConsistencyLevel cl, Object... bindings)
     {
         CompletableFuture<Object[][]> future = new CompletableFuture<>();
-        Statement st = new SimpleStatement(statement, bindings);
-        st.setConsistencyLevel(toDriverCl(cl));
-        Futures.addCallback(session.executeAsync(st),
+        Futures.addCallback(session.executeAsync(statement, bindings),
                             new FutureCallback<ResultSet>()
                             {
                                 public void onSuccess(ResultSet rows)
@@ -185,8 +181,10 @@ public class ExternalClusterSut implements SystemUnderTest
     {
         switch (cl)
         {
-            case ALL:    return com.datastax.driver.core.ConsistencyLevel.ALL;
-            case QUORUM: return com.datastax.driver.core.ConsistencyLevel.QUORUM;
+            case ALL:
+                return com.datastax.driver.core.ConsistencyLevel.ALL;
+            case QUORUM:
+                return com.datastax.driver.core.ConsistencyLevel.QUORUM;
         }
         throw new IllegalArgumentException("Don't know a CL: " + cl);
     }
