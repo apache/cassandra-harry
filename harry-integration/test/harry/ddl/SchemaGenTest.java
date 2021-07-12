@@ -50,11 +50,12 @@ public class SchemaGenTest extends CQLTester
 
     // TODO: compact storage tests
     @Test
-    public void testSelectForwardAndReverseIteration()
+    public void testSelectForwardAndReverseIteration() throws Throwable
     {
         Generator<SchemaSpec> gen = new SchemaGenerators.Builder(KEYSPACE).partitionKeyColumnCount(1, 4)
                                                                           .clusteringColumnCount(1, 10)
                                                                           .regularColumnCount(0, 10)
+                                                                          .staticColumnCount(0, 10)
                                                                           .generator();
 
 
@@ -78,11 +79,12 @@ public class SchemaGenTest extends CQLTester
     }
 
     @Test
-    public void createTableRoundTrip()
+    public void createTableRoundTrip() throws Throwable
     {
         Generator<SchemaSpec> gen = new SchemaGenerators.Builder(KEYSPACE).partitionKeyColumnCount(1, 10)
-                                                                          .clusteringColumnCount(0, 10)
+                                                                          .clusteringColumnCount(1, 10)
                                                                           .regularColumnCount(0, 10)
+                                                                          .staticColumnCount(0, 10)
                                                                           .generator();
 
         TestRunner.test(gen,
@@ -93,6 +95,7 @@ public class SchemaGenTest extends CQLTester
                             compareColumns(schemaDefinition.partitionKeys, tableMetadata.partitionKeyColumns());
                             compareColumns(schemaDefinition.clusteringKeys, tableMetadata.clusteringColumns());
                             compareColumns(schemaDefinition.regularColumns, tableMetadata.regularColumns());
+                            compareColumns(schemaDefinition.staticColumns, tableMetadata.staticColumns());
                         });
     }
 
@@ -108,8 +111,8 @@ public class SchemaGenTest extends CQLTester
                                                        ColumnSpec.regularColumn("v2", ColumnSpec.asciiType),
                                                        ColumnSpec.regularColumn("v3", ColumnSpec.int64Type),
                                                        ColumnSpec.regularColumn("v4", ColumnSpec.int64Type)),
-                                         Arrays.asList(ColumnSpec.staticColumn("regular1", ColumnSpec.asciiType),
-                                                       ColumnSpec.staticColumn("regular2", ColumnSpec.int64Type)));
+                                         Arrays.asList(ColumnSpec.staticColumn("static1", ColumnSpec.asciiType),
+                                                       ColumnSpec.staticColumn("static2", ColumnSpec.int64Type)));
 
 
         String tableDef = spec.compile().cql();
@@ -118,6 +121,7 @@ public class SchemaGenTest extends CQLTester
         compareColumns(spec.partitionKeys, tableMetadata.partitionKeyColumns());
         compareColumns(spec.clusteringKeys, tableMetadata.clusteringColumns());
         compareColumns(spec.regularColumns, tableMetadata.regularColumns());
+        compareColumns(spec.staticColumns, tableMetadata.staticColumns());
     }
 
 
@@ -126,6 +130,7 @@ public class SchemaGenTest extends CQLTester
     {
         Gen<Pair<Integer, Integer>> ckCounts = integers().between(0, 4).zip(integers().between(0, 6), Pair::create);
         Gen<Pair<Integer, Integer>> regCounts = integers().between(0, 4).zip(integers().between(0, 6), Pair::create);
+//        Gen<Pair<Integer, Integer>> staticCounts = integers().between(0, 4).zip(integers().between(0, 6), Pair::create);
         Gen<Pair<Integer, Integer>> pkCounts = integers().between(1, 4).zip(integers().between(0, 6), Pair::create);
 
         Gen<SchemaGenerationInputs> inputs = pkCounts.zip(ckCounts, regCounts,

@@ -81,8 +81,10 @@ public class IntegrationTestBase extends TestBaseImpl
                                         .addWeight(OpSelectors.OperationKind.DELETE_SLICE, 1)
                                         .addWeight(OpSelectors.OperationKind.DELETE_PARTITION, 1)
                                         .addWeight(OpSelectors.OperationKind.DELETE_COLUMN_WITH_STATICS, 5)
-                                        .addWeight(OpSelectors.OperationKind.WRITE_WITH_STATICS, 45)
-                                        .addWeight(OpSelectors.OperationKind.WRITE, 45)
+                                        .addWeight(OpSelectors.OperationKind.INSERT_WITH_STATICS, 20)
+                                        .addWeight(OpSelectors.OperationKind.INSERT, 20)
+                                        .addWeight(OpSelectors.OperationKind.UPDATE_WITH_STATICS, 25)
+                                        .addWeight(OpSelectors.OperationKind.UPDATE, 25)
                                         .build());
     }
 
