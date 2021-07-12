@@ -22,9 +22,8 @@ import java.util.EnumMap;
 import java.util.List;
 import java.util.Map;
 
-import com.google.common.annotations.VisibleForTesting;
-
 import harry.core.Configuration;
+import harry.core.VisibleForTesting;
 import harry.ddl.ColumnSpec;
 import harry.ddl.SchemaSpec;
 import harry.generators.Bytes;
@@ -34,6 +33,7 @@ import harry.generators.Surjections;
 import harry.generators.distribution.Distribution;
 import harry.util.BitSet;
 
+import static harry.generators.DataGenerators.NIL_DESCR;
 import static harry.generators.DataGenerators.UNSET_DESCR;
 
 /**
@@ -179,18 +179,20 @@ public interface OpSelectors
 
         public long[] vds(long pd, long cd, long lts, long opId, SchemaSpec schema)
         {
-            return descriptors(pd, cd, lts, opId, schema.regularColumns, schema.regularColumnsMask(), schema.regularColumnsOffset);
+            BitSet setColumns = columnMask(pd, lts, opId);
+            return descriptors(pd, cd, lts, opId, schema.regularColumns, schema.regularColumnsMask(), setColumns, schema.regularColumnsOffset);
         }
 
         public long[] sds(long pd, long cd, long lts, long opId, SchemaSpec schema)
         {
-            return descriptors(pd, cd, lts, opId, schema.staticColumns, schema.staticColumnsMask(), schema.staticColumnsOffset);
+            BitSet setColumns = columnMask(pd, lts, opId);
+            return descriptors(pd, cd, lts, opId, schema.staticColumns, schema.staticColumnsMask(), setColumns, schema.staticColumnsOffset);
         }
 
-        public long[] descriptors(long pd, long cd, long lts, long opId, List<ColumnSpec<?>> columns, BitSet mask, int offset)
+        private long[] descriptors(long pd, long cd, long lts, long opId, List<ColumnSpec<?>> columns, BitSet mask, BitSet setColumns, int offset)
         {
+            assert opId < opsPerModification(lts) * numberOfModifications(lts) : String.format("Operation id %d exceeds the maximum expected number of operations %d", opId, opsPerModification(lts) * numberOfModifications(lts));
             long[] descriptors = new long[columns.size()];
-            BitSet setColumns = columnMask(pd, cd, opId);
 
             for (int i = 0; i < descriptors.length; i++)
             {
@@ -199,6 +201,9 @@ public interface OpSelectors
                 {
                     ColumnSpec<?> spec = columns.get(i);
                     long vd = vd(pd, cd, lts, opId, col) & Bytes.bytePatternFor(spec.type.maxSize());
+                    assert vd != UNSET_DESCR : "Ambiguous unset descriptor generated for the value";
+                    assert vd != NIL_DESCR : "Ambiguous nil descriptor generated for the value";
+
                     descriptors[i] = vd;
                 }
                 else
@@ -387,15 +392,32 @@ public interface OpSelectors
 
                 switch (type)
                 {
+                    case UPDATE_WITH_STATICS:
                     case DELETE_COLUMN_WITH_STATICS:
                         gen = (descriptor) -> {
                             long counter = 0;
                             while (counter <= 100)
                             {
                                 BitSet bitSet = orig.inflate(descriptor);
-
                                 if ((schema.regularColumns.isEmpty() || !bitSet.allUnset(schema.regularColumnsMask))
                                     && (schema.staticColumns.isEmpty() || !bitSet.allUnset(schema.staticColumnsMask)))
+                                    return bitSet;
+
+                                descriptor = RngUtils.next(descriptor);
+                                counter++;
+                            }
+                            throw new RuntimeException(String.format("Could not generate a value after %d attempts.", counter));
+                        };
+                        break;
+                    // Can not have an UPDATE statement without anything to update
+                    case UPDATE:
+                        gen = descriptor -> {
+                            long counter = 0;
+                            while (counter <= 100)
+                            {
+                                BitSet bitSet = orig.inflate(descriptor);
+
+                                if (!bitSet.allUnset(schema.regularColumnsMask))
                                     return bitSet;
 
                                 descriptor = RngUtils.next(descriptor);
@@ -429,7 +451,7 @@ public interface OpSelectors
 
         public ColumnSelectorBuilder forWrite(Surjections.Surjection<BitSet> gen)
         {
-            m.put(OperationKind.WRITE, gen);
+            m.put(OperationKind.INSERT, gen);
             return this;
         }
 
@@ -547,8 +569,8 @@ public interface OpSelectors
         protected final static long BITSET_IDX_STREAM = 0x92eb607bef1L;
 
         public static OperationSelector DEFAULT_OP_SELECTOR = OperationSelector.weighted(Surjections.weights(45, 45, 3, 2, 2, 1, 1, 1),
-                                                                                         OperationKind.WRITE,
-                                                                                         OperationKind.WRITE_WITH_STATICS,
+                                                                                         OperationKind.INSERT,
+                                                                                         OperationKind.INSERT_WITH_STATICS,
                                                                                          OperationKind.DELETE_ROW,
                                                                                          OperationKind.DELETE_COLUMN,
                                                                                          OperationKind.DELETE_COLUMN_WITH_STATICS,
@@ -649,7 +671,8 @@ public interface OpSelectors
 
         public OperationKind operationType(long pd, long lts, long opId)
         {
-            return operationType(pd, lts, opId, partitionLevelOperationsMask(pd, lts));
+            OperationKind kind = operationType(pd, lts, opId, partitionLevelOperationsMask(pd, lts));
+            return kind;
         }
 
         // TODO: create this bitset once per lts
@@ -666,7 +689,8 @@ public interface OpSelectors
 
         public OperationKind operationType(long pd, long lts, long opId, BitSet partitionLevelOperationsMask)
         {
-            return operationSelector.inflate(pd ^ lts ^ opId, partitionLevelOperationsMask.isSet((int) opId));
+            long descriptor = rng.randomNumber(pd ^ lts ^ opId, BITSET_IDX_STREAM);
+            return operationSelector.inflate(descriptor, partitionLevelOperationsMask.isSet((int) opId));
         }
 
         public BitSet columnMask(long pd, long lts, long opId)
@@ -688,8 +712,10 @@ public interface OpSelectors
 
     public enum OperationKind
     {
-        WRITE(false),
-        WRITE_WITH_STATICS(true),
+        UPDATE(false),
+        INSERT(false),
+        UPDATE_WITH_STATICS(true),
+        INSERT_WITH_STATICS(true),
         DELETE_PARTITION(true),
         DELETE_ROW(false),
         DELETE_COLUMN(false),

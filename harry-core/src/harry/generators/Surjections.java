@@ -26,7 +26,7 @@ import java.util.function.Function;
 import java.util.function.LongFunction;
 import java.util.function.Supplier;
 
-import com.google.common.annotations.VisibleForTesting;
+import harry.core.VisibleForTesting;
 
 public class Surjections
 {

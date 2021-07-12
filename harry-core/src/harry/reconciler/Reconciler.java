@@ -125,8 +125,10 @@ public class Reconciler
 
                         hadPartitionDeletion = true;
                         break;
-                    case WRITE_WITH_STATICS:
-                    case WRITE:
+                    case INSERT_WITH_STATICS:
+                    case INSERT:
+                    case UPDATE:
+                    case UPDATE_WITH_STATICS:
                         if (debugCd != -1 && cd == debugCd)
                             logger.info("Writing {} ({}) at {}/{}", cd, opType, lts, opId);
                         writes.add(opId);
@@ -164,12 +166,14 @@ public class Reconciler
 
                     switch (opType)
                     {
-                        case WRITE_WITH_STATICS:
+                        case INSERT_WITH_STATICS:
+                        case UPDATE_WITH_STATICS:
                             // We could apply static columns during the first iteration, but it's more convenient
                             // to reconcile static-level deletions.
                             partitionState.writeStaticRow(descriptorSelector.sds(pd, cd, lts, opId, schema),
                                                           lts);
-                        case WRITE:
+                        case INSERT:
+                        case UPDATE:
                             if (!query.match(cd))
                             {
                                 if (debugCd != -1 && cd == debugCd)
@@ -189,7 +193,8 @@ public class Reconciler
 
                             partitionState.write(cd,
                                                  descriptorSelector.vds(pd, cd, lts, opId, schema),
-                                                 lts);
+                                                 lts,
+                                                 opType == OpSelectors.OperationKind.INSERT || opType == OpSelectors.OperationKind.INSERT_WITH_STATICS);
                             break;
                         default:
                             throw new IllegalStateException();
@@ -206,7 +211,8 @@ public class Reconciler
                     switch (opType)
                     {
                         case DELETE_COLUMN_WITH_STATICS:
-                            partitionState.deleteStaticColumns(schema.staticColumnsOffset,
+                            partitionState.deleteStaticColumns(lts,
+                                                               schema.staticColumnsOffset,
                                                                descriptorSelector.columnMask(pd, lts, opId),
                                                                schema.staticColumnsMask());
                         case DELETE_COLUMN:
@@ -227,7 +233,8 @@ public class Reconciler
                                 }
                             }
 
-                            partitionState.deleteRegularColumns(cd,
+                            partitionState.deleteRegularColumns(lts,
+                                                                cd,
                                                                 schema.regularColumnsOffset,
                                                                 descriptorSelector.columnMask(pd, lts, opId),
                                                                 schema.regularColumnsMask());
@@ -270,14 +277,15 @@ public class Reconciler
                                     long lts)
         {
             if (staticRow != null)
-                staticRow = updateRowState(staticRow, schema.staticColumns, STATIC_CLUSTERING, staticVds, lts);
+                staticRow = updateRowState(staticRow, schema.staticColumns, STATIC_CLUSTERING, staticVds, lts, false);
         }
 
         private void write(long cd,
                            long[] vds,
-                           long lts)
+                           long lts,
+                           boolean writeParimaryKeyLiveness)
         {
-            rows.compute(cd, (cd_, current) -> updateRowState(current, schema.regularColumns, cd, vds, lts));
+            rows.compute(cd, (cd_, current) -> updateRowState(current, schema.regularColumns, cd, vds, lts, writeParimaryKeyLiveness));
         }
 
         private void delete(Ranges.Range range,
@@ -304,14 +312,19 @@ public class Reconciler
         private void delete(long cd,
                             long lts)
         {
-            rows.remove(cd);
+            RowState state = rows.remove(cd);
+            if (state != null)
+            {
+                for (long v : state.lts)
+                    assert lts >= v : String.format("Attempted to remove a row with a tombstone that has older timestamp (%d): %s", lts, state);
+            }
         }
         public boolean isEmpty()
         {
             return rows.isEmpty();
         }
 
-        private RowState updateRowState(RowState currentState, List<ColumnSpec<?>> columns, long cd, long[] vds, long lts)
+        private RowState updateRowState(RowState currentState, List<ColumnSpec<?>> columns, long cd, long[] vds, long lts, boolean writePrimaryKeyLiveness)
         {
             if (currentState == null)
             {
@@ -359,24 +372,30 @@ public class Reconciler
                 }
             }
 
+            if (writePrimaryKeyLiveness)
+                currentState.hasPrimaryKeyLivenessInfo = true;
+
             return currentState;
         }
 
-        private void deleteRegularColumns(long cd, int columnOffset, BitSet columns, BitSet mask)
+        private void deleteRegularColumns(long lts, long cd, int columnOffset, BitSet columns, BitSet mask)
         {
-            deleteColumns(rows.get(cd), columnOffset, columns, mask);
+            deleteColumns(lts, rows.get(cd), columnOffset, columns, mask);
         }
 
-        private void deleteStaticColumns(int columnOffset, BitSet columns, BitSet mask)
+        private void deleteStaticColumns(long lts, int columnOffset, BitSet columns, BitSet mask)
         {
-            deleteColumns(staticRow, columnOffset, columns, mask);
+            deleteColumns(lts, staticRow, columnOffset, columns, mask);
         }
 
-        private void deleteColumns(RowState state, int columnOffset, BitSet columns, BitSet mask)
+        private void deleteColumns(long lts, RowState state, int columnOffset, BitSet columns, BitSet mask)
         {
             if (state == null)
                 return;
 
+            //TODO: optimise by iterating over the columns that were removed by this deletion
+            //TODO: optimise final decision to fully remove the column by counting a number of set/unset columns
+            boolean allNil = true;
             for (int i = 0; i < state.vds.length; i++)
             {
                 if (columns.isSet(columnOffset + i, mask))
@@ -384,7 +403,14 @@ public class Reconciler
                     state.vds[i] = NIL_DESCR;
                     state.lts[i] = NO_TIMESTAMP;
                 }
+                else if (state.vds[i] != NIL_DESCR)
+                {
+                    allNil = false;
+                }
             }
+
+            if (state.cd != STATIC_CLUSTERING && allNil & !state.hasPrimaryKeyLivenessInfo)
+                delete(state.cd, lts);
         }
 
         private void deletePartition(long lts)
@@ -449,6 +475,7 @@ public class Reconciler
 
     public static class RowState
     {
+        public boolean hasPrimaryKeyLivenessInfo = false;
         public final long cd;
         public final long[] vds;
         public final long[] lts;

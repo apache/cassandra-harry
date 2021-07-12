@@ -178,7 +178,7 @@ public interface BitSet
 
         public boolean isSet(int idx)
         {
-            assert idx < size();
+            assert idx < size() : String.format("Trying to query the bit (%s) outside the range of bitset (%s)", idx, size());
             return BitSet.isSet(bits, idx);
         }
 

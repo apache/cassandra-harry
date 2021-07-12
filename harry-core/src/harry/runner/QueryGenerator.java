@@ -317,7 +317,7 @@ public class QueryGenerator
                 // TODO: one of the ways to get rid of garbage here, and potentially even simplify the code is to
                 //       simply return bounds here. After bounds are created, we slice them and generate query right
                 //       from the bounds. In this case, we can even say that things like -inf/+inf are special values,
-                //       and use them as placeholdrs. Also, it'll be easier to manipulate relations.
+                //       and use them as placeholders. Also, it'll be easier to manipulate relations.
                 return new Query.ClusteringRangeQuery(Query.QueryKind.CLUSTERING_RANGE,
                                                       pd,
                                                       stitchedMin,
