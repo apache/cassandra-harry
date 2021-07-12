@@ -21,16 +21,14 @@ package harry.ddl;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
+import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Function;
 import java.util.function.Supplier;
 
-import com.google.common.collect.ImmutableList;
-import com.google.common.collect.ImmutableMap;
-
-import com.fasterxml.jackson.annotation.JsonProperty;
 import harry.generators.Generator;
 import harry.generators.Surjections;
 
@@ -43,32 +41,30 @@ public class SchemaGenerators
         return new Builder(ks);
     }
 
-    public static final Collection<ColumnSpec.DataType<?>> clusteringKeyTypes;
     public static final Map<String, ColumnSpec.DataType<?>> nameToTypeMap;
     public static final Collection<ColumnSpec.DataType<?>> columnTypes;
+    public static final Collection<ColumnSpec.DataType<?>> partitionKeyTypes;
+    public static final Collection<ColumnSpec.DataType<?>> clusteringKeyTypes;
 
     static
     {
+        partitionKeyTypes = Collections.unmodifiableList(Arrays.asList(ColumnSpec.int64Type,
+                                                                       ColumnSpec.asciiType,
+                                                                       ColumnSpec.asciiType(4, 5),
+                                                                       ColumnSpec.asciiType(4, 10)));
 
-        ImmutableList.Builder<ColumnSpec.DataType<?>> builder = ImmutableList.builder();
-        builder.add(ColumnSpec.int8Type,
-                    ColumnSpec.int16Type,
-                    ColumnSpec.int32Type,
-                    ColumnSpec.int64Type,
-                    ColumnSpec.asciiType,
-                    ColumnSpec.asciiType(4, 256),
-                    ColumnSpec.asciiType(4, 512));
+        columnTypes = Collections.unmodifiableList(Arrays.asList(
+//        ColumnSpec.int8Type,
+//                                                                 ColumnSpec.int16Type,
+//                                                                 ColumnSpec.int32Type,
+                                                                 ColumnSpec.int64Type,
+                                                                 ColumnSpec.asciiType,
+                                                                 ColumnSpec.asciiType(4, 256),
+                                                                 ColumnSpec.asciiType(4, 512)));
 
-        columnTypes = builder.build();
-        builder.add(ColumnSpec.int8Type,
-                    ColumnSpec.int16Type,
-                    ColumnSpec.int32Type,
-                    ColumnSpec.int64Type,
-                    ColumnSpec.asciiType);
-        builder = ImmutableList.builder();
-        builder.addAll(columnTypes);
 
-        ImmutableMap.Builder<String, ColumnSpec.DataType<?>> mapBuilder = ImmutableMap.builder();
+        List<ColumnSpec.DataType<?>> builder = new ArrayList<>(columnTypes);
+        Map<String, ColumnSpec.DataType<?>> mapBuilder = new HashMap<>();
 
         for (ColumnSpec.DataType<?> columnType : columnTypes)
         {
@@ -82,8 +78,8 @@ public class SchemaGenerators
         builder.add(ColumnSpec.floatType);
         builder.add(ColumnSpec.doubleType);
 
-        clusteringKeyTypes = builder.build();
-        nameToTypeMap = mapBuilder.build();
+        clusteringKeyTypes = Collections.unmodifiableList(builder);
+        nameToTypeMap = Collections.unmodifiableMap(mapBuilder);
     }
 
     @SuppressWarnings("unchecked")
@@ -126,7 +122,7 @@ public class SchemaGenerators
 
                    public ColumnSpec<?> apply(ColumnSpec.DataType<?> type)
                    {
-                       return new ColumnSpec<>(prefix + (counter++),
+                       return new ColumnSpec<>(String.format("%s%04d", prefix, counter++),
                                                type,
                                                kind);
                    }
@@ -143,7 +139,24 @@ public class SchemaGenerators
 
                    public ColumnSpec<?> apply(ColumnSpec.DataType<?> type)
                    {
-                       return ColumnSpec.ck(prefix + (counter++), type);
+                       return ColumnSpec.ck(String.format("%s%04d", prefix, counter++), type);
+                   }
+               });
+    }
+
+    @SuppressWarnings("unchecked")
+    public static Generator<ColumnSpec<?>> partitionColumnSpecGenerator(String prefix)
+    {
+        return fromValues(partitionKeyTypes)
+               .map(new Function<ColumnSpec.DataType<?>, ColumnSpec<?>>()
+               {
+                   private int counter = 0;
+
+                   public ColumnSpec<?> apply(ColumnSpec.DataType<?> type)
+                   {
+
+                       return ColumnSpec.pk(String.format("%s%04d", prefix, counter++),
+                                            type);
                    }
                });
     }
@@ -155,10 +168,10 @@ public class SchemaGenerators
         private final String keyspace;
         private final Supplier<String> tableNameSupplier;
 
-        private Generator<ColumnSpec<?>> pkGenerator = columnSpecGenerator("pk", ColumnSpec.Kind.PARTITION_KEY);
+        private Generator<ColumnSpec<?>> pkGenerator = partitionColumnSpecGenerator("pk");
         private Generator<ColumnSpec<?>> ckGenerator = clusteringColumnSpecGenerator("ck");
         private Generator<ColumnSpec<?>> regularGenerator = columnSpecGenerator("regular", ColumnSpec.Kind.REGULAR);
-        private Generator<ColumnSpec<?>> staticGenerator = columnSpecGenerator("regular", ColumnSpec.Kind.STATIC);
+        private Generator<ColumnSpec<?>> staticGenerator = columnSpecGenerator("static", ColumnSpec.Kind.STATIC);
 
         private int minPks = 1;
         private int maxPks = 1;
@@ -457,6 +470,9 @@ public class SchemaGenerators
 
     public static List<ColumnSpec<?>> toColumns(Map<String, String> config, ColumnSpec.Kind kind, boolean allowReverse)
     {
+        if (config == null)
+            return Collections.EMPTY_LIST;
+
         List<ColumnSpec<?>> columns = new ArrayList<>(config.size());
 
         for (Map.Entry<String, String> e : config.entrySet())

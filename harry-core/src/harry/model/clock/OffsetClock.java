@@ -20,6 +20,9 @@ package harry.model.clock;
 
 import java.util.concurrent.atomic.AtomicLong;
 
+import com.fasterxml.jackson.annotation.JsonCreator;
+import com.fasterxml.jackson.annotation.JsonProperty;
+import com.fasterxml.jackson.annotation.JsonTypeName;
 import harry.core.Configuration;
 import harry.model.OpSelectors;
 
@@ -57,5 +60,22 @@ public class OffsetClock implements OpSelectors.MonotonicClock
     public Configuration.ClockConfiguration toConfig()
     {
         throw new RuntimeException("not implemented");
+    }
+
+    @JsonTypeName("offset")
+    public static class OffsetClockConfiguration implements Configuration.ClockConfiguration
+    {
+        public final long offset;
+
+        @JsonCreator
+        public OffsetClockConfiguration(@JsonProperty("offset") int offset)
+        {
+            this.offset = offset;
+        }
+
+        public OpSelectors.MonotonicClock make()
+        {
+            return new OffsetClock(offset);
+        }
     }
 }

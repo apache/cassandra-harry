@@ -21,6 +21,10 @@ package harry.model.sut;
 import java.util.Arrays;
 import java.util.concurrent.CompletableFuture;
 
+import com.fasterxml.jackson.annotation.JsonCreator;
+import com.fasterxml.jackson.annotation.JsonTypeName;
+import harry.core.Configuration;
+
 public class PrintlnSut implements SystemUnderTest
 {
     public boolean isShutdown()
@@ -45,5 +49,19 @@ public class PrintlnSut implements SystemUnderTest
     {
         return CompletableFuture.supplyAsync(() -> execute(statement, cl, bindings),
                                              Runnable::run);
+    }
+
+    @JsonTypeName("println")
+    public static class PrintlnSutConfiguration implements Configuration.SutConfiguration
+    {
+        @JsonCreator
+        public PrintlnSutConfiguration()
+        {
+
+        }
+        public SystemUnderTest make()
+        {
+            return new PrintlnSut();
+        }
     }
 }

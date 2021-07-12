@@ -22,15 +22,22 @@ import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 
-import com.google.common.annotations.VisibleForTesting;
-
+import harry.core.VisibleForTesting;
 import harry.ddl.ColumnSpec;
 
 public class DataGenerators
 {
-    public static final Object UNSET_VALUE = new Object();
-    public static long UNSET_DESCR = 0;
-    public static long NIL_DESCR = -1;
+    public static final Object UNSET_VALUE = new Object() {
+        public String toString()
+        {
+            return "UNSET";
+        }
+    };
+
+    // There is still a slim chance that we're going to produce either of these values by chance, but we'll catch this
+    // during value generation
+    public static long UNSET_DESCR = Long.MAX_VALUE;
+    public static long NIL_DESCR = Long.MIN_VALUE;
 
     public static Object[] inflateData(List<ColumnSpec<?>> columns, long[] descriptors)
     {

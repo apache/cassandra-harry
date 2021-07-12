@@ -34,6 +34,7 @@ public class NoOpChecker implements Model
     public void validate(Query query)
     {
         run.sut.execute(query.toSelectStatement(),
-                        SystemUnderTest.ConsistencyLevel.ALL);
+                        // TODO: make it configurable
+                        SystemUnderTest.ConsistencyLevel.QUORUM);
     }
 }
