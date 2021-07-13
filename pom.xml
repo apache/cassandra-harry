@@ -52,7 +52,7 @@
     <properties>
         <javac.target>1.8</javac.target>
         <harry.version>0.0.1-SNAPSHOT</harry.version>
-        <cassandra.version>4.0.0-SNAPSHOT</cassandra.version>
+        <cassandra.version>4.1-58515c2de6</cassandra.version>
         <jackson.version>2.11.3</jackson.version>
         <dtest.version>0.0.7</dtest.version>
         <jmh.version>1.11.3</jmh.version>
@@ -135,28 +135,22 @@
             </dependency>
 
             <dependency>
-                <groupId>com.google.guava</groupId>
-                <artifactId>guava</artifactId>
-                <version>27.0-jre</version>
-            </dependency>
-
-            <dependency>
                 <groupId>org.apache.cassandra</groupId>
                 <artifactId>cassandra-dtest-shaded</artifactId>
                 <version>${cassandra.version}</version>
             </dependency>
 
             <dependency>
-                <groupId>com.datastax.cassandra</groupId>
-                <artifactId>cassandra-driver-core</artifactId>
-                <version>3.6.0</version>
+                <groupId>org.reflections</groupId>
+                <artifactId>reflections</artifactId>
+                <version>0.9.12</version>
             </dependency>
 
-            <dependency>
-                <groupId>org.apache.commons</groupId>
-                <artifactId>commons-lang3</artifactId>
-                <version>3.1</version>
-            </dependency>
+	    <dependency>
+	      <groupId>com.datastax.cassandra</groupId>
+              <artifactId>cassandra-driver-core</artifactId>
+              <version>3.6.0</version>
+	    </dependency>
 
             <dependency>
                 <groupId>org.apache.commons</groupId>
