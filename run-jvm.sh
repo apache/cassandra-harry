@@ -46,4 +46,4 @@ java -ea \
        -Dorg.apache.cassandra.test.logback.configurationFile=file://test/conf/logback-dtest.xml \
        -cp harry-integration/target/harry-integration-0.0.1-SNAPSHOT.jar:$(find harry-integration/target/dependency/*.jar | tr -s '\n' ':'). \
        harry.runner.HarryRunnerJvm \
-       conf/example.yaml
+       conf/default.yaml

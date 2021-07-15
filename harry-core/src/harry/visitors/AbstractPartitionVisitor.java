@@ -16,7 +16,7 @@
  *  limitations under the License.
  */
 
-package harry.runner;
+package harry.visitors;
 
 import harry.ddl.SchemaSpec;
 import harry.model.OpSelectors;
@@ -26,6 +26,11 @@ public abstract class AbstractPartitionVisitor implements PartitionVisitor
     protected final OpSelectors.PdSelector pdSelector;
     protected final OpSelectors.DescriptorSelector descriptorSelector;
     protected final SchemaSpec schema;
+
+    public AbstractPartitionVisitor(AbstractPartitionVisitor visitor)
+    {
+        this(visitor.pdSelector, visitor.descriptorSelector, visitor.schema);
+    }
 
     public AbstractPartitionVisitor(OpSelectors.PdSelector pdSelector,
                                     OpSelectors.DescriptorSelector descriptorSelector,

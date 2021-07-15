@@ -19,8 +19,7 @@
 package harry.model;
 
 import harry.core.Run;
-import harry.reconciler.Reconciler;
-import harry.runner.Query;
+import harry.operations.Query;
 
 public interface Model
 {

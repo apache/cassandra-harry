@@ -16,15 +16,18 @@
  *  limitations under the License.
  */
 
-package harry.runner;
+package harry.visitors;
 
 import harry.core.MetricReporter;
 import harry.core.Run;
+import harry.core.VisibleForTesting;
 import harry.ddl.SchemaSpec;
 import harry.model.OpSelectors;
 import harry.operations.CompiledStatement;
 import harry.operations.DeleteHelper;
 import harry.operations.WriteHelper;
+import harry.operations.Query;
+import harry.operations.QueryGenerator;
 import harry.util.BitSet;
 
 public class MutatingRowVisitor implements Operation
@@ -37,26 +40,55 @@ public class MutatingRowVisitor implements Operation
 
     public MutatingRowVisitor(Run run)
     {
-        this.metricReporter = run.metricReporter;
-        this.schema = run.schemaSpec;
-        this.clock = run.clock;
-        this.descriptorSelector = run.descriptorSelector;
-        this.rangeSelector = run.rangeSelector;
+        this(run.schemaSpec,
+             run.clock,
+             run.descriptorSelector,
+             run.rangeSelector,
+             run.metricReporter);
     }
 
-    public CompiledStatement write(long lts, long pd, long cd, long opId)
+    @VisibleForTesting
+    public MutatingRowVisitor(SchemaSpec schema,
+                              OpSelectors.MonotonicClock clock,
+                              OpSelectors.DescriptorSelector descriptorSelector,
+                              QueryGenerator rangeSelector,
+                              MetricReporter metricReporter)
+    {
+        this.metricReporter = metricReporter;
+        this.schema = schema;
+        this.clock = clock;
+        this.descriptorSelector = descriptorSelector;
+        this.rangeSelector = rangeSelector;
+    }
+
+    public CompiledStatement insert(long lts, long pd, long cd, long opId)
     {
         metricReporter.insert();
         long[] vds = descriptorSelector.vds(pd, cd, lts, opId, schema);
         return WriteHelper.inflateInsert(schema, pd, cd, vds, null, clock.rts(lts));
     }
 
-    public CompiledStatement writeWithStatics(long lts, long pd, long cd, long opId)
+    public CompiledStatement insertWithStatics(long lts, long pd, long cd, long opId)
     {
         metricReporter.insert();
         long[] vds = descriptorSelector.vds(pd, cd, lts, opId, schema);
         long[] sds = descriptorSelector.sds(pd, cd, lts, opId, schema);
         return WriteHelper.inflateInsert(schema, pd, cd, vds, sds, clock.rts(lts));
+    }
+
+    public CompiledStatement update(long lts, long pd, long cd, long opId)
+    {
+        metricReporter.insert();
+        long[] vds = descriptorSelector.vds(pd, cd, lts, opId, schema);
+        return WriteHelper.inflateUpdate(schema, pd, cd, vds, null, clock.rts(lts));
+    }
+
+    public CompiledStatement updateWithStatics(long lts, long pd, long cd, long opId)
+    {
+        metricReporter.insert();
+        long[] vds = descriptorSelector.vds(pd, cd, lts, opId, schema);
+        long[] sds = descriptorSelector.sds(pd, cd, lts, opId, schema);
+        return WriteHelper.inflateUpdate(schema, pd, cd, vds, sds, clock.rts(lts));
     }
 
     public CompiledStatement deleteColumn(long lts, long pd, long cd, long opId)

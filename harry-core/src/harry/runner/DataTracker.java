@@ -18,6 +18,8 @@
 
 package harry.runner;
 
+import com.fasterxml.jackson.annotation.JsonCreator;
+import com.fasterxml.jackson.annotation.JsonTypeName;
 import harry.core.Configuration;
 
 public interface DataTracker
@@ -35,6 +37,7 @@ public interface DataTracker
     }
 
     public static DataTracker NO_OP = new NoOpDataTracker();
+
     class NoOpDataTracker implements DataTracker
     {
         private NoOpDataTracker() {}

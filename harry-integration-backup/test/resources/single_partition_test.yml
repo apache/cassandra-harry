@@ -1,0 +1,55 @@
+seed: 1
+
+# Default schema provider generates random schema
+schema_provider:
+  default: {}
+
+drop_schema: false
+create_schema: true
+truncate_table: false
+
+clock:
+  offset:
+    offset: 1000
+
+run_time: 10
+run_time_unit: "MINUTES"
+
+system_under_test:
+  println: {}
+
+partition_descriptor_selector:
+  always_same:
+    pd: 12345
+
+clustering_descriptor_selector:
+  default:
+    modifications_per_lts:
+      type: "constant"
+      constant: 2
+    rows_per_modification:
+      type: "constant"
+      constant: 2
+    operation_kind_weights:
+      DELETE_RANGE: 1
+      DELETE_SLICE: 1
+      DELETE_ROW: 1
+      DELETE_COLUMN: 1
+      DELETE_PARTITION: 1
+      DELETE_COLUMN_WITH_STATICS: 1
+      INSERT_WITH_STATICS: 24
+      INSERT: 24
+      UPDATE_WITH_STATICS: 23
+      UPDATE: 23
+    column_mask_bitsets: null
+    max_partition_size: 100
+
+data_tracker:
+  no_op: {}
+
+runner:
+  sequential:
+    partition_visitors: []
+
+metric_reporter:
+  no_op: {}

@@ -16,10 +16,9 @@
  *  limitations under the License.
  */
 
-package harry.runner;
+package harry.operations;
 
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 import java.util.function.LongSupplier;
@@ -34,7 +33,6 @@ import harry.generators.DataGenerators;
 import harry.generators.RngUtils;
 import harry.generators.Surjections;
 import harry.model.OpSelectors;
-import harry.operations.Relation;
 
 // TODO: there's a lot of potential to reduce an amount of garbage here.
 // TODO: refactor. Currently, this class is a base for both SELECT and DELETE statements. In retrospect,
@@ -317,7 +315,7 @@ public class QueryGenerator
                 // TODO: one of the ways to get rid of garbage here, and potentially even simplify the code is to
                 //       simply return bounds here. After bounds are created, we slice them and generate query right
                 //       from the bounds. In this case, we can even say that things like -inf/+inf are special values,
-                //       and use them as placeholdrs. Also, it'll be easier to manipulate relations.
+                //       and use them as placeholders. Also, it'll be easier to manipulate relations.
                 return new Query.ClusteringRangeQuery(Query.QueryKind.CLUSTERING_RANGE,
                                                       pd,
                                                       stitchedMin,

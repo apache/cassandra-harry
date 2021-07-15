@@ -23,11 +23,8 @@ import java.util.Collections;
 import java.util.List;
 import java.util.function.IntConsumer;
 
-import com.datastax.driver.core.querybuilder.Delete;
-import com.datastax.driver.core.querybuilder.QueryBuilder;
 import harry.ddl.ColumnSpec;
 import harry.ddl.SchemaSpec;
-import harry.runner.LoggingPartitionVisitor;
 import harry.util.BitSet;
 
 public class DeleteHelper
@@ -130,40 +127,50 @@ public class DeleteHelper
                                              BitSet mask,
                                              long ts)
     {
-        Delete delete;
-        if (columnsToDelete == null)
-            delete = QueryBuilder.delete().from(schema.keyspace, schema.table);
-        else
+        StringBuilder b = new StringBuilder();
+        b.append("DELETE ");
+        if (columnsToDelete != null)
         {
             assert mask != null;
             assert relations == null || relations.stream().allMatch((r) -> r.kind == Relation.RelationKind.EQ);
-            delete = QueryBuilder.delete(columnNames(schema.allColumns, columnsToDelete, mask))
-                                 .from(schema.keyspace, schema.table);
+            String[] names = columnNames(schema.allColumns, columnsToDelete, mask);
+            for (int i = 0; i < names.length; i++)
+            {
+                if (i > 0)
+                    b.append(", ");
+                b.append(names[i]);
+            }
+            b.append(" ");
         }
+        b.append("FROM ")
+         .append(schema.keyspace).append(".").append(schema.table)
+         .append(" USING TIMESTAMP ")
+         .append(ts)
+         .append(" WHERE ");
 
-        Delete.Where where = delete.where();
         List<Object> bindings = new ArrayList<>();
 
-        addRelations(schema, where, bindings, pd, relations);
-        delete.using(QueryBuilder.timestamp(ts));
-        delete.setForceNoValues(true);
-        Object[] bindingsArr = bindings.toArray(new Object[bindings.size()]);
-        String compiled = delete.getQueryString();
-        if (compiled.contains("built query (could not generate with default codec registry:"))
-            throw new IllegalArgumentException(String.format("Could not generate the query: %s. Bindings: (%s)",
-                                                             delete,
-                                                             CompiledStatement.bindingsToString(bindingsArr)));
-        return new CompiledStatement(compiled, bindingsArr);
-    }
-
-    private static void addRelations(SchemaSpec schema, Delete.Where where, List<Object> bindings, long pd, List<Relation> relations)
-    {
         schema.inflateRelations(pd,
                                 relations,
-                                (spec, kind, value) -> {
-                                    where.and(kind.getClause(spec));
-                                    bindings.add(value);
+                                new SchemaSpec.AddRelationCallback()
+                                {
+                                    boolean isFirst = true;
+                                    public void accept(ColumnSpec<?> spec, Relation.RelationKind kind, Object value)
+                                    {
+                                        if (isFirst)
+                                            isFirst = false;
+                                        else
+                                            b.append(" AND ");
+                                        b.append(kind.getClause(spec));
+                                        bindings.add(value);
+                                    }
                                 });
+
+        b.append(";");
+
+        Object[] bindingsArr = bindings.toArray(new Object[bindings.size()]);
+
+        return new CompiledStatement(b.toString(), bindingsArr);
     }
 
     private static String[] columnNames(List<ColumnSpec<?>> columns, BitSet selectedColumns, BitSet mask)

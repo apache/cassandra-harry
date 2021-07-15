@@ -491,10 +491,8 @@ Harry is by no means feature-complete. Main things that are missing are:
 
   * Some types (such as collections) are not deflatable
   * Some types are implemented, but are not hooked up (`blob` and `text`) to DSL/generator
-  * Partition deletions are not implemented
   * 2i queries are not implemented
   * Compact storage is not implemented
-  * Static columns are not implemented
   * Fault injection is not implemented
   * Runner and scheduler are rather rudimentary and require significant rework and proper scheduling
   * TTL is not supported
@@ -508,7 +506,6 @@ Some things, even though are implemented, can be improved or optimized:
   * Inflated partition state and per-row operation log should be done in a compact
   off-heap data structure
   * Exhaustive checker can be significantly optimized
-  * Harry shouldn't rely on java-driver for query generation
   * Exhaustive checker should use more precise information from data tracker, not
   just watermarks
   * Decision-making about _when_ we visit partitions and/or rows should be improved

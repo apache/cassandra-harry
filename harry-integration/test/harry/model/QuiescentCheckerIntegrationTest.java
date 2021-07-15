@@ -29,9 +29,9 @@ import harry.corruptor.HideValueCorruptor;
 import harry.corruptor.QueryResponseCorruptor;
 import harry.corruptor.QueryResponseCorruptor.SimpleQueryResponseCorruptor;
 import harry.ddl.SchemaSpec;
-import harry.runner.PartitionVisitor;
-import harry.runner.Query;
-import harry.runner.SinglePartitionValidator;
+import harry.visitors.PartitionVisitor;
+import harry.operations.Query;
+import harry.visitors.SinglePartitionValidator;
 
 public class QuiescentCheckerIntegrationTest extends ModelTestBase
 {
@@ -128,7 +128,8 @@ public class QuiescentCheckerIntegrationTest extends ModelTestBase
                      (t, run) -> {
                          String expected = "doesn't match the one predicted by the model";
                          String expected2 = "don't match ones predicted by the model";
-                         if (t.getMessage().contains(expected) || t.getMessage().contains(expected2))
+                         String expected3 = "Found a row in the model that is not present in the resultset";
+                         if (t.getMessage().contains(expected) || t.getMessage().contains(expected2) || t.getMessage().contains(expected3))
                              return;
 
                          throw new AssertionError(String.format("Exception string mismatch.\nExpected error: %s.\nActual error: %s", expected, t.getMessage()),

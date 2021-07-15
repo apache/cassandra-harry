@@ -18,8 +18,7 @@
 
 package harry.generators;
 
-import com.google.common.annotations.VisibleForTesting;
-
+import harry.core.VisibleForTesting;
 
 /**
  * Random generator interface that offers:

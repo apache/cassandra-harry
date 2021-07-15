@@ -29,7 +29,7 @@ import harry.operations.CompiledStatement;
 
 public interface RowCorruptor
 {
-    Logger logger = LoggerFactory.getLogger(QueryResponseCorruptor.class);
+    final Logger logger = LoggerFactory.getLogger(QueryResponseCorruptor.class);
 
     boolean canCorrupt(ResultSetRow row);
 

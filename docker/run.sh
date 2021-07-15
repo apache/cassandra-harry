@@ -75,7 +75,7 @@ while true; do
        -cp /opt/harry/lib/*:/opt/harry/harry-integration-0.0.1-SNAPSHOT.jar \
        -Dharry.root=${HARRY_DIR} \
        harry.runner.HarryRunnerJvm \
-       /opt/harry/example.yaml
+       /opt/harry/default.yaml
 
    if [ $? -ne 0 ]; then
       if [ -e "failure.dump" ]; then

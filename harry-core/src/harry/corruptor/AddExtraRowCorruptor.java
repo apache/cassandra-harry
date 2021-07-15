@@ -30,7 +30,7 @@ import harry.model.OpSelectors;
 import harry.model.SelectHelper;
 import harry.model.sut.SystemUnderTest;
 import harry.operations.WriteHelper;
-import harry.runner.Query;
+import harry.operations.Query;
 
 public class AddExtraRowCorruptor implements QueryResponseCorruptor
 {

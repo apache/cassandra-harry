@@ -44,19 +44,24 @@ public class TestRunner
 
     public static <T1, T2> void test(Generator<T1> gen1,
                                      Function<T1, Generator<T2>> gen2,
-                                     Consumer<T2> validate)
+                                     ThrowingConsumer<T2> validate) throws Throwable
     {
         test(gen1,
              (v1) -> test(gen2.apply(v1), validate));
     }
 
     public static <T1> void test(Generator<T1> gen1,
-                                 Consumer<T1> validate)
+                                 ThrowingConsumer<T1> validate) throws Throwable
     {
         for (int i = 0; i < CYCLES; i++)
         {
             validate.accept(gen1.generate(rand));
         }
+    }
+
+    public static interface ThrowingConsumer<T>
+    {
+        void accept(T t) throws Throwable;
     }
 }
 

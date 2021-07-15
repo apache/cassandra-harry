@@ -24,15 +24,13 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.function.Supplier;
 
-import harry.core.Configuration;
 import harry.core.Run;
 import harry.data.ResultSetRow;
 import harry.ddl.SchemaSpec;
 import harry.model.sut.SystemUnderTest;
 import harry.reconciler.Reconciler;
 import harry.runner.DataTracker;
-import harry.runner.Query;
-import harry.runner.QueryGenerator;
+import harry.operations.Query;
 
 import static harry.generators.DataGenerators.NIL_DESCR;
 

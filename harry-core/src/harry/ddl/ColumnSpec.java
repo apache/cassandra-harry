@@ -18,19 +18,17 @@
 
 package harry.ddl;
 
+import java.util.Arrays;
 import java.util.Collection;
+import java.util.Collections;
 import java.util.Date;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Objects;
 import java.util.UUID;
 
-import com.google.common.collect.ImmutableList;
-
 import harry.generators.Bijections;
 import harry.generators.StringBijection;
-
-import static harry.generators.StringBijection.getByte;
 
 public class ColumnSpec<T>
 {
@@ -318,7 +316,7 @@ public class ColumnSpec<T>
         }
     };
 
-    public static final Collection<DataType<?>> DATA_TYPES = ImmutableList.of(
+    public static final Collection<DataType<?>> DATA_TYPES = Collections.unmodifiableList(Arrays.asList(
     ColumnSpec.int8Type,
     ColumnSpec.int16Type,
     ColumnSpec.int32Type,
@@ -328,7 +326,7 @@ public class ColumnSpec<T>
     ColumnSpec.doubleType,
     ColumnSpec.asciiType,
     ColumnSpec.uuidType,
-    ColumnSpec.timestampType);
+    ColumnSpec.timestampType));
 
     public static class ReversedType<T> extends DataType<T>
     {

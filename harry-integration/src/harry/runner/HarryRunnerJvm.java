@@ -16,25 +16,28 @@
  *  limitations under the License.
  */
 
-package harry.model;
+package harry.runner;
 
-import harry.core.Run;
-import harry.model.sut.SystemUnderTest;
-import harry.operations.Query;
+import harry.core.Configuration;
+import harry.model.sut.InJvmSut;
 
-public class NoOpChecker implements Model
-{
-    private final Run run;
+import java.io.File;
 
-    public NoOpChecker(Run run)
-    {
-        this.run = run;
+public class HarryRunnerJvm extends HarryRunner {
+
+    public static void main(String[] args) throws Throwable {
+        InJvmSut.init();
+
+        HarryRunnerJvm runner = new HarryRunnerJvm();
+        File configFile = runner.loadConfig(args);
+
+        Configuration configuration = Configuration.fromFile(configFile);
+        runner.run(configuration);
     }
 
-    public void validate(Query query)
-    {
-        run.sut.execute(query.toSelectStatement(),
-                        // TODO: make it configurable
-                        SystemUnderTest.ConsistencyLevel.QUORUM);
+
+    @Override
+    public void beforeRun(Runner runner) {
+
     }
 }

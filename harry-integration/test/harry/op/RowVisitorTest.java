@@ -35,7 +35,7 @@ import harry.model.clock.OffsetClock;
 import harry.model.sut.SystemUnderTest;
 import harry.operations.CompiledStatement;
 import harry.runner.DataTracker;
-import harry.runner.MutatingRowVisitor;
+import harry.visitors.MutatingRowVisitor;
 import org.apache.cassandra.cql3.CQLTester;
 
 import static harry.model.OpSelectors.DefaultDescriptorSelector.DEFAULT_OP_SELECTOR;
@@ -83,10 +83,10 @@ public class RowVisitorTest extends CQLTester
             MutatingRowVisitor visitor = new MutatingRowVisitor(run);
             long[] descriptors = rand.next(4);
 
-            execute(visitor.write(Math.abs(descriptors[0]),
-                                  descriptors[1],
-                                  descriptors[2],
-                                  descriptors[3]));
+            execute(visitor.insert(Math.abs(descriptors[0]),
+                                   descriptors[1],
+                                   descriptors[2],
+                                   descriptors[3]));
         }
     }
 

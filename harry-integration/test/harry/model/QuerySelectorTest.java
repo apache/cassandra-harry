@@ -31,11 +31,11 @@ import harry.ddl.SchemaGenerators;
 import harry.ddl.SchemaSpec;
 import harry.model.sut.SystemUnderTest;
 import harry.operations.CompiledStatement;
-import harry.runner.MutatingPartitionVisitor;
-import harry.runner.MutatingRowVisitor;
-import harry.runner.PartitionVisitor;
-import harry.runner.Query;
-import harry.runner.QueryGenerator;
+import harry.visitors.MutatingPartitionVisitor;
+import harry.visitors.MutatingRowVisitor;
+import harry.visitors.PartitionVisitor;
+import harry.operations.Query;
+import harry.operations.QueryGenerator;
 
 import static harry.generators.DataGenerators.NIL_DESCR;
 
