@@ -28,11 +28,11 @@ import harry.core.Configuration;
 import harry.core.Run;
 import harry.ddl.SchemaGenerators;
 import harry.ddl.SchemaSpec;
-import harry.runner.LoggingPartitionVisitor;
-import harry.runner.MutatingRowVisitor;
-import harry.runner.PartitionVisitor;
+import harry.visitors.LoggingPartitionVisitor;
+import harry.visitors.MutatingRowVisitor;
+import harry.visitors.PartitionVisitor;
 import harry.runner.Runner;
-import harry.runner.SinglePartitionValidator;
+import harry.visitors.SinglePartitionValidator;
 
 public abstract class ModelTestBase extends IntegrationTestBase
 {

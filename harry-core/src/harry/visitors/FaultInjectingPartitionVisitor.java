@@ -16,7 +16,7 @@
  *  limitations under the License.
  */
 
-package harry.runner;
+package harry.visitors;
 
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
@@ -27,8 +27,6 @@ import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.annotation.JsonTypeName;
 import harry.core.Configuration;
 import harry.core.Run;
-import harry.model.sut.InJvmSut;
-import harry.model.sut.MixedVersionInJvmSut;
 import harry.model.sut.SystemUnderTest;
 import harry.operations.CompiledStatement;
 

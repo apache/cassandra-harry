@@ -22,7 +22,7 @@ import harry.ddl.SchemaSpec;
 import harry.model.OpSelectors;
 import harry.model.sut.SystemUnderTest;
 import harry.runner.DataTracker;
-import harry.runner.QueryGenerator;
+import harry.operations.QueryGenerator;
 
 public class Run
 {

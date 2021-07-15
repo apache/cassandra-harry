@@ -31,8 +31,6 @@ import harry.ddl.ColumnSpec;
 import harry.ddl.SchemaSpec;
 import harry.generators.DataGeneratorsTest;
 import harry.model.OpSelectors;
-import harry.runner.Query;
-import harry.runner.QueryGenerator;
 import harry.util.BitSet;
 
 public class RelationTest

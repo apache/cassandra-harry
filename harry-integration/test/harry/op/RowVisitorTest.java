@@ -35,7 +35,7 @@ import harry.model.clock.OffsetClock;
 import harry.model.sut.SystemUnderTest;
 import harry.operations.CompiledStatement;
 import harry.runner.DataTracker;
-import harry.runner.MutatingRowVisitor;
+import harry.visitors.MutatingRowVisitor;
 import org.apache.cassandra.cql3.CQLTester;
 
 import static harry.model.OpSelectors.DefaultDescriptorSelector.DEFAULT_OP_SELECTOR;
