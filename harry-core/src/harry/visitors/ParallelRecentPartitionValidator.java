@@ -16,7 +16,7 @@
  *  limitations under the License.
  */
 
-package harry.runner;
+package harry.visitors;
 
 import java.io.BufferedWriter;
 import java.io.File;
@@ -38,6 +38,8 @@ import harry.core.Configuration;
 import harry.core.Run;
 import harry.generators.Surjections;
 import harry.model.Model;
+import harry.operations.Query;
+import harry.operations.QueryGenerator;
 
 public class ParallelRecentPartitionValidator extends ParallelValidator<ParallelRecentPartitionValidator.State>
 {

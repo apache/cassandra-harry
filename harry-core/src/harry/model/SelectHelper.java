@@ -28,7 +28,7 @@ import harry.ddl.SchemaSpec;
 import harry.model.sut.SystemUnderTest;
 import harry.operations.CompiledStatement;
 import harry.operations.Relation;
-import harry.runner.Query;
+import harry.operations.Query;
 
 public class SelectHelper
 {

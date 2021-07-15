@@ -29,9 +29,9 @@ import harry.corruptor.HideValueCorruptor;
 import harry.corruptor.QueryResponseCorruptor;
 import harry.corruptor.QueryResponseCorruptor.SimpleQueryResponseCorruptor;
 import harry.ddl.SchemaSpec;
-import harry.runner.PartitionVisitor;
-import harry.runner.Query;
-import harry.runner.SinglePartitionValidator;
+import harry.visitors.PartitionVisitor;
+import harry.operations.Query;
+import harry.visitors.SinglePartitionValidator;
 
 public class QuiescentCheckerIntegrationTest extends ModelTestBase
 {

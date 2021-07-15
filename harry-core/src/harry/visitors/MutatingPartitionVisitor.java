@@ -16,7 +16,7 @@
  *  limitations under the License.
  */
 
-package harry.runner;
+package harry.visitors;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -29,10 +29,10 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import harry.core.Run;
-import harry.model.Model;
 import harry.model.OpSelectors;
 import harry.model.sut.SystemUnderTest;
 import harry.operations.CompiledStatement;
+import harry.runner.DataTracker;
 
 public class MutatingPartitionVisitor extends AbstractPartitionVisitor
 {

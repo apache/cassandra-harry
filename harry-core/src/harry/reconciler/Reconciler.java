@@ -34,10 +34,10 @@ import harry.core.Run;
 import harry.ddl.ColumnSpec;
 import harry.ddl.SchemaSpec;
 import harry.model.OpSelectors;
-import harry.runner.AbstractPartitionVisitor;
-import harry.runner.PartitionVisitor;
-import harry.runner.Query;
-import harry.runner.QueryGenerator;
+import harry.visitors.AbstractPartitionVisitor;
+import harry.visitors.PartitionVisitor;
+import harry.operations.Query;
+import harry.operations.QueryGenerator;
 import harry.util.BitSet;
 import harry.util.Ranges;
 

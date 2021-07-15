@@ -16,10 +16,13 @@
  *  limitations under the License.
  */
 
-package harry.runner;
+package harry.visitors;
 
 import harry.core.Run;
 import harry.model.Model;
+import harry.operations.Query;
+import harry.operations.QueryGenerator;
+import harry.visitors.PartitionVisitor;
 
 public class SinglePartitionValidator implements PartitionVisitor
 {

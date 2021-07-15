@@ -44,9 +44,9 @@ import harry.model.clock.OffsetClock;
 import harry.model.sut.SystemUnderTest;
 import harry.operations.CompiledStatement;
 import harry.runner.DataTracker;
-import harry.runner.MutatingPartitionVisitor;
-import harry.runner.PartitionVisitor;
-import harry.runner.Operation;
+import harry.visitors.MutatingPartitionVisitor;
+import harry.visitors.PartitionVisitor;
+import harry.visitors.Operation;
 import harry.util.BitSet;
 
 public class OpSelectorsTest

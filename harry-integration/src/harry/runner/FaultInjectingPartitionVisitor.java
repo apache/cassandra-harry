@@ -31,6 +31,9 @@ import harry.model.sut.InJvmSut;
 import harry.model.sut.MixedVersionInJvmSut;
 import harry.model.sut.SystemUnderTest;
 import harry.operations.CompiledStatement;
+import harry.visitors.LoggingPartitionVisitor;
+import harry.visitors.Operation;
+import harry.visitors.PartitionVisitor;
 
 public class FaultInjectingPartitionVisitor extends LoggingPartitionVisitor
 {

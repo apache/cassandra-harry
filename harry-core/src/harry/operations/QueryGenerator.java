@@ -16,10 +16,9 @@
  *  limitations under the License.
  */
 
-package harry.runner;
+package harry.operations;
 
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 import java.util.function.LongSupplier;
@@ -34,7 +33,6 @@ import harry.generators.DataGenerators;
 import harry.generators.RngUtils;
 import harry.generators.Surjections;
 import harry.model.OpSelectors;
-import harry.operations.Relation;
 
 // TODO: there's a lot of potential to reduce an amount of garbage here.
 // TODO: refactor. Currently, this class is a base for both SELECT and DELETE statements. In retrospect,

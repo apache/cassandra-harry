@@ -20,7 +20,7 @@ package harry.model;
 
 import harry.core.Run;
 import harry.model.sut.SystemUnderTest;
-import harry.runner.Query;
+import harry.operations.Query;
 
 public class NoOpChecker implements Model
 {

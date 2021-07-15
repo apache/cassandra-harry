@@ -32,7 +32,7 @@ import harry.QuickTheoriesAdapter;
 import harry.generators.Generator;
 import harry.operations.CompiledStatement;
 
-import harry.runner.Query;
+import harry.operations.Query;
 import harry.util.TestRunner;
 import org.apache.cassandra.cql3.CQLTester;
 import org.apache.cassandra.db.Keyspace;

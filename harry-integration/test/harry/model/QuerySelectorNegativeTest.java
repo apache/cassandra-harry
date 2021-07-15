@@ -25,6 +25,7 @@ import java.util.Map;
 import java.util.Random;
 import java.util.function.Supplier;
 
+import harry.operations.Query;
 import org.junit.Assert;
 import org.junit.Test;
 import org.junit.runner.RunWith;
@@ -39,11 +40,10 @@ import harry.corruptor.HideValueCorruptor;
 import harry.corruptor.QueryResponseCorruptor;
 import harry.corruptor.ShowValueCorruptor;
 import harry.ddl.SchemaGenerators;
-import harry.runner.MutatingPartitionVisitor;
-import harry.runner.MutatingRowVisitor;
-import harry.runner.PartitionVisitor;
-import harry.runner.Query;
-import harry.runner.QueryGenerator;
+import harry.visitors.MutatingPartitionVisitor;
+import harry.visitors.MutatingRowVisitor;
+import harry.visitors.PartitionVisitor;
+import harry.operations.QueryGenerator;
 
 import static harry.corruptor.QueryResponseCorruptor.SimpleQueryResponseCorruptor;
 
