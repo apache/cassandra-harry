@@ -28,7 +28,6 @@ import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.Executors;
-import java.util.concurrent.Future;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -40,6 +39,7 @@ import org.slf4j.LoggerFactory;
 import harry.core.Configuration;
 import harry.core.Run;
 import harry.model.OpSelectors;
+import harry.visitors.PartitionVisitor;
 
 
 public abstract class Runner

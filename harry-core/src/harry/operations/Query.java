@@ -16,7 +16,7 @@
  *  limitations under the License.
  */
 
-package harry.runner;
+package harry.operations;
 
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -30,9 +30,6 @@ import org.slf4j.LoggerFactory;
 
 import harry.ddl.SchemaSpec;
 import harry.model.SelectHelper;
-import harry.operations.CompiledStatement;
-import harry.operations.DeleteHelper;
-import harry.operations.Relation;
 import harry.util.Ranges;
 
 import static harry.operations.Relation.FORWARD_COMPARATOR;

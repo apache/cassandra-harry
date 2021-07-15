@@ -23,6 +23,7 @@ import java.io.File;
 import harry.core.Configuration;
 import harry.core.Run;
 import harry.model.sut.PrintlnSut;
+import harry.operations.Query;
 import harry.reconciler.Reconciler;
 
 public class Reproduce

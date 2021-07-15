@@ -16,7 +16,7 @@
  *  limitations under the License.
  */
 
-package harry.runner;
+package harry.visitors;
 
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
@@ -34,6 +34,7 @@ import harry.ddl.SchemaSpec;
 import harry.model.Model;
 import harry.model.OpSelectors;
 import harry.model.sut.SystemUnderTest;
+import harry.operations.Query;
 
 // This might be something that potentially grows into the validator described in the design doc;
 // right now it's just a helper/container class

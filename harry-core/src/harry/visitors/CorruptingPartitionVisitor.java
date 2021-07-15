@@ -15,7 +15,7 @@
  *  See the License for the specific language governing permissions and
  *  limitations under the License.
  */
-package harry.runner;
+package harry.visitors;
 
 import java.util.Random;
 import java.util.concurrent.atomic.AtomicLong;
@@ -29,6 +29,8 @@ import harry.corruptor.ChangeValueCorruptor;
 import harry.corruptor.HideRowCorruptor;
 import harry.corruptor.HideValueCorruptor;
 import harry.corruptor.QueryResponseCorruptor;
+import harry.runner.HarryRunner;
+import harry.operations.Query;
 
 public class CorruptingPartitionVisitor implements PartitionVisitor
 {

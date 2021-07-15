@@ -25,6 +25,7 @@ import harry.core.Run;
 import harry.model.Model;
 import harry.model.sut.SystemUnderTest;
 import harry.operations.CompiledStatement;
+import harry.operations.Query;
 
 public class QueryingNoOpChecker implements Model
 {

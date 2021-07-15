@@ -16,7 +16,7 @@
  *  limitations under the License.
  */
 
-package harry.runner;
+package harry.visitors;
 
 import harry.core.MetricReporter;
 import harry.core.Run;
@@ -26,6 +26,8 @@ import harry.model.OpSelectors;
 import harry.operations.CompiledStatement;
 import harry.operations.DeleteHelper;
 import harry.operations.WriteHelper;
+import harry.operations.Query;
+import harry.operations.QueryGenerator;
 import harry.util.BitSet;
 
 public class MutatingRowVisitor implements Operation

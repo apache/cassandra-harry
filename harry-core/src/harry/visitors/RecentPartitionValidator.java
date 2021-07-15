@@ -16,7 +16,7 @@
  *  limitations under the License.
  */
 
-package harry.runner;
+package harry.visitors;
 
 import java.io.BufferedWriter;
 import java.io.File;
@@ -24,7 +24,6 @@ import java.io.FileNotFoundException;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.OutputStreamWriter;
-import java.util.Arrays;
 import java.util.concurrent.atomic.AtomicLong;
 
 import org.slf4j.Logger;
@@ -35,7 +34,8 @@ import harry.core.Run;
 import harry.generators.Surjections;
 import harry.model.Model;
 import harry.model.OpSelectors;
-import harry.operations.CompiledStatement;
+import harry.operations.Query;
+import harry.operations.QueryGenerator;
 
 public class RecentPartitionValidator implements PartitionVisitor
 {

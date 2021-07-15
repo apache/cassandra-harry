@@ -31,8 +31,7 @@ import harry.model.OpSelectors;
 import harry.model.SelectHelper;
 import harry.model.sut.SystemUnderTest;
 import harry.operations.CompiledStatement;
-import harry.runner.HarryRunner;
-import harry.runner.Query;
+import harry.operations.Query;
 
 public interface QueryResponseCorruptor
 {

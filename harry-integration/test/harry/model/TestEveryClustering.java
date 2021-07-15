@@ -1,28 +1,22 @@
 package harry.model;
 
-import java.util.HashSet;
-import java.util.Set;
-import java.util.function.Supplier;
-
-import org.junit.Assert;
-import org.junit.Test;
-
 import harry.core.Configuration;
 import harry.core.Run;
 import harry.ddl.SchemaGenerators;
 import harry.ddl.SchemaSpec;
 import harry.generators.distribution.Distribution;
-import harry.model.sut.SystemUnderTest;
 import harry.operations.CompiledStatement;
+import harry.operations.Query;
 import harry.operations.Relation;
-import harry.runner.FaultInjectingPartitionVisitor;
-import harry.runner.LoggingPartitionVisitor;
-import harry.runner.MutatingPartitionVisitor;
-import harry.runner.MutatingRowVisitor;
-import harry.runner.PartitionVisitor;
-import harry.runner.Query;
-import harry.runner.QueryGenerator;
+import harry.visitors.LoggingPartitionVisitor;
+import harry.visitors.MutatingRowVisitor;
+import harry.visitors.PartitionVisitor;
 import org.apache.cassandra.distributed.api.IInvokableInstance;
+import org.junit.Test;
+
+import java.util.HashSet;
+import java.util.Set;
+import java.util.function.Supplier;
 
 public class TestEveryClustering extends IntegrationTestBase
 {

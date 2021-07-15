@@ -32,6 +32,9 @@ import harry.model.QuiescentChecker;
 import harry.model.sut.InJvmSut;
 import harry.model.sut.SystemUnderTest;
 import harry.operations.CompiledStatement;
+import harry.operations.Query;
+import harry.visitors.AllPartitionsValidator;
+import harry.visitors.PartitionVisitor;
 
 import static harry.model.SelectHelper.resultSetToRow;
 
