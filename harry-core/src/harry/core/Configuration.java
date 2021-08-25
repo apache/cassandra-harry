@@ -92,6 +92,8 @@ public class Configuration
         mapper.registerSubtypes(CorruptingPartitionVisitorConfiguration.class);
         mapper.registerSubtypes(RecentPartitionsValidatorConfiguration.class);
         mapper.registerSubtypes(FixedSchemaProviderConfiguration.class);
+
+        mapper.registerSubtypes(NoOpMetricReporterConfiguration.class);
     }
 
     public final long seed;
