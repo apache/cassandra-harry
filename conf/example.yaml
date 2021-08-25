@@ -39,9 +39,11 @@ clock:
 # and model state.
 runner:
   concurrent:
-    writer_threads: 2
-    round_robin_validator_threads: 1
-    recent_partition_validator_threads: 1
+    concurrency: 2
+    partition_visitors:
+      - mutating:
+          row_visitor:
+            mutating: {}
 
 run_time: 2
 run_time_unit: "HOURS"
@@ -53,12 +55,6 @@ system_under_test:
     nodes: 3
     worker_threads: 10
     root: "/tmp/harry/"
-
-# Model is responsible for tracking logical timestamps that
-model:
-  exhaustive_checker:
-    max_seen_lts: 19
-    max_complete_lts: 16
 
 # Partition descriptor selector controls how partitions is selected based on the current logical
 # timestamp. Default implementation is a sliding window of partition descriptors that will visit
@@ -89,6 +85,5 @@ clustering_descriptor_selector:
     column_mask_bitsets: null
     max_partition_size: 100
 
-# Default Row Visitor
-row_visitor:
+metric_reporter:
   default: {}
