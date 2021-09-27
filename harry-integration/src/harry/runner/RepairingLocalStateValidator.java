@@ -19,6 +19,7 @@
 package harry.runner;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 
 import com.fasterxml.jackson.annotation.JsonCreator;
@@ -34,7 +35,7 @@ import harry.model.sut.SystemUnderTest;
 import harry.operations.CompiledStatement;
 import harry.operations.Query;
 import harry.visitors.AllPartitionsValidator;
-import harry.visitors.PartitionVisitor;
+import harry.visitors.Visitor;
 
 import static harry.model.SelectHelper.resultSetToRow;
 
@@ -56,19 +57,22 @@ public class RepairingLocalStateValidator extends AllPartitionsValidator
     }
 
     @Override
-    public void visitPartition(long lts)
+    public void visit(long lts)
     {
         if (lts > 0 && lts % triggerAfter == 0)
         {
             System.out.println("Starting repair...");
-            inJvmSut.cluster().get(1).nodetool("repair", "--full");
+
+            inJvmSut.cluster().stream().forEach((instance) -> {
+                instance.nodetool("repair", "--full");
+            });
             System.out.println("Validating partitions...");
-            validateAllPartitions(executor, concurrency);
+            super.visit(lts);
         }
     }
 
     @JsonTypeName("repair_and_validate_local_states")
-    public static class RepairingLocalStateValidatorConfiguration implements Configuration.PartitionVisitorConfiguration
+    public static class RepairingLocalStateValidatorConfiguration implements Configuration.VisitorConfiguration
     {
         private final int concurrency;
         private final int trigger_after;
@@ -84,7 +88,7 @@ public class RepairingLocalStateValidator extends AllPartitionsValidator
             this.modelConfiguration = model;
         }
 
-        public PartitionVisitor make(Run run)
+        public Visitor make(Run run)
         {
             return new RepairingLocalStateValidator(concurrency, trigger_after, run, modelConfiguration);
         }
@@ -106,9 +110,9 @@ public class RepairingLocalStateValidator extends AllPartitionsValidator
         public void validate(Query query)
         {
             CompiledStatement compiled = query.toSelectStatement();
-            for (int i = 1; i <= inJvmSut.cluster.size(); i++)
+            int[] replicas = inJvmSut.getReplicasFor(schemaSpec.inflatePartitionKey(query.pd), schemaSpec.keyspace, schemaSpec.table);
+            for (int node : replicas)
             {
-                int node = i;
                 validate(() -> {
                     Object[][] objects = inJvmSut.execute(compiled.cql(),
                                                           SystemUnderTest.ConsistencyLevel.NODE_LOCAL,

@@ -44,9 +44,9 @@ import harry.model.clock.OffsetClock;
 import harry.model.sut.SystemUnderTest;
 import harry.operations.CompiledStatement;
 import harry.runner.DataTracker;
-import harry.visitors.MutatingPartitionVisitor;
-import harry.visitors.PartitionVisitor;
-import harry.visitors.Operation;
+import harry.visitors.MutatingVisitor;
+import harry.visitors.Visitor;
+import harry.visitors.OperationExecutor;
 import harry.util.BitSet;
 
 public class OpSelectorsTest
@@ -213,8 +213,8 @@ public class OpSelectorsTest
                 SystemUnderTest.NO_OP,
                 MetricReporter.NO_OP);
 
-        PartitionVisitor partitionVisitor = new MutatingPartitionVisitor(run,
-                                                                         (r) -> new Operation()
+        Visitor visitor = new MutatingVisitor(run,
+                                              (r) -> new OperationExecutor()
                                                                          {
                                                                              public CompiledStatement insert(long lts, long pd, long cd, long m)
                                                                              {
@@ -279,7 +279,7 @@ public class OpSelectorsTest
 
         for (int lts = 0; lts < 1000; lts++)
         {
-            partitionVisitor.visitPartition(lts);
+            visitor.visit(lts);
         }
 
         for (Collection<Long> value : partitionMap.values())

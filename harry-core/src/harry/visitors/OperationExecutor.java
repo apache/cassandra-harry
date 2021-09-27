@@ -22,11 +22,11 @@ import harry.core.Run;
 import harry.model.OpSelectors;
 import harry.operations.CompiledStatement;
 
-public interface Operation
+public interface OperationExecutor
 {
     interface RowVisitorFactory
     {
-        Operation make(Run run);
+        OperationExecutor make(Run run);
     }
 
     default CompiledStatement perform(OpSelectors.OperationKind op, long lts, long pd, long cd, long opId)

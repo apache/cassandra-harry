@@ -65,7 +65,8 @@ public class WriteHelper
         }
 
         b.append(") USING TIMESTAMP ")
-         .append(timestamp);
+         .append(timestamp)
+         .append(";");
 
         return new CompiledStatement(b.toString(), adjustArraySize(bindings, bindingsCount));
     }

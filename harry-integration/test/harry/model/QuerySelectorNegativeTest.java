@@ -25,7 +25,6 @@ import java.util.Map;
 import java.util.Random;
 import java.util.function.Supplier;
 
-import harry.operations.Query;
 import org.junit.Assert;
 import org.junit.Test;
 import org.junit.runner.RunWith;
@@ -40,9 +39,10 @@ import harry.corruptor.HideValueCorruptor;
 import harry.corruptor.QueryResponseCorruptor;
 import harry.corruptor.ShowValueCorruptor;
 import harry.ddl.SchemaGenerators;
-import harry.visitors.MutatingPartitionVisitor;
+import harry.visitors.MutatingVisitor;
 import harry.visitors.MutatingRowVisitor;
-import harry.visitors.PartitionVisitor;
+import harry.visitors.Visitor;
+import harry.operations.Query;
 import harry.operations.QueryGenerator;
 
 import static harry.corruptor.QueryResponseCorruptor.SimpleQueryResponseCorruptor;
@@ -111,7 +111,7 @@ public class QuerySelectorNegativeTest extends IntegrationTestBase
             System.out.println(run.schemaSpec.compile().cql());
             OpSelectors.MonotonicClock clock = run.clock;
 
-            PartitionVisitor partitionVisitor = new MutatingPartitionVisitor(run, MutatingRowVisitor::new);
+            Visitor visitor = new MutatingVisitor(run, MutatingRowVisitor::new);
             Model model = new QuiescentChecker(run);
 
             QueryResponseCorruptor corruptor = this.corruptorFactory.create(run);
@@ -119,7 +119,7 @@ public class QuerySelectorNegativeTest extends IntegrationTestBase
             for (int i = 0; i < CYCLES; i++)
             {
                 long lts = clock.nextLts();
-                partitionVisitor.visitPartition(lts);
+                visitor.visit(lts);
             }
 
             while (true)

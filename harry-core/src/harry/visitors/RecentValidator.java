@@ -37,10 +37,10 @@ import harry.model.OpSelectors;
 import harry.operations.Query;
 import harry.operations.QueryGenerator;
 
-public class RecentPartitionValidator implements PartitionVisitor
+public class RecentValidator implements Visitor
 {
     private final BufferedWriter validationLog;
-    private static final Logger logger = LoggerFactory.getLogger(RecentPartitionValidator.class);
+    private static final Logger logger = LoggerFactory.getLogger(RecentValidator.class);
     private final Model model;
 
     private final OpSelectors.PdSelector pdSelector;
@@ -50,11 +50,11 @@ public class RecentPartitionValidator implements PartitionVisitor
     private final int triggerAfter;
     private final int queries;
 
-    public RecentPartitionValidator(int partitionCount,
-                                    int queries,
-                                    int triggerAfter,
-                                    Run run,
-                                    Model.ModelFactory modelFactory)
+    public RecentValidator(int partitionCount,
+                           int queries,
+                           int triggerAfter,
+                           Run run,
+                           Model.ModelFactory modelFactory)
     {
         this.partitionCount = partitionCount;
         this.triggerAfter = triggerAfter;
@@ -103,7 +103,7 @@ public class RecentPartitionValidator implements PartitionVisitor
         }
     }
 
-    public void visitPartition(long lts)
+    public void visit(long lts)
     {
         maxPos.updateAndGet(current -> Math.max(pdSelector.positionFor(lts), current));
 

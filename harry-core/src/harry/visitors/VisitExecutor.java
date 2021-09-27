@@ -16,38 +16,21 @@
  *  limitations under the License.
  */
 
-package harry.runner;
+package harry.visitors;
 
-import harry.core.Configuration;
+import harry.model.OpSelectors;
 
-public interface DataTracker
+public interface VisitExecutor
 {
-    void started(long lts);
-    void finished(long lts);
+    public void beforeLts(long lts, long pd);
 
-    long maxStarted();
-    long maxConsecutiveFinished();
+    public void afterLts(long lts, long pd);
 
-    public Configuration.DataTrackerConfiguration toConfig();
+    public void beforeBatch(long lts, long pd, long m);
 
-    interface DataTrackerFactory {
-        DataTracker make();
-    }
+    public void operation(long lts, long pd, long cd, long m, long opId, OpSelectors.OperationKind kind);
 
-    public static DataTracker NO_OP = new NoOpDataTracker();
+    public void afterBatch(long lts, long pd, long m);
 
-    class NoOpDataTracker implements DataTracker
-    {
-        private NoOpDataTracker() {}
-
-        public void started(long lts) {}
-        public void finished(long lts) {}
-        public long maxStarted() { return 0; }
-        public long maxConsecutiveFinished() { return 0; }
-
-        public Configuration.DataTrackerConfiguration toConfig()
-        {
-            return null;
-        }
-    }
+    public default void shutdown() throws InterruptedException {}
 }

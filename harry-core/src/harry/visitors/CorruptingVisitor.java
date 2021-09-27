@@ -32,7 +32,7 @@ import harry.corruptor.QueryResponseCorruptor;
 import harry.runner.HarryRunner;
 import harry.operations.Query;
 
-public class CorruptingPartitionVisitor implements PartitionVisitor
+public class CorruptingVisitor implements Visitor
 {
     public static final Logger logger = LoggerFactory.getLogger(HarryRunner.class);
 
@@ -40,8 +40,8 @@ public class CorruptingPartitionVisitor implements PartitionVisitor
     private final QueryResponseCorruptor[] corruptors;
     private final int triggerAfter;
 
-    public CorruptingPartitionVisitor(int triggerAfter,
-                                      Run run)
+    public CorruptingVisitor(int triggerAfter,
+                             Run run)
     {
         this.run = run;
         this.triggerAfter = triggerAfter;
@@ -64,7 +64,7 @@ public class CorruptingPartitionVisitor implements PartitionVisitor
 
     private final AtomicLong maxPos = new AtomicLong(-1);
 
-    public void visitPartition(long lts)
+    public void visit(long lts)
     {
         maxPos.updateAndGet(current -> Math.max(run.pdSelector.positionFor(lts), current));
 

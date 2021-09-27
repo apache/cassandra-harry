@@ -29,16 +29,16 @@ import harry.corruptor.HideValueCorruptor;
 import harry.corruptor.QueryResponseCorruptor;
 import harry.corruptor.QueryResponseCorruptor.SimpleQueryResponseCorruptor;
 import harry.ddl.SchemaSpec;
-import harry.visitors.PartitionVisitor;
+import harry.visitors.Visitor;
 import harry.operations.Query;
-import harry.visitors.SinglePartitionValidator;
+import harry.visitors.SingleValidator;
 
 public class QuiescentCheckerIntegrationTest extends ModelTestBase
 {
     @Override
-    protected PartitionVisitor validator(Run run)
+    protected Visitor validator(Run run)
     {
-        return new SinglePartitionValidator(100, run, modelConfiguration());
+        return new SingleValidator(100, run, modelConfiguration());
     }
 
     @Test

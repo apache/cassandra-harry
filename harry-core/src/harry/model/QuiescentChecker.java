@@ -45,10 +45,14 @@ public class QuiescentChecker implements Model
 
     public QuiescentChecker(Run run)
     {
+        this(run, new Reconciler(run));
+    }
+
+    public QuiescentChecker(Run run, Reconciler reconciler)
+    {
         this.clock = run.clock;
         this.sut = run.sut;
-
-        this.reconciler = new Reconciler(run);
+        this.reconciler = reconciler;
         this.tracker = run.tracker;
         this.schemaSpec = run.schemaSpec;
     }
@@ -63,8 +67,10 @@ public class QuiescentChecker implements Model
         long maxCompeteLts = tracker.maxConsecutiveFinished();
         long maxSeenLts = tracker.maxStarted();
 
-        assert maxCompeteLts == maxSeenLts : "Runner hasn't settled down yet. " +
-                                             "Quiescent model can't be reliably used in such cases.";
+        assert maxCompeteLts == maxSeenLts : String.format("Runner hasn't settled down yet. " +
+                                                           "Quiescent model can't be reliably used in such cases. " +
+                                                           "Max complete: %d. Max seen: %d",
+                                                           maxCompeteLts, maxSeenLts);
 
         List<ResultSetRow> actualRows = rowsSupplier.get();
         Iterator<ResultSetRow> actual = actualRows.iterator();

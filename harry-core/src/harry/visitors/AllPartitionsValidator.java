@@ -38,7 +38,7 @@ import harry.operations.Query;
 
 // This might be something that potentially grows into the validator described in the design doc;
 // right now it's just a helper/container class
-public class AllPartitionsValidator implements PartitionVisitor
+public class AllPartitionsValidator implements Visitor
 {
     private static final Logger logger = LoggerFactory.getLogger(AllPartitionsValidator.class);
 
@@ -111,7 +111,7 @@ public class AllPartitionsValidator implements PartitionVisitor
 
     private final AtomicLong maxPos = new AtomicLong(-1);
 
-    public void visitPartition(long lts)
+    public void visit(long lts)
     {
         maxPos.updateAndGet(current -> Math.max(pdSelector.positionFor(lts), current));
 

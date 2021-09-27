@@ -173,7 +173,7 @@ public class RelationTest
                                                                           throw new RuntimeException("not implemented");
                                                                       }
 
-                                                                      public BitSet columnMask(long pd, long lts, long opId)
+                                                                      public BitSet columnMask(long pd, long lts, long opId, OpSelectors.OperationKind opType)
                                                                       {
                                                                           throw new RuntimeException("not implemented");
                                                                       }

@@ -63,7 +63,10 @@ public class DefaultDataTracker implements DataTracker
     private void recordEvent(long lts, boolean finished)
     {
         // all seen LTS are allowed to be "in-flight"
-        maxSeenLts.getAndUpdate((old) -> Math.max(lts, old));
+        maxSeenLts.getAndUpdate((old) -> {
+            assert finished || lts > old : String.format("Attempting to reuse lts: %d. Max seen: %d", lts, old);
+            return Math.max(lts, old);
+        });
 
         if (!finished)
             return;
