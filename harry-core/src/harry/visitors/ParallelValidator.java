@@ -30,7 +30,7 @@ import org.slf4j.LoggerFactory;
 
 import harry.core.Run;
 
-public abstract class ParallelValidator<T extends ParallelValidator.State> implements PartitionVisitor
+public abstract class ParallelValidator<T extends ParallelValidator.State> implements Visitor
 {
     private static final Logger logger = LoggerFactory.getLogger(AllPartitionsValidator.class);
 
@@ -86,7 +86,7 @@ public abstract class ParallelValidator<T extends ParallelValidator.State> imple
         }
     }
 
-    public void visitPartition(long lts)
+    public void visit(long lts)
     {
         maxPos.updateAndGet(current -> Math.max(run.pdSelector.positionFor(lts), current));
 

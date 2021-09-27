@@ -35,7 +35,7 @@ import harry.model.OpSelectors;
 import harry.model.SelectHelper;
 import harry.model.sut.SystemUnderTest;
 
-public class Sampler implements PartitionVisitor
+public class Sampler implements Visitor
 {
     private static final Logger logger = LoggerFactory.getLogger(AllPartitionsValidator.class);
 
@@ -57,7 +57,7 @@ public class Sampler implements PartitionVisitor
         this.samplePartitions = samplePartitions;
     }
 
-    public void visitPartition(long lts)
+    public void visit(long lts)
     {
         maxPos.updateAndGet(current -> Math.max(pdSelector.positionFor(lts), current));
 
@@ -89,7 +89,7 @@ public class Sampler implements PartitionVisitor
     }
 
     @JsonTypeName("sampler")
-    public static class SamplerConfiguration implements Configuration.PartitionVisitorConfiguration
+    public static class SamplerConfiguration implements Configuration.VisitorConfiguration
     {
         public final int trigger_after;
         public final int sample_partitions;
@@ -102,7 +102,7 @@ public class Sampler implements PartitionVisitor
             this.sample_partitions = sample_partitions;
         }
 
-        public PartitionVisitor make(Run run)
+        public Visitor make(Run run)
         {
             return new Sampler(run, trigger_after, sample_partitions);
         }

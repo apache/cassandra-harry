@@ -16,38 +16,38 @@
  *  limitations under the License.
  */
 
-package harry.runner;
+package harry.visitors;
 
-import harry.core.Configuration;
+import java.util.Set;
 
-public interface DataTracker
+public class SkippingVisitor implements Visitor
 {
-    void started(long lts);
-    void finished(long lts);
+    private final Set<Long> ltsToSkip;
+    private final Set<Long> pdsToSkip;
+    private final LtsToPd ltsToPd;
+    private final Visitor delegate;
 
-    long maxStarted();
-    long maxConsecutiveFinished();
-
-    public Configuration.DataTrackerConfiguration toConfig();
-
-    interface DataTrackerFactory {
-        DataTracker make();
+    public SkippingVisitor(Visitor delegate,
+                           LtsToPd ltsToPd,
+                           Set<Long> ltsToSkip,
+                           Set<Long> pdsToSkip)
+    {
+        this.delegate = delegate;
+        this.ltsToSkip = ltsToSkip;
+        this.pdsToSkip = pdsToSkip;
+        this.ltsToPd = ltsToPd;
     }
 
-    public static DataTracker NO_OP = new NoOpDataTracker();
-
-    class NoOpDataTracker implements DataTracker
+    public void visit(long lts)
     {
-        private NoOpDataTracker() {}
+        if (ltsToSkip.contains(lts) || pdsToSkip.contains(ltsToPd.convert(lts)))
+            return;
 
-        public void started(long lts) {}
-        public void finished(long lts) {}
-        public long maxStarted() { return 0; }
-        public long maxConsecutiveFinished() { return 0; }
+        delegate.visit(lts);
+    }
 
-        public Configuration.DataTrackerConfiguration toConfig()
-        {
-            return null;
-        }
+    public static interface LtsToPd
+    {
+        public long convert(long lts);
     }
 }

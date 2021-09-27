@@ -18,35 +18,32 @@
 
 package harry.visitors;
 
+import harry.core.Run;
 import harry.ddl.SchemaSpec;
 import harry.model.OpSelectors;
 
-public abstract class AbstractPartitionVisitor implements PartitionVisitor
+public class GeneratingVisitor extends DelegatingVisitor
 {
-    protected final OpSelectors.PdSelector pdSelector;
-    protected final OpSelectors.DescriptorSelector descriptorSelector;
-    protected final SchemaSpec schema;
+    private final OpSelectors.PdSelector pdSelector;
+    private final OpSelectors.DescriptorSelector descriptorSelector;
+    private final SchemaSpec schema;
 
-    public AbstractPartitionVisitor(AbstractPartitionVisitor visitor)
+    public GeneratingVisitor(Run run,
+                             VisitExecutor delegate)
     {
-        this(visitor.pdSelector, visitor.descriptorSelector, visitor.schema);
+        super(delegate);
+        this.pdSelector = run.pdSelector;
+        this.descriptorSelector = run.descriptorSelector;
+        this.schema = run.schemaSpec;
     }
 
-    public AbstractPartitionVisitor(OpSelectors.PdSelector pdSelector,
-                                    OpSelectors.DescriptorSelector descriptorSelector,
-                                    SchemaSpec schema)
+    @Override
+    public void visit(long lts)
     {
-        this.pdSelector = pdSelector;
-        this.descriptorSelector = descriptorSelector;
-        this.schema = schema;
+        generate(lts, pdSelector.pd(lts, schema));
     }
 
-    public void visitPartition(long lts)
-    {
-        visitPartition(lts, pdSelector.pd(lts, schema));
-    }
-
-    private void visitPartition(long lts, long pd)
+    private void generate(long lts, long pd)
     {
         beforeLts(lts, pd);
 
@@ -60,36 +57,12 @@ public abstract class AbstractPartitionVisitor implements PartitionVisitor
             {
                 long opId = m * opsPerModification + i;
                 long cd = descriptorSelector.cd(pd, lts, opId, schema);
-                operation(lts, pd, cd, m, opId);
+                OpSelectors.OperationKind opType = descriptorSelector.operationType(pd, lts, opId);
+                operation(lts, pd, cd, m, opId, opType);
             }
             afterBatch(lts, pd, m);
         }
 
         afterLts(lts, pd);
-    }
-
-    protected void beforeLts(long lts, long pd)
-    {
-    }
-
-    protected void afterLts(long lts, long pd)
-    {
-    }
-
-    protected void beforeBatch(long lts, long pd, long m)
-    {
-    }
-
-    protected void operation(long lts, long pd, long cd, long m, long opId)
-    {
-
-    }
-
-    protected void afterBatch(long lts, long pd, long m)
-    {
-    }
-
-    public void shutdown() throws InterruptedException
-    {
     }
 }

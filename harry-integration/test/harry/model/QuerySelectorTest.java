@@ -31,9 +31,9 @@ import harry.ddl.SchemaGenerators;
 import harry.ddl.SchemaSpec;
 import harry.model.sut.SystemUnderTest;
 import harry.operations.CompiledStatement;
-import harry.visitors.MutatingPartitionVisitor;
+import harry.visitors.MutatingVisitor;
 import harry.visitors.MutatingRowVisitor;
-import harry.visitors.PartitionVisitor;
+import harry.visitors.Visitor;
 import harry.operations.Query;
 import harry.operations.QueryGenerator;
 
@@ -72,12 +72,12 @@ public class QuerySelectorTest extends IntegrationTestBase
             run.sut.schemaChange(run.schemaSpec.compile().cql());
             OpSelectors.MonotonicClock clock = run.clock;
 
-            PartitionVisitor partitionVisitor = new MutatingPartitionVisitor(run, MutatingRowVisitor::new);
+            Visitor visitor = new MutatingVisitor(run, MutatingRowVisitor::new);
 
             for (int i = 0; i < CYCLES; i++)
             {
                 long lts = clock.nextLts();
-                partitionVisitor.visitPartition(lts);
+                visitor.visit(lts);
             }
 
             QueryGenerator.TypedQueryGenerator querySelector = new QueryGenerator.TypedQueryGenerator(run);
@@ -146,12 +146,12 @@ public class QuerySelectorTest extends IntegrationTestBase
             Run run = config.createRun();
             run.sut.schemaChange(run.schemaSpec.compile().cql());
             OpSelectors.MonotonicClock clock = run.clock;
-            PartitionVisitor partitionVisitor = new MutatingPartitionVisitor(run, MutatingRowVisitor::new);
+            Visitor visitor = new MutatingVisitor(run, MutatingRowVisitor::new);
 
             for (int i = 0; i < CYCLES; i++)
             {
                 long lts = clock.nextLts();
-                partitionVisitor.visitPartition(lts);
+                visitor.visit(lts);
             }
 
             QueryGenerator.TypedQueryGenerator querySelector = new QueryGenerator.TypedQueryGenerator(run);

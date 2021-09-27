@@ -151,6 +151,11 @@ public class ApproximateMonotonicClock implements OpSelectors.MonotonicClock
             throw new IllegalStateException("No thread should have changed LTS during rebase. " + lts.get());
     }
 
+    public long currentLts()
+    {
+        return lts.get();
+    }
+
     public long nextLts()
     {
         long current = lts.get();

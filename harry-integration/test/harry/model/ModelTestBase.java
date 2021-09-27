@@ -28,11 +28,11 @@ import harry.core.Configuration;
 import harry.core.Run;
 import harry.ddl.SchemaGenerators;
 import harry.ddl.SchemaSpec;
-import harry.visitors.LoggingPartitionVisitor;
+import harry.visitors.LoggingVisitor;
 import harry.visitors.MutatingRowVisitor;
-import harry.visitors.PartitionVisitor;
+import harry.visitors.Visitor;
 import harry.runner.Runner;
-import harry.visitors.SinglePartitionValidator;
+import harry.visitors.SingleValidator;
 
 public abstract class ModelTestBase extends IntegrationTestBase
 {
@@ -58,7 +58,7 @@ public abstract class ModelTestBase extends IntegrationTestBase
                    .setRunTime(1, TimeUnit.MINUTES)
                    .setCreateSchema(false)
                    .setDropSchema(false)
-                   .setRunner(new Configuration.SequentialRunnerConfig(Arrays.asList(new Configuration.LoggingPartitionVisitorConfiguration(new Configuration.MutatingRowVisitorConfiguration()),
+                   .setRunner(new Configuration.SequentialRunnerConfig(Arrays.asList(new Configuration.LoggingVisitorConfiguration(new Configuration.MutatingRowVisitorConfiguration()),
                                                                                      new Configuration.RecentPartitionsValidatorConfiguration(10, 10, 1, factory::make),
                                                                                      new Configuration.AllPartitionsValidatorConfiguration(10, 10, factory::make))));
             Runner runner = builder.build().createRunner();
@@ -83,9 +83,9 @@ public abstract class ModelTestBase extends IntegrationTestBase
 
     abstract Configuration.ModelConfiguration modelConfiguration();
 
-    protected PartitionVisitor validator(Run run)
+    protected Visitor validator(Run run)
     {
-        return new SinglePartitionValidator(100, run , modelConfiguration());
+        return new SingleValidator(100, run , modelConfiguration());
     }
 
     public Configuration.ConfigurationBuilder configuration(long seed, SchemaSpec schema)
@@ -103,16 +103,16 @@ public abstract class ModelTestBase extends IntegrationTestBase
         System.out.println(run.schemaSpec.compile().cql());
         OpSelectors.MonotonicClock clock = run.clock;
 
-        PartitionVisitor validator = validator(run);
-        PartitionVisitor partitionVisitor = new LoggingPartitionVisitor(run, MutatingRowVisitor::new);
+        Visitor validator = validator(run);
+        Visitor visitor = new LoggingVisitor(run, MutatingRowVisitor::new);
 
         for (int i = 0; i < 20000; i++)
         {
             long lts = clock.nextLts();
-            partitionVisitor.visitPartition(lts);
+            visitor.visit(lts);
         }
 
-        validator.visitPartition(0);
+        validator.visit(0);
 
         if (!corrupt.apply(run))
         {
@@ -122,7 +122,7 @@ public abstract class ModelTestBase extends IntegrationTestBase
 
         try
         {
-            validator.visitPartition(0);
+            validator.visit(0);
         }
         catch (Throwable t)
         {

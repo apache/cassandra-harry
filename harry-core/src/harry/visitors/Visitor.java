@@ -20,12 +20,14 @@ package harry.visitors;
 
 import harry.core.Run;
 
-public interface PartitionVisitor
+public interface Visitor
 {
-    void visitPartition(long lts);
-    public void shutdown() throws InterruptedException;
-    public interface PartitionVisitorFactory
+    void visit(long lts);
+
+    public default void shutdown() throws InterruptedException {}
+
+    public interface VisitorFactory
     {
-        public PartitionVisitor make(Run run);
+        public Visitor make(Run run);
     }
 }

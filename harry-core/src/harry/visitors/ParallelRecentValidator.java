@@ -41,9 +41,9 @@ import harry.model.Model;
 import harry.operations.Query;
 import harry.operations.QueryGenerator;
 
-public class ParallelRecentPartitionValidator extends ParallelValidator<ParallelRecentPartitionValidator.State>
+public class ParallelRecentValidator extends ParallelValidator<ParallelRecentValidator.State>
 {
-    private static final Logger logger = LoggerFactory.getLogger(ParallelRecentPartitionValidator.class);
+    private static final Logger logger = LoggerFactory.getLogger(ParallelRecentValidator.class);
 
     private final int partitionCount;
     private final int queries;
@@ -51,9 +51,9 @@ public class ParallelRecentPartitionValidator extends ParallelValidator<Parallel
     private final Model model;
     private final BufferedWriter validationLog;
 
-    public ParallelRecentPartitionValidator(int partitionCount, int concurrency, int triggerAfter,  int queries,
-                                            Run run,
-                                            Model.ModelFactory modelFactory)
+    public ParallelRecentValidator(int partitionCount, int concurrency, int triggerAfter, int queries,
+                                   Run run,
+                                   Model.ModelFactory modelFactory)
     {
         super(concurrency, triggerAfter, run);
         this.partitionCount = partitionCount;
@@ -139,7 +139,7 @@ public class ParallelRecentPartitionValidator extends ParallelValidator<Parallel
     }
 
     @JsonTypeName("parallel_validate_recent_partitions")
-    public static class ParallelRecentPartitionValidatorConfig implements Configuration.PartitionVisitorConfiguration
+    public static class ParallelRecentValidatorConfig implements Configuration.VisitorConfiguration
     {
         public final int partition_count;
         public final int trigger_after;
@@ -149,11 +149,11 @@ public class ParallelRecentPartitionValidator extends ParallelValidator<Parallel
 
         // TODO: make query selector configurable
         @JsonCreator
-        public ParallelRecentPartitionValidatorConfig(@JsonProperty("partition_count") int partition_count,
-                                                      @JsonProperty("concurrency") int concurrency,
-                                                      @JsonProperty("trigger_after") int trigger_after,
-                                                      @JsonProperty("queries_per_partition") int queries,
-                                                      @JsonProperty("model") Configuration.ModelConfiguration model)
+        public ParallelRecentValidatorConfig(@JsonProperty("partition_count") int partition_count,
+                                             @JsonProperty("concurrency") int concurrency,
+                                             @JsonProperty("trigger_after") int trigger_after,
+                                             @JsonProperty("queries_per_partition") int queries,
+                                             @JsonProperty("model") Configuration.ModelConfiguration model)
         {
             this.partition_count = partition_count;
             this.concurrency = concurrency;
@@ -163,9 +163,9 @@ public class ParallelRecentPartitionValidator extends ParallelValidator<Parallel
         }
 
         @Override
-        public PartitionVisitor make(Run run)
+        public Visitor make(Run run)
         {
-            return new ParallelRecentPartitionValidator(partition_count, concurrency, trigger_after, queries, run, modelConfiguration);
+            return new ParallelRecentValidator(partition_count, concurrency, trigger_after, queries, run, modelConfiguration);
         }
     }
 

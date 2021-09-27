@@ -77,7 +77,7 @@ public class AddExtraRowCorruptor implements QueryResponseCorruptor
                 return false;
         }
 
-        long[] vds = descriptorSelector.vds(query.pd, cd, maxLts, 0, schema);
+        long[] vds = descriptorSelector.vds(query.pd, cd, maxLts, 0, OpSelectors.OperationKind.INSERT, schema);
 
         // We do not know if the row was deleted. We could try inferring it, but that
         // still won't help since we can't use it anyways, since collisions between a

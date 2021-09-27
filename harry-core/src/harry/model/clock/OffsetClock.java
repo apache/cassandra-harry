@@ -47,6 +47,11 @@ public class OffsetClock implements OpSelectors.MonotonicClock
         return rts - base;
     }
 
+    public long currentLts()
+    {
+        return lts.get();
+    }
+
     public long nextLts()
     {
         return lts.getAndIncrement();

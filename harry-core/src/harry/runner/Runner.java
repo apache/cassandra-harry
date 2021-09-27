@@ -39,7 +39,7 @@ import org.slf4j.LoggerFactory;
 import harry.core.Configuration;
 import harry.core.Run;
 import harry.model.OpSelectors;
-import harry.visitors.PartitionVisitor;
+import harry.visitors.Visitor;
 
 
 public abstract class Runner
@@ -140,21 +140,21 @@ public abstract class Runner
     {
         private final ScheduledExecutorService executor;
         private final ScheduledExecutorService shutdownExceutor;
-        private final List<PartitionVisitor> partitionVisitors;
+        private final List<Visitor> visitors;
         private final Configuration config;
 
         public SequentialRunner(Run run,
                                 Configuration config,
-                                List<? extends PartitionVisitor.PartitionVisitorFactory> partitionVisitorFactories)
+                                List<? extends Visitor.VisitorFactory> visitorFactories)
         {
             super(run, config);
 
             this.executor = Executors.newSingleThreadScheduledExecutor();
             this.shutdownExceutor = Executors.newSingleThreadScheduledExecutor();
             this.config = config;
-            this.partitionVisitors = new ArrayList<>();
-            for (PartitionVisitor.PartitionVisitorFactory factory : partitionVisitorFactories)
-                partitionVisitors.add(factory.make(run));
+            this.visitors = new ArrayList<>();
+            for (Visitor.VisitorFactory factory : visitorFactories)
+                visitors.add(factory.make(run));
         }
 
         public CompletableFuture<?> initAndStartAll()
@@ -173,7 +173,7 @@ public abstract class Runner
             executor.submit(reportThrowable(() -> {
                                                 try
                                                 {
-                                                    SequentialRunner.run(partitionVisitors, run.clock, future,
+                                                    SequentialRunner.run(visitors, run.clock, future,
                                                                          () -> Thread.currentThread().isInterrupted() || future.isDone() || completed.get());
                                                 }
                                                 catch (Throwable t)
@@ -186,7 +186,7 @@ public abstract class Runner
             return future;
         }
 
-        static void run(List<PartitionVisitor> visitors,
+        static void run(List<Visitor> visitors,
                         OpSelectors.MonotonicClock clock,
                         CompletableFuture<?> future,
                         BooleanSupplier exitCondition)
@@ -202,8 +202,8 @@ public abstract class Runner
                 {
                     try
                     {
-                        PartitionVisitor partitionVisitor = visitors.get(i);
-                        partitionVisitor.visitPartition(lts);
+                        Visitor visitor = visitors.get(i);
+                        visitor.visit(lts);
                     }
                     catch (Throwable t)
                     {
@@ -238,8 +238,8 @@ public abstract class Runner
     {
         private final ScheduledExecutorService executor;
         private final ScheduledExecutorService shutdownExecutor;
-        private final List<? extends PartitionVisitor.PartitionVisitorFactory> partitionVisitorFactories;
-        private final List<PartitionVisitor> allVisitors;
+        private final List<? extends Visitor.VisitorFactory> visitorFactories;
+        private final List<Visitor> allVisitors;
 
         private final int concurrency;
         private final long runTime;
@@ -248,7 +248,7 @@ public abstract class Runner
         public ConcurrentRunner(Run run,
                                 Configuration config,
                                 int concurrency,
-                                List<? extends PartitionVisitor.PartitionVisitorFactory> partitionVisitorFactories)
+                                List<? extends Visitor.VisitorFactory> visitorFactories)
         {
             super(run, config);
             this.concurrency = concurrency;
@@ -257,7 +257,7 @@ public abstract class Runner
             // TODO: configure concurrency
             this.executor = Executors.newScheduledThreadPool(concurrency);
             this.shutdownExecutor = Executors.newSingleThreadScheduledExecutor();
-            this.partitionVisitorFactories = partitionVisitorFactories;
+            this.visitorFactories = visitorFactories;
             this.allVisitors = new CopyOnWriteArrayList<>();
         }
 
@@ -276,13 +276,13 @@ public abstract class Runner
             BooleanSupplier exitCondition = () -> Thread.currentThread().isInterrupted() || future.isDone();
             for (int i = 0; i < concurrency; i++)
             {
-                List<PartitionVisitor> partitionVisitors = new ArrayList<>();
+                List<Visitor> visitors = new ArrayList<>();
                 executor.submit(reportThrowable(() -> {
-                                                    for (PartitionVisitor.PartitionVisitorFactory factory : partitionVisitorFactories)
-                                                        partitionVisitors.add(factory.make(run));
+                                                    for (Visitor.VisitorFactory factory : visitorFactories)
+                                                        visitors.add(factory.make(run));
 
-                                                    allVisitors.addAll(partitionVisitors);
-                                                    run(partitionVisitors, run.clock, exitCondition);
+                                                    allVisitors.addAll(visitors);
+                                                    run(visitors, run.clock, exitCondition);
                                                 },
                                                 future));
 
@@ -291,22 +291,22 @@ public abstract class Runner
             return future;
         }
 
-        void run(List<PartitionVisitor> visitors,
+        void run(List<Visitor> visitors,
                  OpSelectors.MonotonicClock clock,
                  BooleanSupplier exitCondition)
         {
             while (!exitCondition.getAsBoolean())
             {
                 long lts = clock.nextLts();
-                for (PartitionVisitor visitor : visitors)
-                    visitor.visitPartition(lts);
+                for (Visitor visitor : visitors)
+                    visitor.visit(lts);
             }
         }
 
         public void shutdown() throws InterruptedException
         {
             logger.info("Shutting down...");
-            for (PartitionVisitor visitor : allVisitors)
+            for (Visitor visitor : allVisitors)
                 visitor.shutdown();
 
             shutdownExecutor.shutdownNow();

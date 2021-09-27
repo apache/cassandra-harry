@@ -16,9 +16,11 @@
  *  limitations under the License.
  */
 
-package harry.visitors;
+package harry.runner;
 
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -29,35 +31,39 @@ import harry.core.Configuration;
 import harry.core.Run;
 import harry.model.sut.SystemUnderTest;
 import harry.operations.CompiledStatement;
+import harry.visitors.LoggingVisitor;
+import harry.visitors.OperationExecutor;
+import harry.visitors.Visitor;
 
-public class FaultInjectingPartitionVisitor extends LoggingPartitionVisitor
+public class FaultInjectingVisitor extends LoggingVisitor
 {
     public static void init()
     {
-        Configuration.registerSubtypes(FaultInjectingPartitionVisitorConfiguration.class);
+        Configuration.registerSubtypes(FaultInjectingVisitorConfiguration.class);
     }
 
     @JsonTypeName("fault_injecting")
-    public static class FaultInjectingPartitionVisitorConfiguration extends Configuration.MutatingPartitionVisitorConfiguation
+    public static class FaultInjectingVisitorConfiguration extends Configuration.MutatingVisitorConfiguation
     {
         @JsonCreator
-        public FaultInjectingPartitionVisitorConfiguration(@JsonProperty("row_visitor") Configuration.RowVisitorConfiguration row_visitor)
+        public FaultInjectingVisitorConfiguration(@JsonProperty("row_visitor") Configuration.RowVisitorConfiguration row_visitor)
         {
             super(row_visitor);
         }
 
         @Override
-        public PartitionVisitor make(Run run)
+        public Visitor make(Run run)
         {
-            return new FaultInjectingPartitionVisitor(run, row_visitor);
+            return new FaultInjectingVisitor(run, row_visitor);
         }
     }
 
     private final AtomicInteger cnt = new AtomicInteger();
 
     private final SystemUnderTest.FaultInjectingSut sut;
+    protected final ScheduledExecutorService executor = Executors.newScheduledThreadPool(2);
 
-    public FaultInjectingPartitionVisitor(Run run, Operation.RowVisitorFactory rowVisitorFactory)
+    public FaultInjectingVisitor(Run run, OperationExecutor.RowVisitorFactory rowVisitorFactory)
     {
         super(run, rowVisitorFactory);
         this.sut = (SystemUnderTest.FaultInjectingSut) run.sut;

@@ -19,8 +19,10 @@
 package harry.util;
 
 import java.util.function.BiConsumer;
+import java.util.function.BiFunction;
 import java.util.function.Consumer;
 import java.util.function.Function;
+import java.util.function.Supplier;
 
 import harry.generators.Generator;
 import harry.generators.RandomGenerator;
@@ -59,9 +61,46 @@ public class TestRunner
         }
     }
 
+    public static <VISIT, MODEL, SUT> void test(Generator<VISIT> visitGenerator,
+                                                Supplier<MODEL> initializeModel,
+                                                Supplier<SUT> initializeSUT,
+                                                BiFunction<MODEL, VISIT, MODEL> applyToModel,
+                                                BiFunction<SUT, VISIT, SUT> applyToSut,
+                                                ThrowingBiConsumer<MODEL, SUT> afterAll) throws Throwable
+    {
+        MODEL model = initializeModel.get();
+        SUT sut = initializeSUT.get();
+        for (int i = 0; i < CYCLES; i++)
+        {
+            VISIT v = visitGenerator.generate(rand);
+            model = applyToModel.apply(model, v);
+            sut = applyToSut.apply(sut, v);
+        }
+        afterAll.accept(model, sut);
+    }
+
+    public static <VISIT, SUT> void test(Generator<VISIT> visitGenerator,
+                                         Supplier<SUT> initializeSUT,
+                                         BiFunction<SUT, VISIT, SUT> applyToSut,
+                                         Consumer<SUT> afterAll) throws Throwable
+    {
+        SUT sut = initializeSUT.get();
+        for (int i = 0; i < CYCLES; i++)
+        {
+            VISIT v = visitGenerator.generate(rand);
+            sut = applyToSut.apply(sut, v);
+        }
+        afterAll.accept(sut);
+    }
+
     public static interface ThrowingConsumer<T>
     {
         void accept(T t) throws Throwable;
+    }
+
+    public static interface ThrowingBiConsumer<T1, T2>
+    {
+        void accept(T1 t1, T2 t2) throws Throwable;
     }
 }
 

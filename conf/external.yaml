@@ -92,7 +92,7 @@ clustering_descriptor_selector:
 # and model state.
 runner:
   sequential:
-    partition_visitors:
+    visitors:
       - logging:
           row_visitor:
             mutating: {}

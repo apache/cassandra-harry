@@ -22,17 +22,16 @@ import harry.core.Run;
 import harry.model.Model;
 import harry.operations.Query;
 import harry.operations.QueryGenerator;
-import harry.visitors.PartitionVisitor;
 
-public class SinglePartitionValidator implements PartitionVisitor
+public class SingleValidator implements Visitor
 {
     protected final int iterations;
     protected final Model model;
     protected final QueryGenerator queryGenerator;
     protected final Run run;
-    public SinglePartitionValidator(int iterations,
-                                    Run run,
-                                    Model.ModelFactory modelFactory)
+    public SingleValidator(int iterations,
+                           Run run,
+                           Model.ModelFactory modelFactory)
     {
         this.iterations = iterations;
         this.model = modelFactory.make(run);
@@ -45,7 +44,7 @@ public class SinglePartitionValidator implements PartitionVisitor
 
     }
 
-    public void visitPartition(long lts)
+    public void visit(long lts)
     {
         model.validate(queryGenerator.inflate(lts, 0, Query.QueryKind.SINGLE_PARTITION));
 

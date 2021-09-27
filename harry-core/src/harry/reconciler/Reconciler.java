@@ -26,6 +26,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.NavigableMap;
 import java.util.TreeMap;
+import java.util.function.Function;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -34,12 +35,14 @@ import harry.core.Run;
 import harry.ddl.ColumnSpec;
 import harry.ddl.SchemaSpec;
 import harry.model.OpSelectors;
-import harry.visitors.AbstractPartitionVisitor;
-import harry.visitors.PartitionVisitor;
+import harry.visitors.GeneratingVisitor;
+import harry.visitors.Visitor;
 import harry.operations.Query;
 import harry.operations.QueryGenerator;
 import harry.util.BitSet;
 import harry.util.Ranges;
+import harry.visitors.ReplayingVisitor;
+import harry.visitors.VisitExecutor;
 
 import static harry.generators.DataGenerators.NIL_DESCR;
 import static harry.generators.DataGenerators.UNSET_DESCR;
@@ -64,12 +67,22 @@ public class Reconciler
     private final QueryGenerator rangeSelector;
     private final SchemaSpec schema;
 
+    private final Function<VisitExecutor, Visitor> visitorFactory;
+
     public Reconciler(Run run)
+    {
+        this(run,
+             (processor) -> new GeneratingVisitor(run, processor));
+    }
+
+    public Reconciler(Run run,
+                      Function<VisitExecutor, Visitor> visitorFactory)
     {
         this.descriptorSelector = run.descriptorSelector;
         this.pdSelector = run.pdSelector;
         this.schema = run.schemaSpec;
         this.rangeSelector = run.rangeSelector;
+        this.visitorFactory = visitorFactory;
     }
 
     private final long debugCd = Long.getLong("harry.reconciler.debug_cd", -1L);
@@ -78,26 +91,20 @@ public class Reconciler
     {
         PartitionState partitionState = new PartitionState();
 
-        class Processor extends AbstractPartitionVisitor
+        class Processor implements VisitExecutor
         {
-            public Processor(OpSelectors.PdSelector pdSelector, OpSelectors.DescriptorSelector descriptorSelector, SchemaSpec schema)
-            {
-                super(pdSelector, descriptorSelector, schema);
-            }
-
             // Whether or not a partition deletion was encountered on this LTS.
             private boolean hadPartitionDeletion = false;
             private final List<Ranges.Range> rangeDeletes = new ArrayList<>();
-            private final List<Long> writes = new ArrayList<>();
-            private final List<Long> columnDeletes = new ArrayList<>();
+            private final List<ReplayingVisitor.Operation> writes = new ArrayList<>();
+            private final List<ReplayingVisitor.Operation> columnDeletes = new ArrayList<>();
 
             @Override
-            public void operation(long lts, long pd, long cd, long m, long opId)
+            public void operation(long lts, long pd, long cd, long m, long opId, OpSelectors.OperationKind opType)
             {
                 if (hadPartitionDeletion)
                     return;
 
-                OpSelectors.OperationKind opType = descriptorSelector.operationType(pd, lts, opId);
                 switch (opType)
                 {
                     case DELETE_RANGE:
@@ -131,11 +138,12 @@ public class Reconciler
                     case UPDATE_WITH_STATICS:
                         if (debugCd != -1 && cd == debugCd)
                             logger.info("Writing {} ({}) at {}/{}", cd, opType, lts, opId);
-                        writes.add(opId);
+                        // TODO: switch to Operation as an entity that can just be passed here
+                        writes.add(new ReplayingVisitor.Operation(cd, opId, opType));
                         break;
                     case DELETE_COLUMN_WITH_STATICS:
                     case DELETE_COLUMN:
-                        columnDeletes.add(opId);
+                        columnDeletes.add(new ReplayingVisitor.Operation(cd, opId, opType));
                         break;
                     default:
                         throw new IllegalStateException();
@@ -143,7 +151,7 @@ public class Reconciler
             }
 
             @Override
-            protected void beforeLts(long lts, long pd)
+            public void beforeLts(long lts, long pd)
             {
                 rangeDeletes.clear();
                 writes.clear();
@@ -152,25 +160,23 @@ public class Reconciler
             }
 
             @Override
-            protected void afterLts(long lts, long pd)
+            public void afterLts(long lts, long pd)
             {
                 if (hadPartitionDeletion)
                     return;
 
-                outer: for (Long opIdBoxed : writes)
+                outer: for (ReplayingVisitor.Operation op : writes)
                 {
-                    long opId = opIdBoxed;
-                    long cd = descriptorSelector.cd(pd, lts, opId, schema);
+                    long opId = op.opId;
+                    long cd = op.cd;
 
-                    OpSelectors.OperationKind opType = descriptorSelector.operationType(pd, lts, opId);
-
-                    switch (opType)
+                    switch (op.opType)
                     {
                         case INSERT_WITH_STATICS:
                         case UPDATE_WITH_STATICS:
                             // We could apply static columns during the first iteration, but it's more convenient
                             // to reconcile static-level deletions.
-                            partitionState.writeStaticRow(descriptorSelector.sds(pd, cd, lts, opId, schema),
+                            partitionState.writeStaticRow(descriptorSelector.sds(pd, cd, lts, opId, op.opType, schema),
                                                           lts);
                         case INSERT:
                         case UPDATE:
@@ -192,28 +198,26 @@ public class Reconciler
                             }
 
                             partitionState.write(cd,
-                                                 descriptorSelector.vds(pd, cd, lts, opId, schema),
+                                                 descriptorSelector.vds(pd, cd, lts, opId, op.opType, schema),
                                                  lts,
-                                                 opType == OpSelectors.OperationKind.INSERT || opType == OpSelectors.OperationKind.INSERT_WITH_STATICS);
+                                                 op.opType == OpSelectors.OperationKind.INSERT || op.opType == OpSelectors.OperationKind.INSERT_WITH_STATICS);
                             break;
                         default:
-                            throw new IllegalStateException();
+                            throw new IllegalStateException(op.opType.toString());
                     }
                 }
 
-                outer: for (Long opIdBoxed : columnDeletes)
+                outer: for (ReplayingVisitor.Operation op : columnDeletes)
                 {
-                    long opId = opIdBoxed;
-                    long cd = descriptorSelector.cd(pd, lts, opId, schema);
+                    long opId = op.opId;
+                    long cd = op.cd;
 
-                    OpSelectors.OperationKind opType = descriptorSelector.operationType(pd, lts, opId);
-
-                    switch (opType)
+                    switch (op.opType)
                     {
                         case DELETE_COLUMN_WITH_STATICS:
                             partitionState.deleteStaticColumns(lts,
                                                                schema.staticColumnsOffset,
-                                                               descriptorSelector.columnMask(pd, lts, opId),
+                                                               descriptorSelector.columnMask(pd, lts, opId, op.opType),
                                                                schema.staticColumnsMask());
                         case DELETE_COLUMN:
                             if (!query.match(cd))
@@ -236,21 +240,27 @@ public class Reconciler
                             partitionState.deleteRegularColumns(lts,
                                                                 cd,
                                                                 schema.regularColumnsOffset,
-                                                                descriptorSelector.columnMask(pd, lts, opId),
+                                                                descriptorSelector.columnMask(pd, lts, opId, op.opType),
                                                                 schema.regularColumnsMask());
                             break;
                     }
                 }
             }
+
+            @Override
+            public void afterBatch(long lts, long pd, long m) {}
+
+            @Override
+            public void beforeBatch(long lts, long pd, long m) {}
         }
 
-        PartitionVisitor partitionVisitor = new Processor(pdSelector, descriptorSelector, schema);
+        Visitor visitor = visitorFactory.apply(new Processor());
 
         long currentLts = pdSelector.minLtsFor(pd);
 
         while (currentLts <= maxLts && currentLts >= 0)
         {
-            partitionVisitor.visitPartition(currentLts);
+            visitor.visit(currentLts);
             currentLts = pdSelector.nextLts(currentLts);
         }
 
@@ -283,9 +293,9 @@ public class Reconciler
         private void write(long cd,
                            long[] vds,
                            long lts,
-                           boolean writeParimaryKeyLiveness)
+                           boolean writePrimaryKeyLiveness)
         {
-            rows.compute(cd, (cd_, current) -> updateRowState(current, schema.regularColumns, cd, vds, lts, writeParimaryKeyLiveness));
+            rows.compute(cd, (cd_, current) -> updateRowState(current, schema.regularColumns, cd, vds, lts, writePrimaryKeyLiveness));
         }
 
         private void delete(Ranges.Range range,

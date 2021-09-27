@@ -28,9 +28,9 @@ import java.util.function.Predicate;
 
 import harry.core.Configuration;
 import harry.core.Run;
-import harry.visitors.AbstractPartitionVisitor;
-import harry.visitors.PartitionVisitor;
-import harry.visitors.SkippingPartitionVisitor;
+import harry.visitors.DelegatingVisitor;
+import harry.visitors.Visitor;
+import harry.visitors.SkippingVisitor;
 
 /**
  * A most trivial imaginable shrinker: attempts to skip partitions and/or logical timestamps to see if the
@@ -62,15 +62,16 @@ public class TrivialShrinker
 
             Run run = configuration.createRun();
             Configuration.SequentialRunnerConfig config = (Configuration.SequentialRunnerConfig) configuration.runner;
-            List<PartitionVisitor> visitors = new ArrayList<>();
-            for (Configuration.PartitionVisitorConfiguration factory : config.partition_visitor_factories)
+            List<Visitor> visitors = new ArrayList<>();
+            for (Configuration.VisitorConfiguration factory : config.visitor_factories)
             {
-                PartitionVisitor visitor = factory.make(run);
-                if (visitor instanceof AbstractPartitionVisitor)
+                Visitor visitor = factory.make(run);
+                if (visitor instanceof DelegatingVisitor)
                 {
-                    visitors.add(new SkippingPartitionVisitor((AbstractPartitionVisitor) visitor,
-                                                              ltsToSkip,
-                                                              pdsToSkip));
+                    visitors.add(new SkippingVisitor(visitor,
+                                                     (lts) -> run.pdSelector.pd(lts, run.schemaSpec),
+                                                     ltsToSkip,
+                                                     pdsToSkip));
                 }
                 else
                 {
@@ -159,13 +160,13 @@ public class TrivialShrinker
         }
     }
 
-    public static void runOnce(Run run, List<PartitionVisitor> visitors, long maxLts)
+    public static void runOnce(Run run, List<Visitor> visitors, long maxLts)
     {
         for (long lts = 0; lts <= maxLts; lts++)
         {
-            for (PartitionVisitor visitor : visitors)
+            for (Visitor visitor : visitors)
             {
-                visitor.visitPartition(lts);
+                visitor.visit(lts);
             }
         }
     }

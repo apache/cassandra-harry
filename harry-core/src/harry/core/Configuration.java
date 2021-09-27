@@ -47,16 +47,16 @@ import harry.model.clock.OffsetClock;
 import harry.model.sut.PrintlnSut;
 import harry.model.sut.SystemUnderTest;
 import harry.visitors.AllPartitionsValidator;
-import harry.visitors.CorruptingPartitionVisitor;
+import harry.visitors.CorruptingVisitor;
 import harry.runner.DataTracker;
 import harry.runner.DefaultDataTracker;
-import harry.visitors.LoggingPartitionVisitor;
-import harry.visitors.MutatingPartitionVisitor;
+import harry.visitors.LoggingVisitor;
+import harry.visitors.MutatingVisitor;
 import harry.visitors.MutatingRowVisitor;
-import harry.visitors.Operation;
-import harry.visitors.ParallelRecentPartitionValidator;
-import harry.visitors.PartitionVisitor;
-import harry.visitors.RecentPartitionValidator;
+import harry.visitors.OperationExecutor;
+import harry.visitors.ParallelRecentValidator;
+import harry.visitors.Visitor;
+import harry.visitors.RecentValidator;
 import harry.runner.Runner;
 import harry.visitors.Sampler;
 import harry.util.BitSet;
@@ -87,12 +87,12 @@ public class Configuration
         mapper.registerSubtypes(DefaultSchemaProviderConfiguration.class);
         mapper.registerSubtypes(MutatingRowVisitorConfiguration.class);
 
-        mapper.registerSubtypes(MutatingPartitionVisitorConfiguation.class);
-        mapper.registerSubtypes(LoggingPartitionVisitorConfiguration.class);
+        mapper.registerSubtypes(MutatingVisitorConfiguation.class);
+        mapper.registerSubtypes(LoggingVisitorConfiguration.class);
         mapper.registerSubtypes(AllPartitionsValidatorConfiguration.class);
-        mapper.registerSubtypes(ParallelRecentPartitionValidator.ParallelRecentPartitionValidatorConfig.class);
+        mapper.registerSubtypes(ParallelRecentValidator.ParallelRecentValidatorConfig.class);
         mapper.registerSubtypes(Sampler.SamplerConfiguration.class);
-        mapper.registerSubtypes(CorruptingPartitionVisitorConfiguration.class);
+        mapper.registerSubtypes(CorruptingVisitorConfiguration.class);
         mapper.registerSubtypes(RecentPartitionsValidatorConfiguration.class);
         mapper.registerSubtypes(FixedSchemaProviderConfiguration.class);
         mapper.registerSubtypes(AlwaysSamePartitionSelector.AlwaysSamePartitionSelectorConfiguration.class);
@@ -562,38 +562,38 @@ public class Configuration
     public static class ConcurrentRunnerConfig implements RunnerConfiguration
     {
         public final int concurrency;
-        public final List<PartitionVisitorConfiguration> partition_visitor_factories;
+        public final List<VisitorConfiguration> visitor_factories;
 
         @JsonCreator
         public ConcurrentRunnerConfig(@JsonProperty(value = "concurrency", defaultValue = "2") int concurrency,
-                                      @JsonProperty(value = "partition_visitors") List<PartitionVisitorConfiguration> partitionVisitors)
+                                      @JsonProperty(value = "visitors") List<VisitorConfiguration> visitors)
         {
             this.concurrency = concurrency;
-            this.partition_visitor_factories = partitionVisitors;
+            this.visitor_factories = visitors;
         }
 
         @Override
         public Runner make(Run run, Configuration config)
         {
-            return new Runner.ConcurrentRunner(run, config, concurrency, partition_visitor_factories);
+            return new Runner.ConcurrentRunner(run, config, concurrency, visitor_factories);
         }
     }
 
     @JsonTypeName("sequential")
     public static class SequentialRunnerConfig implements RunnerConfiguration
     {
-        public final List<PartitionVisitorConfiguration> partition_visitor_factories;
+        public final List<VisitorConfiguration> visitor_factories;
 
         @JsonCreator
-        public SequentialRunnerConfig(@JsonProperty(value = "partition_visitors") List<PartitionVisitorConfiguration> partitionVisitors)
+        public SequentialRunnerConfig(@JsonProperty(value = "visitors") List<VisitorConfiguration> visitors)
         {
-            this.partition_visitor_factories = partitionVisitors;
+            this.visitor_factories = visitors;
         }
 
         @Override
         public Runner make(Run run, Configuration config)
         {
-            return new Runner.SequentialRunner(run, config, partition_visitor_factories);
+            return new Runner.SequentialRunner(run, config, visitor_factories);
         }
     }
 
@@ -923,49 +923,49 @@ public class Configuration
 
 
     @JsonTypeInfo(use = JsonTypeInfo.Id.NAME, include = JsonTypeInfo.As.WRAPPER_OBJECT)
-    public interface PartitionVisitorConfiguration extends PartitionVisitor.PartitionVisitorFactory
+    public interface VisitorConfiguration extends Visitor.VisitorFactory
     {
     }
 
 
     @JsonTypeName("mutating")
-    public static class MutatingPartitionVisitorConfiguation implements PartitionVisitorConfiguration
+    public static class MutatingVisitorConfiguation implements VisitorConfiguration
     {
         public final RowVisitorConfiguration row_visitor;
 
         @JsonCreator
-        public MutatingPartitionVisitorConfiguation(@JsonProperty("row_visitor") RowVisitorConfiguration row_visitor)
+        public MutatingVisitorConfiguation(@JsonProperty("row_visitor") RowVisitorConfiguration row_visitor)
         {
             this.row_visitor = row_visitor;
         }
 
         @Override
-        public PartitionVisitor make(Run run)
+        public Visitor make(Run run)
         {
-            return new MutatingPartitionVisitor(run, row_visitor);
+            return new MutatingVisitor(run, row_visitor);
         }
     }
 
     @JsonTypeName("logging")
-    public static class LoggingPartitionVisitorConfiguration implements PartitionVisitorConfiguration
+    public static class LoggingVisitorConfiguration implements VisitorConfiguration
     {
         protected final RowVisitorConfiguration row_visitor;
 
         @JsonCreator
-        public LoggingPartitionVisitorConfiguration(@JsonProperty("row_visitor") RowVisitorConfiguration row_visitor)
+        public LoggingVisitorConfiguration(@JsonProperty("row_visitor") RowVisitorConfiguration row_visitor)
         {
             this.row_visitor = row_visitor;
         }
 
         @Override
-        public PartitionVisitor make(Run run)
+        public Visitor make(Run run)
         {
-            return new LoggingPartitionVisitor(run, row_visitor);
+            return new LoggingVisitor(run, row_visitor);
         }
     }
 
     @JsonTypeName("validate_all_partitions")
-    public static class AllPartitionsValidatorConfiguration implements Configuration.PartitionVisitorConfiguration
+    public static class AllPartitionsValidatorConfiguration implements VisitorConfiguration
     {
         public final int concurrency;
         public final int trigger_after;
@@ -981,31 +981,31 @@ public class Configuration
             this.modelConfiguration = model;
         }
 
-        public PartitionVisitor make(Run run)
+        public Visitor make(Run run)
         {
             return new AllPartitionsValidator(concurrency, trigger_after, run, modelConfiguration);
         }
     }
 
     @JsonTypeName("corrupt")
-    public static class CorruptingPartitionVisitorConfiguration implements Configuration.PartitionVisitorConfiguration
+    public static class CorruptingVisitorConfiguration implements VisitorConfiguration
     {
         public final int trigger_after;
 
         @JsonCreator
-        public CorruptingPartitionVisitorConfiguration(@JsonProperty("trigger_after") int trigger_after)
+        public CorruptingVisitorConfiguration(@JsonProperty("trigger_after") int trigger_after)
         {
             this.trigger_after = trigger_after;
         }
 
-        public PartitionVisitor make(Run run)
+        public Visitor make(Run run)
         {
-            return new CorruptingPartitionVisitor(trigger_after, run);
+            return new CorruptingVisitor(trigger_after, run);
         }
     }
 
     @JsonTypeName("validate_recent_partitions")
-    public static class RecentPartitionsValidatorConfiguration implements Configuration.PartitionVisitorConfiguration
+    public static class RecentPartitionsValidatorConfiguration implements VisitorConfiguration
     {
         public final int partition_count;
         public final int trigger_after;
@@ -1026,14 +1026,14 @@ public class Configuration
         }
 
         @Override
-        public PartitionVisitor make(Run run)
+        public Visitor make(Run run)
         {
-            return new RecentPartitionValidator(partition_count, queries, trigger_after, run, modelConfiguration);
+            return new RecentValidator(partition_count, queries, trigger_after, run, modelConfiguration);
         }
     }
 
     @JsonTypeInfo(use = JsonTypeInfo.Id.NAME, include = JsonTypeInfo.As.WRAPPER_OBJECT)
-    public interface RowVisitorConfiguration extends Operation.RowVisitorFactory
+    public interface RowVisitorConfiguration extends OperationExecutor.RowVisitorFactory
     {
     }
 
@@ -1041,7 +1041,7 @@ public class Configuration
     public static class MutatingRowVisitorConfiguration implements RowVisitorConfiguration
     {
         @Override
-        public Operation make(Run run)
+        public OperationExecutor make(Run run)
         {
             return new MutatingRowVisitor(run);
         }

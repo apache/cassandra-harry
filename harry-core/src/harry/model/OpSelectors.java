@@ -82,6 +82,8 @@ public interface OpSelectors
 
         long lts(long rts);
 
+        long currentLts();
+
         long nextLts();
 
         long maxLts();
@@ -122,6 +124,7 @@ public interface OpSelectors
 
         public abstract long minLtsFor(long pd);
 
+        // TODO: right now, we can only calculate a position for 64-bit (in other words, full entropy) pds
         public abstract long positionFor(long lts);
     }
 
@@ -177,21 +180,22 @@ public interface OpSelectors
         @VisibleForTesting
         protected abstract long vd(long pd, long cd, long lts, long opId, int col);
 
-        public long[] vds(long pd, long cd, long lts, long opId, SchemaSpec schema)
+        public long[] vds(long pd, long cd, long lts, long opId, OperationKind opType, SchemaSpec schema)
         {
-            BitSet setColumns = columnMask(pd, lts, opId);
+            BitSet setColumns = columnMask(pd, lts, opId, opType);
             return descriptors(pd, cd, lts, opId, schema.regularColumns, schema.regularColumnsMask(), setColumns, schema.regularColumnsOffset);
         }
 
-        public long[] sds(long pd, long cd, long lts, long opId, SchemaSpec schema)
+        public long[] sds(long pd, long cd, long lts, long opId, OperationKind opType, SchemaSpec schema)
         {
-            BitSet setColumns = columnMask(pd, lts, opId);
+            BitSet setColumns = columnMask(pd, lts, opId, opType);
             return descriptors(pd, cd, lts, opId, schema.staticColumns, schema.staticColumnsMask(), setColumns, schema.staticColumnsOffset);
         }
 
         private long[] descriptors(long pd, long cd, long lts, long opId, List<ColumnSpec<?>> columns, BitSet mask, BitSet setColumns, int offset)
         {
-            assert opId < opsPerModification(lts) * numberOfModifications(lts) : String.format("Operation id %d exceeds the maximum expected number of operations %d", opId, opsPerModification(lts) * numberOfModifications(lts));
+            assert opId < opsPerModification(lts) * numberOfModifications(lts) : String.format("Operation id %d exceeds the maximum expected number of operations %d (%d * %d)",
+                                                                                               opId, opsPerModification(lts) * numberOfModifications(lts), opsPerModification(lts), numberOfModifications(lts));
             long[] descriptors = new long[columns.size()];
 
             for (int i = 0; i < descriptors.length; i++)
@@ -216,7 +220,7 @@ public interface OpSelectors
 
         public abstract OperationKind operationType(long pd, long lts, long opId);
 
-        public abstract BitSet columnMask(long pd, long lts, long opId);
+        public abstract BitSet columnMask(long pd, long lts, long opId, OperationKind opType);
 
         // TODO: why is this one unused?
         public abstract long rowId(long pd, long lts, long cd);
@@ -671,8 +675,7 @@ public interface OpSelectors
 
         public OperationKind operationType(long pd, long lts, long opId)
         {
-            OperationKind kind = operationType(pd, lts, opId, partitionLevelOperationsMask(pd, lts));
-            return kind;
+            return operationType(pd, lts, opId, partitionLevelOperationsMask(pd, lts));
         }
 
         // TODO: create this bitset once per lts
@@ -687,16 +690,16 @@ public interface OpSelectors
             return BitSet.create(partitionLevelOpsMask, totalOps);
         }
 
-        public OperationKind operationType(long pd, long lts, long opId, BitSet partitionLevelOperationsMask)
+        private OperationKind operationType(long pd, long lts, long opId, BitSet partitionLevelOperationsMask)
         {
             long descriptor = rng.randomNumber(pd ^ lts ^ opId, BITSET_IDX_STREAM);
             return operationSelector.inflate(descriptor, partitionLevelOperationsMask.isSet((int) opId));
         }
 
-        public BitSet columnMask(long pd, long lts, long opId)
+        public BitSet columnMask(long pd, long lts, long opId, OperationKind opType)
         {
             long descriptor = rng.randomNumber(pd ^ lts ^ opId, BITSET_IDX_STREAM);
-            return columnSelector.columnMask(operationType(pd, lts, opId), descriptor);
+            return columnSelector.columnMask(opType, descriptor);
         }
 
         public long vd(long pd, long cd, long lts, long opId, int col)

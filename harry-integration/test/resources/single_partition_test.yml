@@ -49,7 +49,7 @@ data_tracker:
 
 runner:
   sequential:
-    partition_visitors: []
+    visitors: []
 
 metric_reporter:
   no_op: {}

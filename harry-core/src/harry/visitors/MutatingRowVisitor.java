@@ -30,7 +30,7 @@ import harry.operations.Query;
 import harry.operations.QueryGenerator;
 import harry.util.BitSet;
 
-public class MutatingRowVisitor implements Operation
+public class MutatingRowVisitor implements OperationExecutor
 {
     protected final SchemaSpec schema;
     protected final OpSelectors.MonotonicClock clock;
@@ -64,37 +64,37 @@ public class MutatingRowVisitor implements Operation
     public CompiledStatement insert(long lts, long pd, long cd, long opId)
     {
         metricReporter.insert();
-        long[] vds = descriptorSelector.vds(pd, cd, lts, opId, schema);
+        long[] vds = descriptorSelector.vds(pd, cd, lts, opId, OpSelectors.OperationKind.INSERT, schema);
         return WriteHelper.inflateInsert(schema, pd, cd, vds, null, clock.rts(lts));
     }
 
     public CompiledStatement insertWithStatics(long lts, long pd, long cd, long opId)
     {
         metricReporter.insert();
-        long[] vds = descriptorSelector.vds(pd, cd, lts, opId, schema);
-        long[] sds = descriptorSelector.sds(pd, cd, lts, opId, schema);
+        long[] vds = descriptorSelector.vds(pd, cd, lts, opId, OpSelectors.OperationKind.INSERT_WITH_STATICS, schema);
+        long[] sds = descriptorSelector.sds(pd, cd, lts, opId, OpSelectors.OperationKind.INSERT_WITH_STATICS, schema);
         return WriteHelper.inflateInsert(schema, pd, cd, vds, sds, clock.rts(lts));
     }
 
     public CompiledStatement update(long lts, long pd, long cd, long opId)
     {
         metricReporter.insert();
-        long[] vds = descriptorSelector.vds(pd, cd, lts, opId, schema);
+        long[] vds = descriptorSelector.vds(pd, cd, lts, opId, OpSelectors.OperationKind.UPDATE, schema);
         return WriteHelper.inflateUpdate(schema, pd, cd, vds, null, clock.rts(lts));
     }
 
     public CompiledStatement updateWithStatics(long lts, long pd, long cd, long opId)
     {
         metricReporter.insert();
-        long[] vds = descriptorSelector.vds(pd, cd, lts, opId, schema);
-        long[] sds = descriptorSelector.sds(pd, cd, lts, opId, schema);
+        long[] vds = descriptorSelector.vds(pd, cd, lts, opId, OpSelectors.OperationKind.UPDATE_WITH_STATICS, schema);
+        long[] sds = descriptorSelector.sds(pd, cd, lts, opId, OpSelectors.OperationKind.UPDATE_WITH_STATICS, schema);
         return WriteHelper.inflateUpdate(schema, pd, cd, vds, sds, clock.rts(lts));
     }
 
     public CompiledStatement deleteColumn(long lts, long pd, long cd, long opId)
     {
         metricReporter.columnDelete();
-        BitSet columns = descriptorSelector.columnMask(pd, lts, opId);
+        BitSet columns = descriptorSelector.columnMask(pd, lts, opId, OpSelectors.OperationKind.DELETE_COLUMN);
         BitSet mask = schema.regularColumnsMask();
         return DeleteHelper.deleteColumn(schema, pd, cd, columns, mask, clock.rts(lts));
     }
@@ -102,7 +102,7 @@ public class MutatingRowVisitor implements Operation
     public CompiledStatement deleteColumnWithStatics(long lts, long pd, long cd, long opId)
     {
         metricReporter.columnDelete();
-        BitSet columns = descriptorSelector.columnMask(pd, lts, opId);
+        BitSet columns = descriptorSelector.columnMask(pd, lts, opId, OpSelectors.OperationKind.DELETE_COLUMN_WITH_STATICS);
         BitSet mask = schema.regularAndStaticColumnsMask();
         return DeleteHelper.deleteColumn(schema, pd, cd, columns, mask, clock.rts(lts));
     }
