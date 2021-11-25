@@ -77,7 +77,7 @@ public class HideValueCorruptor implements RowCorruptor
                                                  row.pd,
                                                  mask,
                                                  schema.regularAndStaticColumnsMask(),
-                                                 clock.rts(clock.maxLts()) + 1);
+                                                 clock.rts(clock.peek()));
             }
         }
 
@@ -96,6 +96,6 @@ public class HideValueCorruptor implements RowCorruptor
                                          row.cd,
                                          mask,
                                          schema.regularAndStaticColumnsMask(),
-                                         clock.rts(clock.maxLts()) + 1);
+                                         clock.rts(clock.peek()));
     }
 }

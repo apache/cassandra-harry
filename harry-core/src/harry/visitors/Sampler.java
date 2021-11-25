@@ -43,6 +43,7 @@ public class Sampler implements Visitor
     // TODO: move maxPos to data tracker since we seem to use quite a lot?
     private final AtomicLong maxPos = new AtomicLong(-1);
     private final OpSelectors.PdSelector pdSelector;
+    private final OpSelectors.MonotonicClock clock;
     private final SchemaSpec schema;
     private final int triggerAfter;
     private final int samplePartitions;
@@ -52,16 +53,18 @@ public class Sampler implements Visitor
     {
         this.sut = run.sut;
         this.pdSelector = run.pdSelector;
+        this.clock = run.clock;
         this.schema = run.schemaSpec;
         this.triggerAfter = triggerAfter;
         this.samplePartitions = samplePartitions;
     }
 
-    public void visit(long lts)
+    public void visit()
     {
+        long lts = clock.peek();
         maxPos.updateAndGet(current -> Math.max(pdSelector.positionFor(lts), current));
 
-        if (triggerAfter > 0 && lts % triggerAfter == 0)
+        if (triggerAfter == 0 || triggerAfter > 0 && lts % triggerAfter == 0)
         {
             long max = maxPos.get();
             DescriptiveStatistics ds = new DescriptiveStatistics();
@@ -82,10 +85,6 @@ public class Sampler implements Visitor
             logger.info("Visited {} partitions (sampled {} empty out of {}), with mean size of {}. Median: {}. Min: {}. Max: {}",
                         max, empty, samplePartitions, ds.getMean(), ds.getPercentile(0.5), ds.getMin(), ds.getMax());
         }
-    }
-
-    public void shutdown() throws InterruptedException
-    {
     }
 
     @JsonTypeName("sampler")

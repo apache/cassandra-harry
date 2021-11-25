@@ -41,7 +41,7 @@ public class QuiescentChecker implements Model
     protected final DataTracker tracker;
     protected final SystemUnderTest sut;
     protected final Reconciler reconciler;
-    protected final SchemaSpec schemaSpec;
+    protected final SchemaSpec schema;
 
     public QuiescentChecker(Run run)
     {
@@ -54,7 +54,7 @@ public class QuiescentChecker implements Model
         this.sut = run.sut;
         this.reconciler = reconciler;
         this.tracker = run.tracker;
-        this.schemaSpec = run.schemaSpec;
+        this.schema = run.schemaSpec;
     }
 
     public void validate(Query query)
@@ -84,8 +84,8 @@ public class QuiescentChecker implements Model
         {
             ResultSetRow actualRowState = actual.next();
             if (actualRowState.cd != partitionState.staticRow().cd)
-                throw new ValidationException(partitionState.toString(schemaSpec),
-                                              toString(actualRows, schemaSpec),
+                throw new ValidationException(partitionState.toString(schema),
+                                              toString(actualRows, schema),
                                               "Found a row while model predicts statics only:" +
                                               "\nExpected: %s" +
                                               "\nActual: %s" +
@@ -96,8 +96,8 @@ public class QuiescentChecker implements Model
             for (int i = 0; i < actualRowState.vds.length; i++)
             {
                 if (actualRowState.vds[i] != NIL_DESCR || actualRowState.lts[i] != NO_TIMESTAMP)
-                    throw new ValidationException(partitionState.toString(schemaSpec),
-                                                  toString(actualRows, schemaSpec),
+                    throw new ValidationException(partitionState.toString(schema),
+                                                  toString(actualRows, schema),
                                                   "Found a row while model predicts statics only:" +
                                                   "\nActual: %s" +
                                                   "\nQuery: %s" +
@@ -105,7 +105,7 @@ public class QuiescentChecker implements Model
                                                   actualRowState, query.toSelectStatement());
             }
 
-            assertStaticRow(partitionState, actualRows, partitionState.staticRow(), actualRowState, query, schemaSpec);
+            assertStaticRow(partitionState, actualRows, partitionState.staticRow(), actualRowState, query, schema);
         }
 
         while (actual.hasNext() && expected.hasNext())
@@ -114,45 +114,45 @@ public class QuiescentChecker implements Model
             Reconciler.RowState expectedRowState = expected.next();
             // TODO: this is not necessarily true. It can also be that ordering is incorrect.
             if (actualRowState.cd != expectedRowState.cd)
-                throw new ValidationException(partitionState.toString(schemaSpec),
-                                              toString(actualRows, schemaSpec),
+                throw new ValidationException(partitionState.toString(schema),
+                                              toString(actualRows, schema),
                                               "Found a row in the model that is not present in the resultset:" +
                                               "\nExpected: %s" +
                                               "\nActual: %s" +
                                               "\nQuery: %s",
-                                              expectedRowState.toString(schemaSpec),
+                                              expectedRowState.toString(schema),
                                               actualRowState, query.toSelectStatement());
 
             if (!Arrays.equals(actualRowState.vds, expectedRowState.vds))
-                throw new ValidationException(partitionState.toString(schemaSpec),
-                                              toString(actualRows, schemaSpec),
+                throw new ValidationException(partitionState.toString(schema),
+                                              toString(actualRows, schema),
                                               "Returned row state doesn't match the one predicted by the model:" +
                                               "\nExpected: %s (%s)" +
                                               "\nActual:   %s (%s)." +
                                               "\nQuery: %s",
-                                              Arrays.toString(expectedRowState.vds), expectedRowState.toString(schemaSpec),
+                                              Arrays.toString(expectedRowState.vds), expectedRowState.toString(schema),
                                               Arrays.toString(actualRowState.vds), actualRowState,
                                               query.toSelectStatement());
 
             if (!Arrays.equals(actualRowState.lts, expectedRowState.lts))
-                throw new ValidationException(partitionState.toString(schemaSpec),
-                                              toString(actualRows, schemaSpec),
+                throw new ValidationException(partitionState.toString(schema),
+                                              toString(actualRows, schema),
                                               "Timestamps in the row state don't match ones predicted by the model:" +
                                               "\nExpected: %s (%s)" +
                                               "\nActual:   %s (%s)." +
                                               "\nQuery: %s",
-                                              Arrays.toString(expectedRowState.lts), expectedRowState.toString(schemaSpec),
+                                              Arrays.toString(expectedRowState.lts), expectedRowState.toString(schema),
                                               Arrays.toString(actualRowState.lts), actualRowState,
                                               query.toSelectStatement());
 
             if (partitionState.staticRow() != null || actualRowState.sds != null || actualRowState.slts != null)
-                assertStaticRow(partitionState, actualRows, partitionState.staticRow(), actualRowState, query, schemaSpec);
+                assertStaticRow(partitionState, actualRows, partitionState.staticRow(), actualRowState, query, schema);
         }
 
         if (actual.hasNext() || expected.hasNext())
         {
-            throw new ValidationException(partitionState.toString(schemaSpec),
-                                          toString(actualRows, schemaSpec),
+            throw new ValidationException(partitionState.toString(schema),
+                                          toString(actualRows, schema),
                                           "Expected results to have the same number of results, but %s result iterator has more results." +
                                           "\nExpected: %s" +
                                           "\nActual:   %s" +

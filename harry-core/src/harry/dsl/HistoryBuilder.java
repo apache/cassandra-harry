@@ -31,8 +31,11 @@ import java.util.TreeSet;
 import java.util.function.Consumer;
 import java.util.function.LongSupplier;
 
+import harry.core.Configuration;
 import harry.core.Run;
 import harry.model.OpSelectors;
+import harry.visitors.MutatingRowVisitor;
+import harry.visitors.MutatingVisitor;
 import harry.visitors.ReplayingVisitor;
 import harry.visitors.VisitExecutor;
 
@@ -598,9 +601,19 @@ public class HistoryBuilder implements Iterable<ReplayingVisitor.Visit>
         return new ReplayingVisitor.Operation(cd, opId, opType);
     }
 
+    public void replayAll(Run run)
+    {
+        visitor(run).replayAll();
+    }
+
+    public ReplayingVisitor visitor(Run run)
+    {
+        return visitor(new MutatingVisitor.MutatingVisitExecutor(run, new MutatingRowVisitor(run)));
+    }
+
     public ReplayingVisitor visitor(VisitExecutor executor)
     {
-        return new ReplayingVisitor(executor)
+        return new ReplayingVisitor(executor, run.clock::nextLts)
         {
             public Visit getVisit(long lts)
             {
@@ -608,16 +621,15 @@ public class HistoryBuilder implements Iterable<ReplayingVisitor.Visit>
                 return log.get((int) lts);
             }
 
-            public void replayAll(Run run)
+            public void replayAll()
             {
                 long maxLts = HistoryBuilder.this.lts;
+
                 while (true)
                 {
-                    long lts = run.clock.currentLts();
-                    if (lts >= maxLts)
+                    if (run.clock.peek() >= maxLts)
                         return;
-                    visit(lts);
-                    run.clock.nextLts();
+                    visit();
                 }
             }
         };

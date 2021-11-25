@@ -43,7 +43,6 @@ public class Run
                OpSelectors.MonotonicClock clock,
                OpSelectors.PdSelector pdSelector,
                OpSelectors.DescriptorSelector descriptorSelector,
-
                SchemaSpec schemaSpec,
                DataTracker tracker,
                SystemUnderTest sut,
@@ -59,7 +58,6 @@ public class Run
                 OpSelectors.PdSelector pdSelector,
                 OpSelectors.DescriptorSelector descriptorSelector,
                 QueryGenerator rangeSelector,
-
                 SchemaSpec schemaSpec,
                 DataTracker tracker,
                 SystemUnderTest sut,

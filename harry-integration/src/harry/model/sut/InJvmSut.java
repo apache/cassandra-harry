@@ -20,27 +20,19 @@ package harry.model.sut;
 
 import java.io.File;
 import java.io.IOException;
-import java.nio.ByteBuffer;
 import java.util.Arrays;
 import java.util.function.Consumer;
 import java.util.stream.Collectors;
-
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.annotation.JsonTypeName;
 import harry.core.Configuration;
-import org.apache.cassandra.db.Keyspace;
-import org.apache.cassandra.db.marshal.ByteBufferAccessor;
-import org.apache.cassandra.db.marshal.CompositeType;
 import org.apache.cassandra.distributed.Cluster;
 import org.apache.cassandra.distributed.api.IInstanceConfig;
 import org.apache.cassandra.distributed.api.IInvokableInstance;
 import org.apache.cassandra.locator.EndpointsForToken;
 import org.apache.cassandra.service.StorageService;
-import org.apache.cassandra.utils.ByteBufferUtil;
 
 public class InJvmSut extends InJvmSutBase<IInvokableInstance, Cluster>
 {
@@ -48,8 +40,6 @@ public class InJvmSut extends InJvmSutBase<IInvokableInstance, Cluster>
     {
         Configuration.registerSubtypes(InJvmSutConfiguration.class);
     }
-
-    private static final Logger logger = LoggerFactory.getLogger(InJvmSut.class);
 
     public InJvmSut(Cluster cluster)
     {
@@ -97,7 +87,7 @@ public class InJvmSut extends InJvmSutBase<IInvokableInstance, Cluster>
     {
         return cluster.get(1).appliesOnInstance((Object[] pk, String ks) ->
                                                 {
-                                                    String pkString = Arrays.asList(pk).stream().map(Object::toString).collect(Collectors.joining(":"));
+                                                    String pkString = Arrays.stream(pk).map(Object::toString).collect(Collectors.joining(":"));
                                                     EndpointsForToken endpoints = StorageService.instance.getNaturalReplicasForToken(ks, table, pkString);
                                                     int[] nodes = new int[endpoints.size()];
                                                     for (int i = 0; i < endpoints.size(); i++)

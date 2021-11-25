@@ -20,17 +20,17 @@ package harry.visitors;
 
 import harry.model.OpSelectors;
 
-public interface VisitExecutor
+public abstract class VisitExecutor
 {
-    public void beforeLts(long lts, long pd);
+    protected abstract void beforeLts(long lts, long pd);
 
-    public void afterLts(long lts, long pd);
+    protected abstract void afterLts(long lts, long pd);
 
-    public void beforeBatch(long lts, long pd, long m);
+    protected abstract void beforeBatch(long lts, long pd, long m);
 
-    public void operation(long lts, long pd, long cd, long m, long opId, OpSelectors.OperationKind kind);
+    protected abstract void operation(long lts, long pd, long cd, long m, long opId, OpSelectors.OperationKind kind);
 
-    public void afterBatch(long lts, long pd, long m);
+    protected abstract void afterBatch(long lts, long pd, long m);
 
-    public default void shutdown() throws InterruptedException {}
+    public abstract void shutdown() throws InterruptedException;
 }

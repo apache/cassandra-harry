@@ -264,6 +264,21 @@ public class ColumnSpec<T>
         }
     };
 
+    public static final DataType<String> textType = new DataType<String>("text")
+    {
+        private final Bijections.Bijection<String> gen = new StringBijection();
+
+        public Bijections.Bijection<String> generator()
+        {
+            return gen;
+        }
+
+        public int compareLexicographically(long l, long r)
+        {
+            return Long.compare(l, r);
+        }
+    };
+
     public static DataType<String> asciiType(int nibbleSize, int maxRandomBytes)
     {
         Bijections.Bijection<String> gen = new StringBijection(nibbleSize, maxRandomBytes);
@@ -325,6 +340,7 @@ public class ColumnSpec<T>
     ColumnSpec.floatType,
     ColumnSpec.doubleType,
     ColumnSpec.asciiType,
+    ColumnSpec.textType,
     ColumnSpec.uuidType,
     ColumnSpec.timestampType));
 

@@ -18,30 +18,62 @@
 
 package harry.runner;
 
+import java.util.ArrayList;
+import java.util.List;
+import java.util.function.LongConsumer;
+
 import harry.core.Configuration;
 
-public interface DataTracker
+public abstract class DataTracker
 {
-    void started(long lts);
-    void finished(long lts);
+    protected List<LongConsumer> onStarted = new ArrayList<>();
+    protected List<LongConsumer> onFinished = new ArrayList<>();
 
-    long maxStarted();
-    long maxConsecutiveFinished();
+    public void onLtsStarted(LongConsumer onLts)
+    {
+        this.onStarted.add(onLts);
+    }
 
-    public Configuration.DataTrackerConfiguration toConfig();
+    public void onLtsFinished(LongConsumer onLts)
+    {
+        this.onFinished.add(onLts);
+    }
 
-    interface DataTrackerFactory {
+    public void started(long lts)
+    {
+        startedInternal(lts);
+        for (LongConsumer consumer : onStarted)
+            consumer.accept(lts);
+    }
+
+    public void finished(long lts)
+    {
+        finishedInternal(lts);
+        for (LongConsumer consumer : onFinished)
+            consumer.accept(lts);
+    }
+
+    abstract void startedInternal(long lts);
+    abstract void finishedInternal(long lts);
+
+    public abstract long maxStarted();
+    public abstract long maxConsecutiveFinished();
+
+    public abstract Configuration.DataTrackerConfiguration toConfig();
+
+    public static interface DataTrackerFactory
+    {
         DataTracker make();
     }
 
-    public static DataTracker NO_OP = new NoOpDataTracker();
+    public static final DataTracker NO_OP = new NoOpDataTracker();
 
-    class NoOpDataTracker implements DataTracker
+    public static class NoOpDataTracker extends DataTracker
     {
         private NoOpDataTracker() {}
 
-        public void started(long lts) {}
-        public void finished(long lts) {}
+        protected void startedInternal(long lts) {}
+        protected void finishedInternal(long lts) {}
         public long maxStarted() { return 0; }
         public long maxConsecutiveFinished() { return 0; }
 

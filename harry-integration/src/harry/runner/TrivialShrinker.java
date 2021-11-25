@@ -24,13 +24,14 @@ import java.util.Arrays;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Predicate;
 
 import harry.core.Configuration;
 import harry.core.Run;
-import harry.visitors.DelegatingVisitor;
-import harry.visitors.Visitor;
+import harry.visitors.LtsVisitor;
 import harry.visitors.SkippingVisitor;
+import harry.visitors.Visitor;
 
 /**
  * A most trivial imaginable shrinker: attempts to skip partitions and/or logical timestamps to see if the
@@ -63,15 +64,17 @@ public class TrivialShrinker
             Run run = configuration.createRun();
             Configuration.SequentialRunnerConfig config = (Configuration.SequentialRunnerConfig) configuration.runner;
             List<Visitor> visitors = new ArrayList<>();
-            for (Configuration.VisitorConfiguration factory : config.visitor_factories)
+            for (Configuration.VisitorConfiguration factory : config.visitorFactories)
             {
                 Visitor visitor = factory.make(run);
-                if (visitor instanceof DelegatingVisitor)
+                if (visitor instanceof LtsVisitor)
                 {
-                    visitors.add(new SkippingVisitor(visitor,
+                    AtomicLong counter = new AtomicLong();
+                    visitors.add(new SkippingVisitor((LtsVisitor) visitor,
+                                                     counter::getAndIncrement,
                                                      (lts) -> run.pdSelector.pd(lts, run.schemaSpec),
                                                      ltsToSkip,
-                                                     pdsToSkip));
+                                                     pdsToSkip)) ;
                 }
                 else
                 {
@@ -93,7 +96,7 @@ public class TrivialShrinker
 
                 try
                 {
-                    runOnce(run, visitors, maxLts);
+                    runOnce(visitors, maxLts);
                     System.out.println("Can not skip " + pdToCheck + "\nCan only skip these: " + toString(pdsToSkip));
                     pdsToSkip.remove(pdToCheck);
                 }
@@ -126,7 +129,7 @@ public class TrivialShrinker
 
                 try
                 {
-                    runOnce(run, visitors, maxLts);
+                    runOnce(visitors, maxLts);
                     System.out.println("Can not skip " + ltsToCheck + "\nCan only skip these: " + toString(ltsToSkip));
                     ltsToSkip.remove(ltsToCheck);
                 }
@@ -160,13 +163,13 @@ public class TrivialShrinker
         }
     }
 
-    public static void runOnce(Run run, List<Visitor> visitors, long maxLts)
+    public static void runOnce(List<Visitor> visitors, long maxLts)
     {
         for (long lts = 0; lts <= maxLts; lts++)
         {
             for (Visitor visitor : visitors)
             {
-                visitor.visit(lts);
+                visitor.visit();
             }
         }
     }

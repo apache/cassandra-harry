@@ -33,9 +33,9 @@ import harry.model.sut.SystemUnderTest;
 import harry.operations.CompiledStatement;
 import harry.visitors.MutatingVisitor;
 import harry.visitors.MutatingRowVisitor;
-import harry.visitors.Visitor;
 import harry.operations.Query;
 import harry.operations.QueryGenerator;
+import harry.visitors.Visitor;
 
 import static harry.generators.DataGenerators.NIL_DESCR;
 
@@ -70,15 +70,11 @@ public class QuerySelectorTest extends IntegrationTestBase
 
             Run run = config.createRun();
             run.sut.schemaChange(run.schemaSpec.compile().cql());
-            OpSelectors.MonotonicClock clock = run.clock;
 
             Visitor visitor = new MutatingVisitor(run, MutatingRowVisitor::new);
 
             for (int i = 0; i < CYCLES; i++)
-            {
-                long lts = clock.nextLts();
-                visitor.visit(lts);
-            }
+                visitor.visit();
 
             QueryGenerator.TypedQueryGenerator querySelector = new QueryGenerator.TypedQueryGenerator(run);
 
@@ -145,14 +141,10 @@ public class QuerySelectorTest extends IntegrationTestBase
                                    .build();
             Run run = config.createRun();
             run.sut.schemaChange(run.schemaSpec.compile().cql());
-            OpSelectors.MonotonicClock clock = run.clock;
             Visitor visitor = new MutatingVisitor(run, MutatingRowVisitor::new);
 
             for (int i = 0; i < CYCLES; i++)
-            {
-                long lts = clock.nextLts();
-                visitor.visit(lts);
-            }
+                visitor.visit();
 
             QueryGenerator.TypedQueryGenerator querySelector = new QueryGenerator.TypedQueryGenerator(run);
             Model model = new QuiescentChecker(run);

@@ -20,8 +20,15 @@ package harry.generators;
 
 import java.util.function.LongSupplier;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+import harry.visitors.AllPartitionsValidator;
+
 public class RngUtils
 {
+    private static final Logger logger = LoggerFactory.getLogger(RngUtils.class);
+
     private static final long CONSTANT = 0x2545F4914F6CDD1DL;
     public static long next(long input)
     {
@@ -131,8 +138,15 @@ public class RngUtils
         long min = 0;
         long max = ~0L;
         int n = 0;
+        int steps = 0;
         while (n != bits)
         {
+            if (steps > 10_000)
+            {
+                throw new RuntimeException(String.format("Could not generate bits after 10K tries. " +
+                                          "Inputs: bits=%d, length=%d", bits, length));
+            }
+
             long x = rng.getAsLong() & mask;
             x = min | (x & max);
             n = Long.bitCount(x);
@@ -140,6 +154,8 @@ public class RngUtils
                 max = x;
             else
                 min = x;
+
+            steps++;
         }
         return min;
     }

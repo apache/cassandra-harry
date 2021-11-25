@@ -29,6 +29,7 @@ public class SingleValidator implements Visitor
     protected final Model model;
     protected final QueryGenerator queryGenerator;
     protected final Run run;
+
     public SingleValidator(int iterations,
                            Run run,
                            Model.ModelFactory modelFactory)
@@ -39,9 +40,10 @@ public class SingleValidator implements Visitor
         this.run = run;
     }
 
-    public void shutdown() throws InterruptedException
+    @Override
+    public void visit()
     {
-
+        visit(run.clock.peek());
     }
 
     public void visit(long lts)

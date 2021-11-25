@@ -86,8 +86,9 @@ public abstract class ParallelValidator<T extends ParallelValidator.State> imple
         }
     }
 
-    public void visit(long lts)
+    public void visit()
     {
+        long lts = run.clock.peek();
         maxPos.updateAndGet(current -> Math.max(run.pdSelector.positionFor(lts), current));
 
         if (triggerAfter > 0 && lts % triggerAfter == 0)
@@ -104,6 +105,7 @@ public abstract class ParallelValidator<T extends ParallelValidator.State> imple
         }
     }
 
+    @Override
     public void shutdown() throws InterruptedException
     {
         executor.shutdown();

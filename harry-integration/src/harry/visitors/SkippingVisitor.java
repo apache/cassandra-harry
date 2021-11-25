@@ -19,20 +19,23 @@
 package harry.visitors;
 
 import java.util.Set;
+import java.util.function.LongSupplier;
 
-public class SkippingVisitor implements Visitor
+public class SkippingVisitor extends LtsVisitor
 {
     private final Set<Long> ltsToSkip;
     private final Set<Long> pdsToSkip;
     private final LtsToPd ltsToPd;
-    private final Visitor delegate;
+    // Use DelegatingVisitor class instead of VisitExecutor available via protected field
+    private LtsVisitor delegateShadow;
 
-    public SkippingVisitor(Visitor delegate,
+    public SkippingVisitor(LtsVisitor delegate,
+                           LongSupplier ltsSupplier,
                            LtsToPd ltsToPd,
                            Set<Long> ltsToSkip,
                            Set<Long> pdsToSkip)
     {
-        this.delegate = delegate;
+        super(delegate, ltsSupplier);
         this.ltsToSkip = ltsToSkip;
         this.pdsToSkip = pdsToSkip;
         this.ltsToPd = ltsToPd;
@@ -43,7 +46,7 @@ public class SkippingVisitor implements Visitor
         if (ltsToSkip.contains(lts) || pdsToSkip.contains(ltsToPd.convert(lts)))
             return;
 
-        delegate.visit(lts);
+        delegateShadow.visit(lts);
     }
 
     public static interface LtsToPd

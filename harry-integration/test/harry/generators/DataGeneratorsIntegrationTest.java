@@ -16,9 +16,9 @@ import harry.model.OpSelectors;
 import harry.model.sut.SystemUnderTest;
 import harry.visitors.MutatingVisitor;
 import harry.visitors.MutatingRowVisitor;
-import harry.visitors.Visitor;
 import harry.visitors.SingleValidator;
 import harry.util.TestRunner;
+import harry.visitors.Visitor;
 import org.apache.cassandra.cql3.CQLTester;
 import org.apache.cassandra.cql3.UntypedResultSet;
 import org.apache.cassandra.distributed.impl.RowUtil;
@@ -94,12 +94,12 @@ public class DataGeneratorsIntegrationTest extends CQLTester
 
                                 Visitor visitor = new MutatingVisitor(run, MutatingRowVisitor::new);
                                 for (int lts = 0; lts < 100; lts++)
-                                    visitor.visit(lts);
+                                    visitor.visit();
                             }
 
                             Run run = builder.build()
                                              .createRun();
-                            Visitor visitor = new SingleValidator(100, run, NoOpChecker::new);
+                            SingleValidator visitor = new SingleValidator(100, run, NoOpChecker::new);
                             for (int lts = 0; lts < 100; lts++)
                                 visitor.visit(lts);
 

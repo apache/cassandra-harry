@@ -64,8 +64,9 @@ public class CorruptingVisitor implements Visitor
 
     private final AtomicLong maxPos = new AtomicLong(-1);
 
-    public void visit(long lts)
+    public void visit()
     {
+        long lts = run.clock.peek();
         maxPos.updateAndGet(current -> Math.max(run.pdSelector.positionFor(lts), current));
 
         if (lts == 0 || lts % triggerAfter != 0)
@@ -86,9 +87,5 @@ public class CorruptingVisitor implements Visitor
         {
             logger.error("Caught an exception while trying to corrupt a partition.", t);
         }
-    }
-
-    public void shutdown() throws InterruptedException
-    {
     }
 }
