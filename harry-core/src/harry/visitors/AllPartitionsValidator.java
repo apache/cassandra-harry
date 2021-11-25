@@ -50,6 +50,10 @@ public class AllPartitionsValidator implements Visitor
     protected final MetricReporter metricReporter;
     protected final ExecutorService executor;
     protected final SystemUnderTest sut;
+
+    protected final AtomicBoolean condition;
+    protected final AtomicLong maxPos;
+
     protected final int concurrency;
     protected final int triggerAfter;
 
@@ -67,20 +71,27 @@ public class AllPartitionsValidator implements Visitor
         this.pdSelector = run.pdSelector;
         this.concurrency = concurrency;
         this.executor = Executors.newFixedThreadPool(concurrency);
+        this.condition = new AtomicBoolean();
+        this.maxPos = new AtomicLong(-1);
+        run.tracker.onLtsStarted((lts) -> {
+            maxPos.updateAndGet(current -> Math.max(pdSelector.positionFor(lts), current));
+            if (triggerAfter == 0 || (triggerAfter > 0 && lts % triggerAfter == 0))
+                condition.set(true);
+        });
     }
 
     protected CompletableFuture<Void> validateAllPartitions(ExecutorService executor, int parallelism)
     {
         final long maxPos = this.maxPos.get();
-        AtomicLong counter = new AtomicLong();
-        CompletableFuture[] futures = new CompletableFuture[parallelism];
+        AtomicLong cnt = new AtomicLong();
+        CompletableFuture<?>[] futures = new CompletableFuture[parallelism];
         AtomicBoolean isDone = new AtomicBoolean(false);
 
         for (int i = 0; i < parallelism; i++)
         {
             futures[i] = CompletableFuture.supplyAsync(() -> {
                 long pos;
-                while ((pos = counter.getAndIncrement()) < maxPos && !executor.isShutdown() && !Thread.interrupted() && !isDone.get())
+                while ((pos = cnt.getAndIncrement()) < maxPos && !executor.isShutdown() && !Thread.interrupted() && !isDone.get())
                 {
                     if (pos > 0 && pos % 100 == 0)
                         logger.info(String.format("Validated %d out of %d partitions", pos, maxPos));
@@ -109,27 +120,30 @@ public class AllPartitionsValidator implements Visitor
         return CompletableFuture.allOf(futures);
     }
 
-    private final AtomicLong maxPos = new AtomicLong(-1);
-
-    public void visit(long lts)
+    public void visit()
     {
-        maxPos.updateAndGet(current -> Math.max(pdSelector.positionFor(lts), current));
-
-        if (triggerAfter > 0 && lts % triggerAfter == 0)
+        // TODO: this is ok for now, but if/when we bring exhaustive checker back, we need to change this:
+        // we'll probably want a low-concurrency validator somewhere in background all the time.
+        if (condition.compareAndSet(true, false))
         {
-            logger.info("Starting validations of all {} partitions", maxPos.get());
+            long lts = clock.peek();
+            logger.info("Starting validation of all partitions as of lts {}...", lts);
+
             try
             {
                 validateAllPartitions(executor, concurrency).get();
             }
             catch (Throwable e)
             {
-                throw new RuntimeException(e);
+                // TODO: Make a utility out of this.
+                throw e instanceof RuntimeException ? (RuntimeException) e : new RuntimeException(e);
             }
-            logger.info("Finished validations of all partitions");
+            logger.info("...finished validating all partitions as of lts {}.", lts);
         }
     }
 
+    @SuppressWarnings("ResultOfMethodCallIgnored")
+    @Override
     public void shutdown() throws InterruptedException
     {
         executor.shutdown();

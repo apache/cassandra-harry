@@ -19,7 +19,6 @@
 package harry.runner;
 
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.List;
 
 import com.fasterxml.jackson.annotation.JsonCreator;
@@ -29,6 +28,7 @@ import harry.core.Configuration;
 import harry.core.Run;
 import harry.data.ResultSetRow;
 import harry.model.Model;
+import harry.model.OpSelectors;
 import harry.model.QuiescentChecker;
 import harry.model.sut.InJvmSut;
 import harry.model.sut.SystemUnderTest;
@@ -47,27 +47,26 @@ public class RepairingLocalStateValidator extends AllPartitionsValidator
                                        QuiescentCheckerConfig.class);
     }
 
-    public final InJvmSut inJvmSut;
-
+    private final InJvmSut inJvmSut;
+    private final OpSelectors.MonotonicClock clock;
     public RepairingLocalStateValidator(int concurrency, int triggerAfter, Run run, Model.ModelFactory modelFactory)
     {
         super(concurrency, triggerAfter, run, modelFactory);
-
         this.inJvmSut = (InJvmSut) run.sut;
+        this.clock = run.clock;
     }
 
-    @Override
-    public void visit(long lts)
+    public void visit()
     {
+        long lts = clock.peek();
         if (lts > 0 && lts % triggerAfter == 0)
         {
             System.out.println("Starting repair...");
 
-            inJvmSut.cluster().stream().forEach((instance) -> {
-                instance.nodetool("repair", "--full");
-            });
+            inJvmSut.cluster().stream().forEach((instance) -> instance.nodetool("repair", "--full"));
+
             System.out.println("Validating partitions...");
-            super.visit(lts);
+            super.visit();
         }
     }
 
@@ -110,7 +109,7 @@ public class RepairingLocalStateValidator extends AllPartitionsValidator
         public void validate(Query query)
         {
             CompiledStatement compiled = query.toSelectStatement();
-            int[] replicas = inJvmSut.getReplicasFor(schemaSpec.inflatePartitionKey(query.pd), schemaSpec.keyspace, schemaSpec.table);
+            int[] replicas = inJvmSut.getReplicasFor(schema.inflatePartitionKey(query.pd), schema.keyspace, schema.table);
             for (int node : replicas)
             {
                 validate(() -> {

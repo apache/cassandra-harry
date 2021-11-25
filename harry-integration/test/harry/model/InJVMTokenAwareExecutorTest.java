@@ -32,7 +32,7 @@ import harry.model.sut.InJVMTokenAwareVisitExecutor;
 import harry.model.sut.InJvmSut;
 import harry.model.sut.SystemUnderTest;
 import harry.runner.RepairingLocalStateValidator;
-import harry.visitors.GeneratingVisitor;
+import harry.visitors.MutatingVisitor;
 import harry.visitors.Visitor;
 import org.apache.cassandra.distributed.Cluster;
 import org.apache.cassandra.distributed.api.Feature;
@@ -70,21 +70,20 @@ public class InJVMTokenAwareExecutorTest extends IntegrationTestBase
             Run run = configuration.createRun();
             run.sut.schemaChange(run.schemaSpec.compile().cql());
 
-            Visitor visitor = new GeneratingVisitor(run, new InJVMTokenAwareVisitExecutor(run,
-                                                                                          new Configuration.MutatingRowVisitorConfiguration(),
-                                                                                          SystemUnderTest.ConsistencyLevel.NODE_LOCAL));
+            Visitor visitor = new MutatingVisitor(run, new InJVMTokenAwareVisitExecutor(run,
+                                                                                        new Configuration.MutatingRowVisitorConfiguration(),
+                                                                                        SystemUnderTest.ConsistencyLevel.NODE_LOCAL));
 
             OpSelectors.MonotonicClock clock = run.clock;
             long maxPd = 0;
             for (int i = 0; i < 10000; i++)
             {
-                long lts = clock.nextLts();
-                visitor.visit(lts);
-                maxPd = Math.max(maxPd, run.pdSelector.positionFor(lts));
+                visitor.visit();
+                maxPd = Math.max(maxPd, run.pdSelector.positionFor(clock.peek()));
             }
 
             RepairingLocalStateValidator validator = new RepairingLocalStateValidator(5, 1, run, new Configuration.QuiescentCheckerConfig());
-            validator.visit(clock.maxLts());
+            validator.visit();
         }
 
     }

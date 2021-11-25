@@ -22,12 +22,12 @@ import harry.core.Run;
 
 public interface Visitor
 {
-    void visit(long lts);
+    void visit();
 
-    public default void shutdown() throws InterruptedException {}
+    default void shutdown() throws InterruptedException {}
 
-    public interface VisitorFactory
+    interface VisitorFactory
     {
-        public Visitor make(Run run);
+        Visitor make(Run run);
     }
 }

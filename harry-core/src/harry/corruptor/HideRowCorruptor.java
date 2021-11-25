@@ -44,6 +44,6 @@ public class HideRowCorruptor implements RowCorruptor
 
     public CompiledStatement corrupt(ResultSetRow row)
     {
-        return DeleteHelper.deleteRow(schema, row.pd, row.cd, clock.rts(clock.maxLts()) + 1);
+        return DeleteHelper.deleteRow(schema, row.pd, row.cd, clock.rts(clock.peek()));
     }
 }

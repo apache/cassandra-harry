@@ -23,6 +23,7 @@ import java.util.Random;
 import java.util.Set;
 import java.util.function.Supplier;
 
+import org.junit.Assert;
 import org.junit.Test;
 
 import harry.core.Configuration;
@@ -65,6 +66,9 @@ public class HistoryBuilderIntegrationTest extends ModelTestBase
             HistoryBuilder history = new HistoryBuilder(run);
 
             Set<Long> pds = new HashSet<>();
+            run.tracker.onLtsStarted((long lts) -> {
+                pds.add(run.pdSelector.pd(lts, run.schemaSpec));
+            });
 
             for (int j = 0; j < 5; j++)
             {
@@ -97,28 +101,19 @@ public class HistoryBuilderIntegrationTest extends ModelTestBase
                            .partitionDelete()
                            .finish();
 
-                ReplayingVisitor visitor = history.visitor(new MutatingVisitor.MutatingVisitExecutor(run,
-                                                                                                     new MutatingRowVisitor(run)
-                                                                                                     {
-                                                                                                         public CompiledStatement perform(OpSelectors.OperationKind op, long lts, long pd, long cd, long opId)
-                                                                                                         {
-                                                                                                             pds.add(pd);
-                                                                                                             return super.perform(op, lts, pd, cd, opId);
-                                                                                                         }
-                                                                                                     }));
+                ReplayingVisitor visitor = history.visitor(run);
 
-                visitor.replayAll(run);
+                visitor.replayAll();
 
                 Model model = new QuiescentChecker(run, new Reconciler(run,
                                                                        history::visitor));
                 QueryGenerator.TypedQueryGenerator queryGenerator = new QueryGenerator.TypedQueryGenerator(run);
+                Assert.assertFalse(pds.isEmpty());
                 for (Long pd : pds)
                 {
-                    model.validate(Query.selectPartition(run.schemaSpec,
-                                                         pd,
-                                                         false));
+                    model.validate(Query.selectPartition(run.schemaSpec, pd,false));
 
-                    int lts = new Random().nextInt((int) run.clock.maxLts());
+                    int lts = new Random().nextInt((int) run.clock.peek());
                     for (int k = 0; k < 3; k++)
                         queryGenerator.inflate(lts, k);
                 }
@@ -169,7 +164,7 @@ public class HistoryBuilderIntegrationTest extends ModelTestBase
                                                                                                                     }
                                                                                                                 }));
 
-                                visitor.replayAll(run);
+                                visitor.replayAll();
 
                                 Model model = new QuiescentChecker(run, new Reconciler(run,
                                                                                        sut::visitor));
@@ -182,7 +177,7 @@ public class HistoryBuilderIntegrationTest extends ModelTestBase
                                     model.validate(Query.selectPartition(run.schemaSpec,
                                                                          pd,
                                                                          true));
-                                    int lts = new Random().nextInt((int) run.clock.maxLts());
+                                    int lts = new Random().nextInt((int) run.clock.peek());
                                     for (int k = 0; k < 3; k++)
                                         queryGenerator.inflate(lts, k);
                                 }

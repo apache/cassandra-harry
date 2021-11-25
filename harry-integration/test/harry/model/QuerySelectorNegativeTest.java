@@ -41,9 +41,9 @@ import harry.corruptor.ShowValueCorruptor;
 import harry.ddl.SchemaGenerators;
 import harry.visitors.MutatingVisitor;
 import harry.visitors.MutatingRowVisitor;
-import harry.visitors.Visitor;
 import harry.operations.Query;
 import harry.operations.QueryGenerator;
+import harry.visitors.Visitor;
 
 import static harry.corruptor.QueryResponseCorruptor.SimpleQueryResponseCorruptor;
 
@@ -117,10 +117,7 @@ public class QuerySelectorNegativeTest extends IntegrationTestBase
             QueryResponseCorruptor corruptor = this.corruptorFactory.create(run);
 
             for (int i = 0; i < CYCLES; i++)
-            {
-                long lts = clock.nextLts();
-                visitor.visit(lts);
-            }
+                visitor.visit();
 
             while (true)
             {

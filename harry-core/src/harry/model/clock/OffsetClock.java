@@ -28,7 +28,7 @@ import harry.model.OpSelectors;
 
 public class OffsetClock implements OpSelectors.MonotonicClock
 {
-    final AtomicLong lts = new AtomicLong(0);
+    final AtomicLong lts = new AtomicLong(ApproximateMonotonicClock.START_VALUE);
 
     private final long base;
 
@@ -47,17 +47,12 @@ public class OffsetClock implements OpSelectors.MonotonicClock
         return rts - base;
     }
 
-    public long currentLts()
-    {
-        return lts.get();
-    }
-
     public long nextLts()
     {
         return lts.getAndIncrement();
     }
 
-    public long maxLts()
+    public long peek()
     {
         return lts.get();
     }

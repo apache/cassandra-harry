@@ -18,7 +18,6 @@
 
 package harry.model;
 
-import java.util.Arrays;
 import java.util.concurrent.TimeUnit;
 import java.util.function.BiConsumer;
 import java.util.function.Function;
@@ -30,9 +29,9 @@ import harry.ddl.SchemaGenerators;
 import harry.ddl.SchemaSpec;
 import harry.visitors.LoggingVisitor;
 import harry.visitors.MutatingRowVisitor;
-import harry.visitors.Visitor;
 import harry.runner.Runner;
 import harry.visitors.SingleValidator;
+import harry.visitors.Visitor;
 
 public abstract class ModelTestBase extends IntegrationTestBase
 {
@@ -46,33 +45,30 @@ public abstract class ModelTestBase extends IntegrationTestBase
         }
     }
 
-    void negativeIntegrationTest(Model.ModelFactory factory) throws Throwable
+    void negativeIntegrationTest(Configuration.RunnerConfiguration runnerConfig) throws Throwable
     {
         Supplier<SchemaSpec> supplier = SchemaGenerators.progression(1);
         for (int i = 0; i < SchemaGenerators.DEFAULT_RUNS; i++)
         {
             SchemaSpec schema = supplier.get();
             Configuration.ConfigurationBuilder builder = configuration(i, schema);
+
             builder.setClock(new Configuration.ApproximateMonotonicClockConfiguration((int) TimeUnit.MINUTES.toMillis(10),
                                                                                       1, TimeUnit.SECONDS))
-                   .setRunTime(1, TimeUnit.MINUTES)
                    .setCreateSchema(false)
                    .setDropSchema(false)
-                   .setRunner(new Configuration.SequentialRunnerConfig(Arrays.asList(new Configuration.LoggingVisitorConfiguration(new Configuration.MutatingRowVisitorConfiguration()),
-                                                                                     new Configuration.RecentPartitionsValidatorConfiguration(10, 10, 1, factory::make),
-                                                                                     new Configuration.AllPartitionsValidatorConfiguration(10, 10, factory::make))));
-            Runner runner = builder.build().createRunner();
+                   .setRunner(runnerConfig);
+
+            Configuration config = builder.build();
+            Runner runner = config.createRunner();
+            
             try
             {
                 Run run = runner.getRun();
                 beforeEach();
                 run.sut.schemaChange(run.schemaSpec.compile().cql());
 
-                runner.initAndStartAll().get(2, TimeUnit.MINUTES);
-            }
-            catch (Throwable t)
-            {
-                throw t;
+                runner.initAndStartAll().get(4, TimeUnit.MINUTES);
             }
             finally
             {
@@ -83,7 +79,7 @@ public abstract class ModelTestBase extends IntegrationTestBase
 
     abstract Configuration.ModelConfiguration modelConfiguration();
 
-    protected Visitor validator(Run run)
+    protected SingleValidator validator(Run run)
     {
         return new SingleValidator(100, run , modelConfiguration());
     }
@@ -101,17 +97,13 @@ public abstract class ModelTestBase extends IntegrationTestBase
         beforeEach();
         run.sut.schemaChange(run.schemaSpec.compile().cql());
         System.out.println(run.schemaSpec.compile().cql());
-        OpSelectors.MonotonicClock clock = run.clock;
 
-        Visitor validator = validator(run);
         Visitor visitor = new LoggingVisitor(run, MutatingRowVisitor::new);
 
         for (int i = 0; i < 20000; i++)
-        {
-            long lts = clock.nextLts();
-            visitor.visit(lts);
-        }
+            visitor.visit();
 
+        SingleValidator validator = validator(run);
         validator.visit(0);
 
         if (!corrupt.apply(run))

@@ -18,9 +18,11 @@
 
 package harry.model;
 
+import java.util.ArrayList;
 import java.util.EnumMap;
 import java.util.List;
 import java.util.Map;
+import java.util.function.LongConsumer;
 
 import harry.core.Configuration;
 import harry.core.VisibleForTesting;
@@ -76,19 +78,15 @@ public interface OpSelectors
      * be taken to map a real-time timestamp from the value retrieved from the database in order
      * to map it back to the logical timestamp of the operation that wrote this value.
      */
-    public static interface MonotonicClock
+    public interface MonotonicClock
     {
         long rts(long lts);
-
         long lts(long rts);
 
-        long currentLts();
-
         long nextLts();
+        long peek();
 
-        long maxLts();
-
-        public Configuration.ClockConfiguration toConfig();
+        Configuration.ClockConfiguration toConfig();
     }
 
     public static interface MonotonicClockFactory
@@ -304,6 +302,7 @@ public interface OpSelectors
             return minLtsAt(position);
         }
 
+        // TODO: add maxPosition to make it easier/more accessible for the components like sampler, etc
         public long positionFor(long lts)
         {
             long windowStart = lts / switchAfter;
@@ -682,6 +681,14 @@ public interface OpSelectors
         public BitSet partitionLevelOperationsMask(long pd, long lts)
         {
             int totalOps = opsPerModification(lts) * numberOfModifications(lts);
+            if (totalOps > 64)
+            {
+                throw new IllegalArgumentException("RngUtils#randomBits currently supports only up to 64 bits of entropy, so we can not " +
+                                                   "split partition and row level operations for more than 64 operations at the moment." +
+                                                   "Set modifications_per_lts to a number that is lower than 64 and use rows_per_modification" +
+                                                   "to have more operations per LTS instead");
+            }
+
             long seed = rng.randomNumber(pd, lts);
 
             int partitionLevelOps = (int) Math.ceil(operationSelector.partitionLevelThreshold * totalOps);
@@ -692,8 +699,17 @@ public interface OpSelectors
 
         private OperationKind operationType(long pd, long lts, long opId, BitSet partitionLevelOperationsMask)
         {
-            long descriptor = rng.randomNumber(pd ^ lts ^ opId, BITSET_IDX_STREAM);
-            return operationSelector.inflate(descriptor, partitionLevelOperationsMask.isSet((int) opId));
+            try
+            {
+                long descriptor = rng.randomNumber(pd ^ lts ^ opId, BITSET_IDX_STREAM);
+                return operationSelector.inflate(descriptor, partitionLevelOperationsMask.isSet((int) opId));
+            }
+            catch (Throwable t)
+            {
+                throw new RuntimeException(String.format("Can not generate a random number with the following inputs: " +
+                                                         "pd=%d lts=%d opId=%d partitionLevelOperationsMask=%s",
+                                                         pd, lts, opId, partitionLevelOperationsMask));
+            }
         }
 
         public BitSet columnMask(long pd, long lts, long opId, OperationKind opType)
@@ -704,12 +720,12 @@ public interface OpSelectors
 
         public long vd(long pd, long cd, long lts, long opId, int col)
         {
-            return rng.randomNumber(opId, pd ^ cd ^ lts ^ col);
+            return rng.randomNumber(opId + 1, pd ^ cd ^ lts ^ col);
         }
 
         public long modificationId(long pd, long cd, long lts, long vd, int col)
         {
-            return rng.sequenceNumber(vd, pd ^ cd ^ lts ^ col);
+            return rng.sequenceNumber(vd, pd ^ cd ^ lts ^ col) - 1;
         }
     }
 

@@ -95,7 +95,7 @@ public class IntegrationTestBase extends TestBaseImpl
                                                        .setCreateSchema(true)
                                                        .setTruncateTable(false)
                                                        .setDropSchema(true)
-                                                       .setSchemaProvider(seed1 -> schema)
+                                                       .setSchemaProvider((seed1, sut) -> schema)
                                                        .setClusteringDescriptorSelector(sharedCDSelectorConfiguration().build())
                                                        .setPartitionDescriptorSelector(new Configuration.DefaultPDSelectorConfiguration(1, 200))
                                                        .setSUT(() -> sut);

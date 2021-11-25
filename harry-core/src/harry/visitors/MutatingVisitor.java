@@ -19,6 +19,7 @@
 package harry.visitors;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executors;
@@ -41,10 +42,16 @@ public class MutatingVisitor extends GeneratingVisitor
     public MutatingVisitor(Run run,
                            OperationExecutor.RowVisitorFactory rowVisitorFactory)
     {
-        super(run, new MutatingVisitExecutor(run, rowVisitorFactory.make(run)));
+        this(run, new MutatingVisitExecutor(run, rowVisitorFactory.make(run)));
     }
 
-    public static class MutatingVisitExecutor implements VisitExecutor
+    public MutatingVisitor(Run run,
+                           VisitExecutor visitExecutor)
+    {
+        super(run, visitExecutor);
+    }
+
+    public static class MutatingVisitExecutor extends VisitExecutor
     {
         private final List<String> statements = new ArrayList<>();
         private final List<Object> bindings = new ArrayList<>();
@@ -104,8 +111,7 @@ public class MutatingVisitor extends GeneratingVisitor
             CompiledStatement statement = operationInternal(lts, pd, cd, m, opId, opType);
 
             statements.add(statement.cql());
-            for (Object binding : statement.bindings())
-                bindings.add(binding);
+            Collections.addAll(bindings, statement.bindings());
         }
 
         protected CompiledStatement operationInternal(long lts, long pd, long cd, long m, long opId, OpSelectors.OperationKind opType)
@@ -140,10 +146,10 @@ public class MutatingVisitor extends GeneratingVisitor
 
         protected void executeAsyncWithRetries(long lts, long pd, CompletableFuture<Object[][]> future, CompiledStatement statement)
         {
-            executeAsyncWithRetries(lts, pd, future, statement, 0);
+            executeAsyncWithRetries(future, statement, 0);
         }
 
-        private void executeAsyncWithRetries(long lts, long pd, CompletableFuture<Object[][]> future, CompiledStatement statement, int retries)
+        private void executeAsyncWithRetries(CompletableFuture<Object[][]> future, CompiledStatement statement, int retries)
         {
             if (sut.isShutdown())
                 throw new IllegalStateException("System under test is shut down");
@@ -154,8 +160,10 @@ public class MutatingVisitor extends GeneratingVisitor
             sut.executeAsync(statement.cql(), SystemUnderTest.ConsistencyLevel.QUORUM, statement.bindings())
                .whenComplete((res, t) -> {
                    if (t != null)
-                       executor.schedule(() -> executeAsyncWithRetries(lts, pd, future, statement, retries + 1), 1, TimeUnit.SECONDS);
-                   else
+                   {
+                       logger.error("Caught message while trying to execute " +  statement, t);
+                       executor.schedule(() -> executeAsyncWithRetries(future, statement, retries + 1), 1, TimeUnit.SECONDS);
+                   }else
                        future.complete(res);
                });
         }

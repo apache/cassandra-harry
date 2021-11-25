@@ -29,14 +29,14 @@ import org.slf4j.LoggerFactory;
 import harry.core.Configuration;
 import harry.core.VisibleForTesting;
 
-public class DefaultDataTracker implements DataTracker
+public class DefaultDataTracker extends DataTracker
 {
     private static final Logger logger = LoggerFactory.getLogger(DefaultDataTracker.class);
 
     private final AtomicLong maxSeenLts;
     // TODO: This is a trivial implementation that can be significantly improved upon
     // for example, we could use a bitmap that records `1`s for all lts that are after
-    // the consective, and "collapse" the bitmap state into the long as soon as we see
+    // the consecutive, and "collapse" the bitmap state into the long as soon as we see
     // consecutive `1` on the left side.
     private final AtomicLong maxCompleteLts;
     private final PriorityBlockingQueue<Long> reorderBuffer;
@@ -49,13 +49,12 @@ public class DefaultDataTracker implements DataTracker
     }
 
     // TODO: there's also some room for improvement in terms of concurrency
-    // TODO: remove pd?
-    public void started(long lts)
+    protected void startedInternal(long lts)
     {
         recordEvent(lts, false);
     }
 
-    public void finished(long lts)
+    protected void finishedInternal(long lts)
     {
         recordEvent(lts, true);
     }
@@ -63,10 +62,7 @@ public class DefaultDataTracker implements DataTracker
     private void recordEvent(long lts, boolean finished)
     {
         // all seen LTS are allowed to be "in-flight"
-        maxSeenLts.getAndUpdate((old) -> {
-            assert finished || lts > old : String.format("Attempting to reuse lts: %d. Max seen: %d", lts, old);
-            return Math.max(lts, old);
-        });
+        maxSeenLts.getAndUpdate((old) -> Math.max(lts, old));
 
         if (!finished)
             return;
@@ -116,6 +112,9 @@ public class DefaultDataTracker implements DataTracker
 
     public long maxConsecutiveFinished()
     {
+        if (!reorderBuffer.isEmpty())
+            return drainReorderQueue();
+
         return maxCompleteLts.get();
     }
 

@@ -44,8 +44,8 @@ import harry.model.clock.OffsetClock;
 import harry.model.sut.SystemUnderTest;
 import harry.operations.CompiledStatement;
 import harry.runner.DataTracker;
+import harry.visitors.LtsVisitor;
 import harry.visitors.MutatingVisitor;
-import harry.visitors.Visitor;
 import harry.visitors.OperationExecutor;
 import harry.util.BitSet;
 
@@ -205,82 +205,80 @@ public class OpSelectorsTest
         };
 
         Run run = new Run(rng,
-                new OffsetClock(0),
-                pdSelector,
-                ckSelector,
-                schema,
-                DataTracker.NO_OP,
-                SystemUnderTest.NO_OP,
-                MetricReporter.NO_OP);
+                          new OffsetClock(0),
+                          pdSelector,
+                          ckSelector,
+                          schema,
+                          DataTracker.NO_OP,
+                          SystemUnderTest.NO_OP,
+                          MetricReporter.NO_OP);
 
-        Visitor visitor = new MutatingVisitor(run,
-                                              (r) -> new OperationExecutor()
-                                                                         {
-                                                                             public CompiledStatement insert(long lts, long pd, long cd, long m)
-                                                                             {
-                                                                                 consumer.accept(pd, cd);
-                                                                                 return compiledStatement;
-                                                                             }
+        LtsVisitor visitor = new MutatingVisitor(run,
+                                                 (r) -> new OperationExecutor()
+                                                        {
+                                                            public CompiledStatement insert(long lts, long pd, long cd, long m)
+                                                            {
+                                                                consumer.accept(pd, cd);
+                                                                return compiledStatement;
+                                                            }
 
-                                                                             public CompiledStatement update(long lts, long pd, long cd, long opId)
-                                                                             {
-                                                                                 consumer.accept(pd, cd);
-                                                                                 return compiledStatement;
-                                                                             }
+                                                            public CompiledStatement update(long lts, long pd, long cd, long opId)
+                                                            {
+                                                                consumer.accept(pd, cd);
+                                                                return compiledStatement;
+                                                            }
 
-                                                                             public CompiledStatement deleteColumn(long lts, long pd, long cd, long m)
-                                                                             {
-                                                                                 consumer.accept(pd, cd);
-                                                                                 return compiledStatement;
-                                                                             }
+                                                            public CompiledStatement deleteColumn(long lts, long pd, long cd, long m)
+                                                            {
+                                                                consumer.accept(pd, cd);
+                                                                return compiledStatement;
+                                                            }
 
-                                                                             public CompiledStatement deleteColumnWithStatics(long lts, long pd, long cd, long opId)
-                                                                             {
-                                                                                 consumer.accept(pd, cd);
-                                                                                 return compiledStatement;
-                                                                             }
+                                                            public CompiledStatement deleteColumnWithStatics(long lts, long pd, long cd, long opId)
+                                                            {
+                                                                consumer.accept(pd, cd);
+                                                                return compiledStatement;
+                                                            }
 
-                                                                             public CompiledStatement deleteRow(long lts, long pd, long cd, long m)
-                                                                             {
-                                                                                 consumer.accept(pd, cd);
-                                                                                 return compiledStatement;
-                                                                             }
+                                                            public CompiledStatement deleteRow(long lts, long pd, long cd, long m)
+                                                            {
+                                                                consumer.accept(pd, cd);
+                                                                return compiledStatement;
+                                                            }
 
-                                                                             public CompiledStatement deletePartition(long lts, long pd, long opId)
-                                                                             {
-                                                                                 // ignore
-                                                                                 return compiledStatement;
-                                                                             }
+                                                            public CompiledStatement deletePartition(long lts, long pd, long opId)
+                                                            {
+                                                                // ignore
+                                                                return compiledStatement;
+                                                            }
 
-                                                                             public CompiledStatement insertWithStatics(long lts, long pd, long cd, long opId)
-                                                                             {
-                                                                                 consumer.accept(pd, cd);
-                                                                                 return compiledStatement;
-                                                                             }
+                                                            public CompiledStatement insertWithStatics(long lts, long pd, long cd, long opId)
+                                                            {
+                                                                consumer.accept(pd, cd);
+                                                                return compiledStatement;
+                                                            }
 
-                                                                             public CompiledStatement updateWithStatics(long lts, long pd, long cd, long opId)
-                                                                             {
-                                                                                 consumer.accept(pd, cd);
-                                                                                 return compiledStatement;
-                                                                             }
+                                                            public CompiledStatement updateWithStatics(long lts, long pd, long cd, long opId)
+                                                            {
+                                                                consumer.accept(pd, cd);
+                                                                return compiledStatement;
+                                                            }
 
-                                                                             public CompiledStatement deleteRange(long lts, long pd, long opId)
-                                                                             {
-                                                                                 // ignore
-                                                                                 return compiledStatement;
-                                                                             }
+                                                            public CompiledStatement deleteRange(long lts, long pd, long opId)
+                                                            {
+                                                                // ignore
+                                                                return compiledStatement;
+                                                            }
 
-                                                                             public CompiledStatement deleteSlice(long lts, long pd, long opId)
-                                                                             {
-                                                                                 // ignore
-                                                                                 return compiledStatement;
-                                                                             }
-                                                                         });
+                                                            public CompiledStatement deleteSlice(long lts, long pd, long opId)
+                                                            {
+                                                                // ignore
+                                                                return compiledStatement;
+                                                            }
+                                                        });
 
         for (int lts = 0; lts < 1000; lts++)
-        {
-            visitor.visit(lts);
-        }
+            visitor.visit();
 
         for (Collection<Long> value : partitionMap.values())
             Assert.assertEquals(10, value.size());

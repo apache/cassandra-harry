@@ -35,9 +35,9 @@ public abstract class HarryRunner
 {
     public static final Logger logger = LoggerFactory.getLogger(HarryRunner.class);
 
-    protected CompletableFuture progress;
+    protected CompletableFuture<?> progress;
     protected ScheduledThreadPoolExecutor executor;
-    public abstract void beforeRun(Runner runner);
+    public abstract void beforeRun(Runner.TimedRunner runner);
     public void afterRun(Runner runner, Object result)
     {
         executor.shutdown();
@@ -64,7 +64,9 @@ public abstract class HarryRunner
         Run run = runner.getRun();
 
         progress = runner.initAndStartAll();
-        beforeRun(runner);
+        
+        assert runner instanceof Runner.TimedRunner : "Please use a timed runner at the top level.";
+        beforeRun((Runner.TimedRunner) runner);
 
         Object result = null;
 
@@ -76,13 +78,12 @@ public abstract class HarryRunner
                 return a;
             }).get();
             if (result instanceof Throwable)
-                logger.error("Execution failed", result);
+                logger.error("Execution failed!", (Throwable) result);
 
         }
         catch (Throwable e)
         {
-            logger.error("Failed due to exception: " + e.getMessage(),
-                         e);
+            logger.error("Failed due to exception: " + e.getMessage(), e);
             result = e;
         }
         finally

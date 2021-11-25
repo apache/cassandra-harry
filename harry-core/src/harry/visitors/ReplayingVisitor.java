@@ -19,17 +19,19 @@
 package harry.visitors;
 
 import java.util.Arrays;
+import java.util.function.LongSupplier;
 
 import harry.core.Run;
 import harry.model.OpSelectors;
 
-public abstract class ReplayingVisitor extends DelegatingVisitor
+public abstract class ReplayingVisitor extends LtsVisitor
 {
-    public ReplayingVisitor(VisitExecutor delegate)
+    public ReplayingVisitor(VisitExecutor delegate, LongSupplier ltsSource)
     {
-        super(delegate);
+        super(delegate, ltsSource);
     }
 
+    @Override
     public void visit(long lts)
     {
         replay(getVisit(lts));
@@ -37,7 +39,8 @@ public abstract class ReplayingVisitor extends DelegatingVisitor
 
     public abstract Visit getVisit(long lts);
 
-    public abstract void replayAll(Run run);
+    public abstract void replayAll();
+
     private void replay(Visit visit)
     {
         beforeLts(visit.lts, visit.pd);

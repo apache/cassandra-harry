@@ -24,6 +24,9 @@ import java.io.FileNotFoundException;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.OutputStreamWriter;
+import java.util.HashSet;
+import java.util.Set;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 
 import org.slf4j.Logger;
@@ -46,8 +49,12 @@ public class RecentValidator implements Visitor
     private final OpSelectors.PdSelector pdSelector;
     private final QueryGenerator.TypedQueryGenerator querySelector;
     private final MetricReporter metricReporter;
+    private final OpSelectors.MonotonicClock clock;
+
+    private final AtomicBoolean condition;
+    private final AtomicLong maxPos;
+
     private final int partitionCount;
-    private final int triggerAfter;
     private final int queries;
 
     public RecentValidator(int partitionCount,
@@ -57,11 +64,19 @@ public class RecentValidator implements Visitor
                            Model.ModelFactory modelFactory)
     {
         this.partitionCount = partitionCount;
-        this.triggerAfter = triggerAfter;
         this.queries = queries;
         this.metricReporter = run.metricReporter;
         this.pdSelector = run.pdSelector;
+        this.clock = run.clock;
 
+        this.condition = new AtomicBoolean();
+        this.maxPos = new AtomicLong(-1);
+
+        run.tracker.onLtsStarted((lts) -> {
+            maxPos.updateAndGet(current -> Math.max(pdSelector.positionFor(lts), current));
+            if (triggerAfter == 0 || (triggerAfter > 0 && lts % triggerAfter == 0))
+                condition.set(true);
+        });
         this.querySelector = new QueryGenerator.TypedQueryGenerator(run.rng,
                                                                     // TODO: make query kind configurable
                                                                     Surjections.enumValues(Query.QueryKind.class),
@@ -78,10 +93,8 @@ public class RecentValidator implements Visitor
         }
     }
 
-    private final AtomicLong maxPos = new AtomicLong(-1);
-
     // TODO: expose metric, how many times validated recent partitions
-    private void validateRecentPartitions(long lts)
+    private int validateRecentPartitions()
     {
         long pos = maxPos.get();
 
@@ -94,35 +107,34 @@ public class RecentValidator implements Visitor
                 metricReporter.validateRandomQuery();
                 Query query = querySelector.inflate(visitLts, i);
                 // TODO: add pd skipping from shrinker here, too
-                log(lts, i, query);
+                log(i, query);
                 model.validate(query);
             }
 
             pos--;
             maxPartitions--;
         }
+        
+        return partitionCount - maxPartitions;
     }
 
-    public void visit(long lts)
+    @Override
+    public void visit()
     {
-        maxPos.updateAndGet(current -> Math.max(pdSelector.positionFor(lts), current));
-
-        if (triggerAfter > 0 && lts % triggerAfter == 0)
+        if (condition.compareAndSet(true, false))
         {
-            logger.info("Validating {} recent partitions", partitionCount);
-            validateRecentPartitions(lts);
+            long lts = clock.peek();
+            logger.info("Validating (up to) {} recent partitions as of lts {}...", partitionCount, lts);
+            int count = validateRecentPartitions();
+            logger.info("...finished validating {} recent partitions as of lts {}.", count, lts);
         }
     }
 
-    public void shutdown() throws InterruptedException
-    {
-    }
-
-    private void log(long lts, int modifier, Query query)
+    private void log(int modifier, Query query)
     {
         try
         {
-            validationLog.write("LTS: " + lts + ". Modifier: " + modifier + ". PD: " + query.pd);
+            validationLog.write(String.format("PD: %d. Modifier: %d.", query.pd, modifier));
             validationLog.write("\t");
             validationLog.write(query.toSelectStatement().toString());
             validationLog.write("\n");

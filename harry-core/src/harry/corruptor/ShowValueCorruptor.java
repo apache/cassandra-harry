@@ -72,6 +72,6 @@ public class ShowValueCorruptor implements RowCorruptor
         // We do not know LTS of the deleted row. We could try inferring it, but that
         // still won't help since we can't use it anyways, since collisions between a
         // written value and tombstone are resolved in favour of tombstone.
-        return WriteHelper.inflateInsert(schema, row.pd, row.cd, corruptedVds, null, clock.rts(clock.maxLts()) + 1);
+        return WriteHelper.inflateInsert(schema, row.pd, row.cd, corruptedVds, null, clock.rts(clock.peek()));
     }
 }

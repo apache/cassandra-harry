@@ -129,8 +129,9 @@ public class HistoryBuilderTest
                                 public void afterLts(long lts, long pd){}
                                 public void beforeBatch(long lts, long pd, long m){}
                                 public void afterBatch(long lts, long pd, long m){}
+                                public void shutdown() {}
                             });
-                            visitor.replayAll(run);
+                            visitor.replayAll();
                             for (Counts counts : model)
                                 Assert.assertTrue(counts.toString(), counts.allDone());
                         });

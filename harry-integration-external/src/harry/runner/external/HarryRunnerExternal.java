@@ -38,7 +38,7 @@ public class HarryRunnerExternal extends HarryRunner {
     }
 
     @Override
-    public void beforeRun(Runner runner) {
+    public void beforeRun(Runner.TimedRunner runner) {
 
     }
 }

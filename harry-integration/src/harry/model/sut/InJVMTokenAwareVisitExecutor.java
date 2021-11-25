@@ -25,7 +25,6 @@ import java.util.concurrent.TimeUnit;
 import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.annotation.JsonTypeName;
-import harry.core.Configuration;
 import harry.core.Run;
 import harry.ddl.SchemaSpec;
 import harry.operations.CompiledStatement;
@@ -38,7 +37,7 @@ public class InJVMTokenAwareVisitExecutor extends LoggingVisitor.LoggingVisitorE
 {
     public static void init()
     {
-        Configuration.registerSubtypes(Configuation.class);
+        harry.core.Configuration.registerSubtypes(Configuration.class);
     }
 
     private final InJvmSut sut;
@@ -92,14 +91,14 @@ public class InJVMTokenAwareVisitExecutor extends LoggingVisitor.LoggingVisitorE
     }
 
     @JsonTypeName("in_jvm_token_aware")
-    public static class Configuation implements Configuration.VisitorConfiguration
+    public static class Configuration implements harry.core.Configuration.VisitorConfiguration
     {
-        public final Configuration.RowVisitorConfiguration row_visitor;
+        public final harry.core.Configuration.RowVisitorConfiguration row_visitor;
         public final SystemUnderTest.ConsistencyLevel consistency_level;
 
         @JsonCreator
-        public Configuation(@JsonProperty("row_visitor") Configuration.RowVisitorConfiguration rowVisitor,
-                            @JsonProperty("consistency_level") SystemUnderTest.ConsistencyLevel consistencyLevel)
+        public Configuration(@JsonProperty("row_visitor") harry.core.Configuration.RowVisitorConfiguration rowVisitor,
+                             @JsonProperty("consistency_level") SystemUnderTest.ConsistencyLevel consistencyLevel)
         {
             this.row_visitor = rowVisitor;
             this.consistency_level = consistencyLevel;

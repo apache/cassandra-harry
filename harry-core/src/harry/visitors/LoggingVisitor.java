@@ -31,7 +31,6 @@ import harry.operations.CompiledStatement;
 
 public class LoggingVisitor extends GeneratingVisitor
 {
-
     public LoggingVisitor(Run run,
                           OperationExecutor.RowVisitorFactory rowVisitorFactory)
     {

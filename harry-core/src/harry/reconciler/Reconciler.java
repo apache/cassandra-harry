@@ -35,12 +35,12 @@ import harry.core.Run;
 import harry.ddl.ColumnSpec;
 import harry.ddl.SchemaSpec;
 import harry.model.OpSelectors;
-import harry.visitors.GeneratingVisitor;
-import harry.visitors.Visitor;
 import harry.operations.Query;
 import harry.operations.QueryGenerator;
 import harry.util.BitSet;
 import harry.util.Ranges;
+import harry.visitors.GeneratingVisitor;
+import harry.visitors.LtsVisitor;
 import harry.visitors.ReplayingVisitor;
 import harry.visitors.VisitExecutor;
 
@@ -67,7 +67,7 @@ public class Reconciler
     private final QueryGenerator rangeSelector;
     private final SchemaSpec schema;
 
-    private final Function<VisitExecutor, Visitor> visitorFactory;
+    private final Function<VisitExecutor, LtsVisitor> visitorFactory;
 
     public Reconciler(Run run)
     {
@@ -76,13 +76,13 @@ public class Reconciler
     }
 
     public Reconciler(Run run,
-                      Function<VisitExecutor, Visitor> visitorFactory)
+                      Function<VisitExecutor, LtsVisitor> ltsVisitorFactory)
     {
         this.descriptorSelector = run.descriptorSelector;
         this.pdSelector = run.pdSelector;
         this.schema = run.schemaSpec;
         this.rangeSelector = run.rangeSelector;
-        this.visitorFactory = visitorFactory;
+        this.visitorFactory = ltsVisitorFactory;
     }
 
     private final long debugCd = Long.getLong("harry.reconciler.debug_cd", -1L);
@@ -91,7 +91,7 @@ public class Reconciler
     {
         PartitionState partitionState = new PartitionState();
 
-        class Processor implements VisitExecutor
+        class Processor extends VisitExecutor
         {
             // Whether or not a partition deletion was encountered on this LTS.
             private boolean hadPartitionDeletion = false;
@@ -100,7 +100,7 @@ public class Reconciler
             private final List<ReplayingVisitor.Operation> columnDeletes = new ArrayList<>();
 
             @Override
-            public void operation(long lts, long pd, long cd, long m, long opId, OpSelectors.OperationKind opType)
+            protected void operation(long lts, long pd, long cd, long m, long opId, OpSelectors.OperationKind opType)
             {
                 if (hadPartitionDeletion)
                     return;
@@ -151,7 +151,7 @@ public class Reconciler
             }
 
             @Override
-            public void beforeLts(long lts, long pd)
+            protected void beforeLts(long lts, long pd)
             {
                 rangeDeletes.clear();
                 writes.clear();
@@ -160,7 +160,7 @@ public class Reconciler
             }
 
             @Override
-            public void afterLts(long lts, long pd)
+            protected void afterLts(long lts, long pd)
             {
                 if (hadPartitionDeletion)
                     return;
@@ -248,13 +248,16 @@ public class Reconciler
             }
 
             @Override
-            public void afterBatch(long lts, long pd, long m) {}
+            protected void afterBatch(long lts, long pd, long m) {}
 
             @Override
-            public void beforeBatch(long lts, long pd, long m) {}
+            protected void beforeBatch(long lts, long pd, long m) {}
+
+            @Override
+            public void shutdown() throws InterruptedException {}
         }
 
-        Visitor visitor = visitorFactory.apply(new Processor());
+        LtsVisitor visitor = visitorFactory.apply(new Processor());
 
         long currentLts = pdSelector.minLtsFor(pd);
 

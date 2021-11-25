@@ -26,6 +26,7 @@ import java.util.Objects;
 import java.util.function.Consumer;
 
 import harry.generators.DataGenerators;
+import harry.model.sut.SystemUnderTest;
 import harry.operations.CompiledStatement;
 import harry.operations.Relation;
 import harry.util.BitSet;
@@ -36,7 +37,7 @@ public class SchemaSpec
 {
     public interface SchemaSpecFactory
     {
-        public SchemaSpec make(long seed);
+        public SchemaSpec make(long seed, SystemUnderTest sut);
     }
 
     public final DataGenerators.KeyGenerator pkGenerator;
@@ -244,7 +245,7 @@ public class SchemaSpec
     {
         StringBuilder sb = new StringBuilder();
 
-        sb.append("CREATE TABLE ");
+        sb.append("CREATE TABLE IF NOT EXISTS ");
         sb.append(keyspace)
           .append(".")
           .append(table)

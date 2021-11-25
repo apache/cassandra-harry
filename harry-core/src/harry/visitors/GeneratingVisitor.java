@@ -22,7 +22,7 @@ import harry.core.Run;
 import harry.ddl.SchemaSpec;
 import harry.model.OpSelectors;
 
-public class GeneratingVisitor extends DelegatingVisitor
+public class GeneratingVisitor extends LtsVisitor
 {
     private final OpSelectors.PdSelector pdSelector;
     private final OpSelectors.DescriptorSelector descriptorSelector;
@@ -31,7 +31,8 @@ public class GeneratingVisitor extends DelegatingVisitor
     public GeneratingVisitor(Run run,
                              VisitExecutor delegate)
     {
-        super(delegate);
+        super(delegate, run.clock::nextLts);
+
         this.pdSelector = run.pdSelector;
         this.descriptorSelector = run.descriptorSelector;
         this.schema = run.schemaSpec;
@@ -50,10 +51,10 @@ public class GeneratingVisitor extends DelegatingVisitor
         int modificationsCount = descriptorSelector.numberOfModifications(lts);
         int opsPerModification = descriptorSelector.opsPerModification(lts);
 
-        for (int m = 0; m < modificationsCount; m++)
+        for (long m = 0; m < modificationsCount; m++)
         {
             beforeBatch(lts, pd, m);
-            for (int i = 0; i < opsPerModification; i++)
+            for (long i = 0; i < opsPerModification; i++)
             {
                 long opId = m * opsPerModification + i;
                 long cd = descriptorSelector.cd(pd, lts, opId, schema);

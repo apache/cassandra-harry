@@ -18,9 +18,19 @@
 
 package harry.model;
 
+import java.util.Arrays;
+import java.util.Collections;
+import java.util.concurrent.TimeUnit;
+
 import org.junit.Test;
 
 import harry.core.Configuration;
+import harry.core.Configuration.AllPartitionsValidatorConfiguration;
+import harry.core.Configuration.ConcurrentRunnerConfig;
+import harry.core.Configuration.LoggingVisitorConfiguration;
+import harry.core.Configuration.RecentPartitionsValidatorConfiguration;
+import harry.core.Configuration.SequentialRunnerConfig;
+import harry.core.Configuration.SingleVisitRunnerConfig;
 import harry.core.Run;
 import harry.corruptor.AddExtraRowCorruptor;
 import harry.corruptor.ChangeValueCorruptor;
@@ -29,14 +39,14 @@ import harry.corruptor.HideValueCorruptor;
 import harry.corruptor.QueryResponseCorruptor;
 import harry.corruptor.QueryResponseCorruptor.SimpleQueryResponseCorruptor;
 import harry.ddl.SchemaSpec;
-import harry.visitors.Visitor;
 import harry.operations.Query;
+import harry.runner.StagedRunner.StagedRunnerConfig;
 import harry.visitors.SingleValidator;
 
 public class QuiescentCheckerIntegrationTest extends ModelTestBase
 {
     @Override
-    protected Visitor validator(Run run)
+    protected SingleValidator validator(Run run)
     {
         return new SingleValidator(100, run, modelConfiguration());
     }
@@ -56,7 +66,30 @@ public class QuiescentCheckerIntegrationTest extends ModelTestBase
     @Test
     public void normalConditionIntegrationTest() throws Throwable
     {
-        negativeIntegrationTest(modelConfiguration()::make);
+        Model.ModelFactory factory = modelConfiguration();
+                
+        SequentialRunnerConfig sequential = 
+                new SequentialRunnerConfig(Arrays.asList(new LoggingVisitorConfiguration(new Configuration.MutatingRowVisitorConfiguration()),
+                                                         new RecentPartitionsValidatorConfiguration(10, 10, 1, factory::make),
+                                                         new AllPartitionsValidatorConfiguration(10, 10, factory::make)),
+                                           1, TimeUnit.MINUTES);
+        negativeIntegrationTest(sequential);
+    }
+
+    @Test
+    public void normalConditionStagedIntegrationTest() throws Throwable
+    {
+        Model.ModelFactory factory = modelConfiguration();
+
+        ConcurrentRunnerConfig concurrent = 
+                new ConcurrentRunnerConfig(4, Collections.singletonList(new LoggingVisitorConfiguration(new Configuration.MutatingRowVisitorConfiguration())),
+                                           30, TimeUnit.SECONDS);
+        SingleVisitRunnerConfig sequential = 
+                new SingleVisitRunnerConfig(Collections.singletonList(new RecentPartitionsValidatorConfiguration(1024, 0, 1, factory::make)));
+        
+        StagedRunnerConfig staged = new StagedRunnerConfig(Arrays.asList(concurrent, sequential), 2, TimeUnit.MINUTES);
+
+        negativeIntegrationTest(staged);
     }
 
     @Test

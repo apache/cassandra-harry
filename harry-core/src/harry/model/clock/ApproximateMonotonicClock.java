@@ -48,9 +48,9 @@ import harry.model.OpSelectors;
 // TODO: shut down
 public class ApproximateMonotonicClock implements OpSelectors.MonotonicClock
 {
-    private static long START_VALUE = 0;
-    private static long DEFUNCT = Long.MIN_VALUE;
-    private static long REBASE_IN_PROGRESS = Long.MIN_VALUE + 1;
+    public static final long START_VALUE = 0;
+    public static final long DEFUNCT = Long.MIN_VALUE;
+    public static final long REBASE_IN_PROGRESS = Long.MIN_VALUE + 1;
 
     // TODO: there's a theoretical possibility of a bug; when we have several consecutive epochs without
     // change in LTS, current implementation will return the latest epoch instead of the earliest one.
@@ -151,11 +151,7 @@ public class ApproximateMonotonicClock implements OpSelectors.MonotonicClock
             throw new IllegalStateException("No thread should have changed LTS during rebase. " + lts.get());
     }
 
-    public long currentLts()
-    {
-        return lts.get();
-    }
-
+    @Override
     public long nextLts()
     {
         long current = lts.get();
@@ -184,7 +180,7 @@ public class ApproximateMonotonicClock implements OpSelectors.MonotonicClock
         }
     }
 
-    public long maxLts()
+    public long peek()
     {
         while (true)
         {
@@ -236,7 +232,7 @@ public class ApproximateMonotonicClock implements OpSelectors.MonotonicClock
     // TODO: binary search instead
     public long rts(final long lts)
     {
-        assert lts <= maxLts() : String.format("Queried for LTS we haven't yet issued %d. Max is %d.", lts, maxLts());
+        assert lts <= peek() : String.format("Queried for LTS we haven't yet issued %d. Max is %d.", lts, peek());
 
         final int historyIdx = idx - 1;
         for (int i = 0; i < historySize - 1 && historyIdx - i >= 0; i++)
