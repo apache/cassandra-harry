@@ -35,9 +35,6 @@ clock:
     epoch_length: 1
     epoch_time_unit: "SECONDS"
 
-run_time: 2
-run_time_unit: "HOURS"
-
 # System under test: a Cassandra node or cluster. Default implementation is in_jvm (in-jvm DTest cluster).
 # Harry also supports external clusters.
 system_under_test:
@@ -48,10 +45,10 @@ system_under_test:
     password: null
 
 # Model is responsible for tracking logical timestamps that
-model:
-  exhaustive_checker:
-    max_seen_lts: 19
-    max_complete_lts: 16
+# model:
+#  exhaustive_checker:
+#    max_seen_lts: 19
+#    max_complete_lts: 16
 
 # Partition descriptor selector controls how partitions is selected based on the current logical
 # timestamp. Default implementation is a sliding window of partition descriptors that will visit
@@ -92,6 +89,9 @@ clustering_descriptor_selector:
 # and model state.
 runner:
   sequential:
+    run_time: 2
+    run_time_unit: "HOURS"
+
     visitors:
       - logging:
           row_visitor:
