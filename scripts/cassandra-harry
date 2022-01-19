@@ -1,6 +1,6 @@
 #!/bin/sh
 
-if [ -z ${HARRY_HOME1+x} ]; then
+if [ -z ${HARRY_HOME+x} ]; then
     HARRY_HOME=~/cassandra-harry
 fi
 
@@ -47,7 +47,7 @@ fi
 if [ ! -z ${run_time+x} ]; then
     sed -i -e "s/run_time:.*/run_time: $run_time/g" $HARRY_HOME/conf/external.yaml
 fi
-if [ ! -z ${run_time_unit+} ]; then
+if [ ! -z ${run_time_unit+x} ]; then
     sed -i -e "s/run_time_unit:.*/run_time_unit: \"$run_time_unit\"/g" $HARRY_HOME/conf/external.yaml
 fi
 
