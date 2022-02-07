@@ -730,6 +730,45 @@ This list of improvements is incomplete, and should only give the reader a rough
 idea about the state of the project. Main goal for the initial release was to make it
 useful, now we can make it fast and feature-complete!
 
+# How to cut a release
+
+## Publishing snapshot
+
+Make sure `~/.m2/settings.xml` contains records for the following:
+
+```
+    <server>
+      <id>apache.snapshots.https</id>
+      <username>username</username>
+      <password>password</password>
+    </server>
+    <server>
+      <id>apache.releases.https</id>
+      <username>username</username>
+      <password>password</password>
+    </server>
+```
+
+```
+mvn versions:set -DnewVersion=0.0.2-`git rev-parse --short HEAD`-SNAPSHOT
+mvn deploy
+```
+
+# Releasing
+
+1. Prepare the release:
+
+```
+mvn release:clean
+CURRENT=0.0.CURRENT
+NEXT_DEV=0.0.NEXT
+mvn -DreleaseVersion=$CURRENT -Dtag=$CURRENT -DdevelopmentVersion=$NEXT_DEV-SNAPSHOT release:prepare
+mvn release:perform
+```
+
+2. Close staging repository: https://repository.apache.org/#stagingRepositories
+3. Issue a vote on developers mailing list. Add your GPG key signature, release SHA, and staged artifacts to release information.
+
 # Contributors
 
   * [Alex Petrov](https://github.com/ifesdjeen)
