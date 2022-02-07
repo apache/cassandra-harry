@@ -38,7 +38,7 @@
 
     <groupId>org.apache.cassandra</groupId>
     <artifactId>harry-parent</artifactId>
-    <version>0.0.1</version>
+    <version>0.0.2-SNAPSHOT</version>
 
     <name>Harry</name>
 
