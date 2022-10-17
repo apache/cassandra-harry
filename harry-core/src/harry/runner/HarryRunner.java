@@ -35,11 +35,17 @@ public abstract class HarryRunner
 {
     public static final Logger logger = LoggerFactory.getLogger(HarryRunner.class);
 
+    protected final boolean localRun = Boolean.parseBoolean(System.getProperty("harry.local-run", "true"));
+    protected final String cassandraVersion = System.getProperty("harry.cassandra-version");
+    protected final long startedAt = Long.getLong("harry.start-time", System.currentTimeMillis());
+
     protected CompletableFuture<?> progress;
     protected ScheduledThreadPoolExecutor executor;
     public abstract void beforeRun(Runner.TimedRunner runner);
     public void afterRun(Runner runner, Object result)
     {
+        boolean success = !(result instanceof Throwable);
+
         executor.shutdown();
         try
         {

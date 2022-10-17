@@ -57,7 +57,7 @@ public class ParallelRecentValidator extends ParallelValidator<ParallelRecentVal
     {
         super(concurrency, triggerAfter, run);
         this.partitionCount = partitionCount;
-        this.queries = queries;
+        this.queries = Math.max(queries, 1);
         this.querySelector = new QueryGenerator.TypedQueryGenerator(run.rng,
                                                                     // TODO: make query kind configurable
                                                                     Surjections.enumValues(Query.QueryKind.class),
@@ -157,7 +157,7 @@ public class ParallelRecentValidator extends ParallelValidator<ParallelRecentVal
         {
             this.partition_count = partition_count;
             this.concurrency = concurrency;
-            this.queries = queries;
+            this.queries = Math.max(queries, 1);
             this.trigger_after = trigger_after;
             this.modelConfiguration = model;
         }

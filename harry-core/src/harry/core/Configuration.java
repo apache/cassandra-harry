@@ -65,6 +65,8 @@ public class Configuration
 {
     private static final ObjectMapper mapper;
 
+    private static final String DEFAULT_KEYSPACE = "harry";
+
     static
     {
         mapper = new ObjectMapper(new YAMLFactory()
@@ -220,34 +222,46 @@ public class Configuration
 
     public static Run createRun(Configuration snapshot)
     {
-        validate(snapshot);
+        SystemUnderTest sut = null;
+        try
+        {
+            validate(snapshot);
 
-        long seed = snapshot.seed;
+            long seed = snapshot.seed;
 
-        DataTracker tracker = snapshot.data_tracker == null ? new DefaultDataTrackerConfiguration().make() : snapshot.data_tracker.make();
-        OpSelectors.Rng rng = new OpSelectors.PCGFast(seed);
+            DataTracker tracker = snapshot.data_tracker == null ? new DefaultDataTrackerConfiguration().make() : snapshot.data_tracker.make();
+            OpSelectors.Rng rng = new OpSelectors.PCGFast(seed);
 
-        OpSelectors.MonotonicClock clock = snapshot.clock.make();
+            OpSelectors.MonotonicClock clock = snapshot.clock.make();
 
-        MetricReporter metricReporter = snapshot.metric_reporter.make();
+            MetricReporter metricReporter = snapshot.metric_reporter.make();
 
-        // TODO: validate that operation kind is compatible with schema, due to statics etc
-        SystemUnderTest sut = snapshot.system_under_test.make();
+            // TODO: validate that operation kind is compatible with schema, due to statics etc
+            sut = snapshot.system_under_test.make();
 
-        SchemaSpec schemaSpec = snapshot.schema_provider.make(seed, sut);
-        schemaSpec.validate();
+            SchemaSpec schemaSpec = snapshot.schema_provider.make(seed, sut);
+            schemaSpec.validate();
 
-        OpSelectors.PdSelector pdSelector = snapshot.partition_descriptor_selector.make(rng);
-        OpSelectors.DescriptorSelector descriptorSelector = snapshot.clustering_descriptor_selector.make(rng, schemaSpec);
+            OpSelectors.PdSelector pdSelector = snapshot.partition_descriptor_selector.make(rng);
+            OpSelectors.DescriptorSelector descriptorSelector = snapshot.clustering_descriptor_selector.make(rng, schemaSpec);
 
-        return new Run(rng,
-                       clock,
-                       pdSelector,
-                       descriptorSelector,
-                       schemaSpec,
-                       tracker,
-                       sut,
-                       metricReporter);
+            return new Run(rng,
+                           clock,
+                           pdSelector,
+                           descriptorSelector,
+                           schemaSpec,
+                           tracker,
+                           sut,
+                           metricReporter);
+        }
+        catch (Throwable t)
+        {
+            // Make sure to shut down all SUT threads if it has been started
+            if (sut != null) {
+                sut.shutdown();
+            }
+            throw t;
+        }
     }
 
     public static Runner createRunner(Configuration config)
@@ -1058,7 +1072,7 @@ public class Configuration
     {
         public SchemaSpec make(long seed, SystemUnderTest sut)
         {
-            return SchemaGenerators.defaultSchemaSpecGen("harry", "table0")
+            return SchemaGenerators.defaultSchemaSpecGen("table0")
                                    .inflate(seed);
         }
     }

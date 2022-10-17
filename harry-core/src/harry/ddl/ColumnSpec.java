@@ -318,6 +318,19 @@ public class ColumnSpec<T>
         }
     };
 
+    public static final DataType<UUID> timeUuidType = new DataType<UUID>("timeuuid")
+    {
+        public Bijections.Bijection<UUID> generator()
+        {
+            return Bijections.TIME_UUID_GENERATOR;
+        }
+
+        public int compareLexicographically(long l, long r)
+        {
+            throw new RuntimeException("UUID does not support custom comparators");
+        }
+    };
+
     public static final DataType<Date> timestampType = new DataType<Date>("timestamp")
     {
         public Bijections.Bijection<Date> generator()
@@ -342,6 +355,7 @@ public class ColumnSpec<T>
     ColumnSpec.asciiType,
     ColumnSpec.textType,
     ColumnSpec.uuidType,
+    ColumnSpec.timeUuidType,
     ColumnSpec.timestampType));
 
     public static class ReversedType<T> extends DataType<T>
@@ -356,6 +370,8 @@ public class ColumnSpec<T>
             put(floatType, new ReversedType<>(floatType, new Bijections.ReverseFloatGenerator()));
             put(doubleType, new ReversedType<>(doubleType, new Bijections.ReverseDoubleGenerator()));
             put(asciiType, new ReversedType<>(asciiType));
+            put(uuidType, new ReversedType<>(uuidType));
+            put(timeUuidType, new ReversedType<>(timeUuidType));
         }};
 
         private final DataType<T> baseType;
