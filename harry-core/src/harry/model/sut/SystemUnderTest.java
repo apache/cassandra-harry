@@ -42,14 +42,24 @@ public interface SystemUnderTest
         execute(statement, ConsistencyLevel.ALL, new Object[]{});
     }
 
+    Object[][] execute(String statement, ConsistencyLevel cl, Object... bindings);
+
     default Object[][] execute(CompiledStatement statement, ConsistencyLevel cl)
     {
         return execute(statement.cql(), cl, statement.bindings());
     }
 
-    Object[][] execute(String statement, ConsistencyLevel cl, Object... bindings);
+    default Object[][] executeIdempotent(String statement, ConsistencyLevel cl, Object... bindings)
+    {
+        return execute(statement, cl, bindings);
+    }
 
     CompletableFuture<Object[][]> executeAsync(String statement, ConsistencyLevel cl, Object... bindings);
+
+    default CompletableFuture<Object[][]> executeIdempotentAsync(String statement, ConsistencyLevel cl, Object... bindings)
+    {
+        return executeAsync(statement, cl, bindings);
+    }
 
     interface SystemUnderTestFactory
     {

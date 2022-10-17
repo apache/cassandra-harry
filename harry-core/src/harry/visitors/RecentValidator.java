@@ -64,7 +64,7 @@ public class RecentValidator implements Visitor
                            Model.ModelFactory modelFactory)
     {
         this.partitionCount = partitionCount;
-        this.queries = queries;
+        this.queries = Math.max(queries, 1);
         this.metricReporter = run.metricReporter;
         this.pdSelector = run.pdSelector;
         this.clock = run.clock;

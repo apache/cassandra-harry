@@ -69,6 +69,11 @@ public abstract class Runner
         return run;
     }
 
+    public int getErrorCount()
+    {
+        return errors.size();
+    }
+
     public void init()
     {
         if (config.create_schema)
@@ -114,8 +119,9 @@ public abstract class Runner
 
     protected void maybeReportErrors()
     {
-        if (!errors.isEmpty())
+        if (!errors.isEmpty()) {
             dumpStateToFile(run, config, errors);
+        }
     }
 
     public CompletableFuture<?> initAndStartAll()
@@ -327,6 +333,7 @@ public abstract class Runner
         public void shutdown() throws InterruptedException
         {
             logger.info("Shutting down...");
+
             shutDownVisitors();
 
             // we need to wait for all threads that use schema to stop before we can tear down and drop the table

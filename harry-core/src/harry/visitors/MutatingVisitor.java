@@ -87,7 +87,7 @@ public class MutatingVisitor extends GeneratingVisitor
             {
                 try
                 {
-                    future.get();
+                    future.get(10, TimeUnit.SECONDS);
                 }
                 catch (Throwable t)
                 {
@@ -162,7 +162,9 @@ public class MutatingVisitor extends GeneratingVisitor
                    if (t != null)
                    {
                        logger.error("Caught message while trying to execute " +  statement, t);
-                       executor.schedule(() -> executeAsyncWithRetries(future, statement, retries + 1), 1, TimeUnit.SECONDS);
+                       int delaySecs = 1;
+                       executor.schedule(() -> executeAsyncWithRetries(future, statement, retries + 1), delaySecs, TimeUnit.SECONDS);
+                       logger.info("Scheduled retry to happen with delay {} seconds", delaySecs);
                    }else
                        future.complete(res);
                });

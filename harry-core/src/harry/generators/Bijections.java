@@ -32,6 +32,7 @@ public class Bijections
     public static final Bijection<Boolean> BOOLEAN_GENERATOR = new BooleanGenerator();
 
     public static final Bijection<UUID> UUID_GENERATOR = new UUIDGenerator();
+    public static final TimeUUIDGenerator TIME_UUID_GENERATOR = new TimeUUIDGenerator();
     public static final Bijection<Date> TIMESTAMP_GENERATOR = new TimestampGenerator();
 
     /**
@@ -390,13 +391,45 @@ public class Bijections
 
         public int compare(long l, long r)
         {
-            return Byte.compare((byte) l, (byte) r);
+            return Long.compare(l, r);
         }
 
         public int byteSize()
         {
             return Long.BYTES;
         }
+    }
+
+    public static class TimeUUIDGenerator implements Bijection<UUID>
+    {
+        public UUID inflate(long current)
+        {
+            return new UUID(createTime(current), current);
+        }
+
+        public long deflate(UUID value)
+        {
+            return value.getLeastSignificantBits();
+        }
+
+        public int compare(long left, long right)
+        {
+            return Long.compare(left, right);
+        }
+
+        public int byteSize()
+        {
+            return Long.BYTES;
+        }
+
+        public static long createTime(long nanosSince)
+        {
+            long msb = nanosSince;
+            msb &= 0xffffffffffff10ffL; // sets the version to 1.
+            msb |= 0x0000000000001000L;
+            return msb;
+        }
+
     }
 
     public static class TimestampGenerator implements Bijection<Date>

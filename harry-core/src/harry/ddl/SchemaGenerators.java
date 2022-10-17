@@ -48,25 +48,30 @@ public class SchemaGenerators
 
     static
     {
-        partitionKeyTypes = Collections.unmodifiableList(Arrays.asList(ColumnSpec.int64Type,
+        partitionKeyTypes = Collections.unmodifiableList(Arrays.asList(ColumnSpec.int8Type,
+                                                                       ColumnSpec.int16Type,
+                                                                       ColumnSpec.int32Type,
+                                                                       ColumnSpec.int64Type,
+                                                                       ColumnSpec.floatType,
+                                                                       ColumnSpec.doubleType,
                                                                        ColumnSpec.asciiType,
-                                                                       ColumnSpec.asciiType(4, 5),
-                                                                       ColumnSpec.asciiType(4, 10)));
+                                                                       ColumnSpec.textType));
 
-        columnTypes = Collections.unmodifiableList(Arrays.asList(
-//        ColumnSpec.int8Type,
-//                                                                 ColumnSpec.int16Type,
-//                                                                 ColumnSpec.int32Type,
+        columnTypes = Collections.unmodifiableList(Arrays.asList(ColumnSpec.int8Type,
+                                                                 ColumnSpec.int16Type,
+                                                                 ColumnSpec.int32Type,
                                                                  ColumnSpec.int64Type,
+                                                                 ColumnSpec.booleanType,
+                                                                 ColumnSpec.floatType,
+                                                                 ColumnSpec.doubleType,
                                                                  ColumnSpec.asciiType,
-                                                                 ColumnSpec.asciiType(4, 256),
-                                                                 ColumnSpec.asciiType(4, 512)));
+                                                                 ColumnSpec.textType));
 
 
-        List<ColumnSpec.DataType<?>> builder = new ArrayList<>(columnTypes);
+        List<ColumnSpec.DataType<?>> builder = new ArrayList<>(partitionKeyTypes);
         Map<String, ColumnSpec.DataType<?>> mapBuilder = new HashMap<>();
 
-        for (ColumnSpec.DataType<?> columnType : columnTypes)
+        for (ColumnSpec.DataType<?> columnType : partitionKeyTypes)
         {
             ColumnSpec.DataType<?> reversedType = ColumnSpec.ReversedType.getInstance(columnType);
             builder.add(reversedType);
@@ -345,9 +350,9 @@ public class SchemaGenerators
         }
     }
 
-    public static Surjections.Surjection<SchemaSpec> defaultSchemaSpecGen(String ks, String table)
+    public static Surjections.Surjection<SchemaSpec> defaultSchemaSpecGen(String table)
     {
-        return new SchemaGenerators.Builder(ks, () -> table)
+        return new SchemaGenerators.Builder(DEFAULT_KEYSPACE_NAME, () -> table)
                .partitionKeySpec(1, 3,
                                  columnTypes)
                .clusteringKeySpec(1, 3,
@@ -372,7 +377,13 @@ public class SchemaGenerators
                .surjection();
     }
 
-    public static final String DEFAULT_KEYSPACE_NAME = "harry";
+    public static String DEFAULT_KEYSPACE_NAME = System.getProperty("harry.keyspace");
+    static {
+        if (DEFAULT_KEYSPACE_NAME == null || "".equals(DEFAULT_KEYSPACE_NAME))
+            DEFAULT_KEYSPACE_NAME = "harry";
+    }
+
+
     private static final String DEFAULT_PREFIX = "table_";
     private static final AtomicInteger counter = new AtomicInteger();
     private static final Supplier<String> tableNameSupplier = () -> DEFAULT_PREFIX + counter.getAndIncrement();
