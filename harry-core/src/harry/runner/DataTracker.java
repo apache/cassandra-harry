@@ -18,68 +18,49 @@
 
 package harry.runner;
 
-import java.util.ArrayList;
-import java.util.List;
 import java.util.function.LongConsumer;
 
 import harry.core.Configuration;
+import harry.ddl.SchemaSpec;
+import harry.model.OpSelectors;
 
-public abstract class DataTracker
+public interface DataTracker
 {
-    protected List<LongConsumer> onStarted = new ArrayList<>();
-    protected List<LongConsumer> onFinished = new ArrayList<>();
+    void onLtsStarted(LongConsumer onLts);
+    void onLtsFinished(LongConsumer onLts);
 
-    public void onLtsStarted(LongConsumer onLts)
+    void beginModification(long lts);
+    void endModification(long lts);
+
+    default void beginValidation(long pd) {}
+    default void endValidation(long pd) {}
+
+    long maxStarted();
+    boolean isFinished(long lts);
+
+    Configuration.DataTrackerConfiguration toConfig();
+
+    interface DataTrackerFactory
     {
-        this.onStarted.add(onLts);
+        DataTracker make(OpSelectors.PdSelector pdSelector, SchemaSpec schemaSpec);
     }
 
-    public void onLtsFinished(LongConsumer onLts)
-    {
-        this.onFinished.add(onLts);
-    }
+    DataTracker NO_OP = new NoOpDataTracker();
 
-    public void started(long lts)
-    {
-        startedInternal(lts);
-        for (LongConsumer consumer : onStarted)
-            consumer.accept(lts);
-    }
-
-    public void finished(long lts)
-    {
-        finishedInternal(lts);
-        for (LongConsumer consumer : onFinished)
-            consumer.accept(lts);
-    }
-
-    abstract void startedInternal(long lts);
-    abstract void finishedInternal(long lts);
-
-    public abstract long maxStarted();
-    public abstract long maxConsecutiveFinished();
-
-    public abstract Configuration.DataTrackerConfiguration toConfig();
-
-    public static interface DataTrackerFactory
-    {
-        DataTracker make();
-    }
-
-    public static final DataTracker NO_OP = new NoOpDataTracker();
-
-    public static class NoOpDataTracker extends DataTracker
+    class NoOpDataTracker implements DataTracker
     {
         private NoOpDataTracker() {}
 
-        protected void startedInternal(long lts) {}
-        protected void finishedInternal(long lts) {}
-        public long maxStarted() { return 0; }
-        public long maxConsecutiveFinished() { return 0; }
+        public void onLtsStarted(LongConsumer onLts){}
+        public void onLtsFinished(LongConsumer onLts){}
 
-        public Configuration.DataTrackerConfiguration toConfig()
-        {
-            return null;
-        }
+        public void beginModification(long lts){}
+        public void endModification(long lts){}
+
+        public long maxStarted() { return 0; }
+        public boolean isFinished(long lts) { return false; }
+
+        public Configuration.DataTrackerConfiguration toConfig(){ return null; }
     }
+
 }

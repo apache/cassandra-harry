@@ -21,6 +21,7 @@ package harry.data;
 import java.util.Arrays;
 
 import harry.ddl.SchemaSpec;
+import harry.util.StringUtils;
 
 public class ResultSetRow
 {
@@ -52,24 +53,11 @@ public class ResultSetRow
         return "resultSetRow("
                + pd +
                "L, " + cd +
-               (sds == null ? "" : "L, values(" + toString(sds) + ")") +
-               (slts == null ? "" : ", lts(" + toString(slts) + ")") +
-               ", values(" + toString(vds) + ")" +
-               ", lts(" + toString(lts) + ")" +
+               (sds == null ? "" : "L, values(" + StringUtils.toString(sds) + ")") +
+               (slts == null ? "" : ", lts(" + StringUtils.toString(slts) + ")") +
+               ", values(" + StringUtils.toString(vds) + ")" +
+               ", lts(" + StringUtils.toString(lts) + ")" +
                ")";
-    }
-
-    public String toString(long[] arr)
-    {
-        String s = "";
-        for (int i = 0; i < arr.length; i++)
-        {
-            s += arr[i];
-            s += "L";
-            if (i < (arr.length - 1))
-                s += ',';
-        }
-        return s;
     }
 
     public String toString(SchemaSpec schema)
@@ -77,10 +65,10 @@ public class ResultSetRow
         return "resultSetRow("
                + pd +
                "L, " + cd +
-               (sds == null ? "" : "L, staticValues(" + toString(sds) + ")") +
-               (slts == null ? "" : ", slts(" + toString(slts) + ")") +
-               ", values(" + toString(vds) + ")" +
-               ", lts(" + toString(lts) + ")" +
+               (sds == null ? "" : "L, staticValues(" + StringUtils.toString(sds) + ")") +
+               (slts == null ? "" : ", slts(" + StringUtils.toString(slts) + ")") +
+               ", values(" + StringUtils.toString(vds) + ")" +
+               ", lts(" + StringUtils.toString(lts) + ")" +
                ", clustering=" + Arrays.toString(schema.inflateClusteringKey(cd)) +
                ", values=" + Arrays.toString(schema.inflateRegularColumns(vds)) +
                (sds == null ? "" : ", statics=" + Arrays.toString(schema.inflateStaticColumns(sds))) +

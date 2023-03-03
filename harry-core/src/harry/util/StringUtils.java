@@ -16,17 +16,20 @@
  *  limitations under the License.
  */
 
-package harry.model;
+package harry.util;
 
-import org.junit.BeforeClass;
-
-import org.apache.cassandra.distributed.api.ICluster;
-
-// TODO: probably redundant
-public class TestBaseImpl extends org.apache.cassandra.distributed.test.TestBaseImpl
+public class StringUtils
 {
-    @BeforeClass
-    public static void beforeClass() throws Throwable {
-        ICluster.setup();
+    public static String toString(long[] arr)
+    {
+        String s = "";
+        for (int i = 0; i < arr.length; i++)
+        {
+            s += arr[i];
+            s += "L";
+            if (i < (arr.length - 1))
+                s += ',';
+        }
+        return s;
     }
 }

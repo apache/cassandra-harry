@@ -18,11 +18,9 @@
 
 package harry.model;
 
-import java.util.ArrayList;
 import java.util.EnumMap;
 import java.util.List;
 import java.util.Map;
-import java.util.function.LongConsumer;
 
 import harry.core.Configuration;
 import harry.core.VisibleForTesting;
@@ -124,6 +122,7 @@ public interface OpSelectors
 
         // TODO: right now, we can only calculate a position for 64-bit (in other words, full entropy) pds
         public abstract long positionFor(long lts);
+        public abstract long maxPosition(long maxLts);
     }
 
     public static interface PdSelectorFactory
@@ -298,8 +297,29 @@ public interface OpSelectors
 
         public long minLtsFor(long pd)
         {
-            long position = rng.sequenceNumber(pd, PARTITION_DESCRIPTOR_STREAM_ID);
+            long position = positionForPd(pd);
             return minLtsAt(position);
+        }
+
+        public long randomVisitedPd(long maxLts, long visitLts, SchemaSpec schema)
+        {
+            long maxPosition = maxPosition(maxLts);
+            if (maxPosition == 0)
+                return schema.adjustPdEntropy(rng.randomNumber(0, PARTITION_DESCRIPTOR_STREAM_ID));
+
+            int idx = RngUtils.asInt(rng.randomNumber(visitLts, maxPosition), 0, (int) (maxPosition - 1));
+            return schema.adjustPdEntropy(rng.randomNumber(idx, PARTITION_DESCRIPTOR_STREAM_ID));
+        }
+
+        public long maxPosition(long maxLts)
+        {
+            long timesCycled = maxLts / switchAfter;
+            long windowStart = timesCycled * windowSize;
+
+            // We have cycled through _current_ window at least once
+            if (maxLts > (windowStart * slideAfterRepeats) + windowSize)
+                return windowStart + windowSize;
+            return windowStart + maxLts % windowSize;
         }
 
         // TODO: add maxPosition to make it easier/more accessible for the components like sampler, etc

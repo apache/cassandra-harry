@@ -30,6 +30,9 @@ public class DataGeneratorsIntegrationTest extends CQLTester
     public void testTimestampTieResolution() throws Throwable
     {
         Random rng = new Random(1);
+        String ks = "test_timestamp_tie_resolution";
+        createKeyspace(String.format("CREATE KEYSPACE %s WITH replication = {'class': 'SimpleStrategy', 'replication_factor': 1}", ks));
+        int counter = 0;
         for (ColumnSpec.DataType<?> dataType : new ColumnSpec.DataType[]{ ColumnSpec.int8Type,
                                                                        ColumnSpec.int16Type,
                                                                        ColumnSpec.int32Type,
@@ -38,7 +41,11 @@ public class DataGeneratorsIntegrationTest extends CQLTester
                                                                        ColumnSpec.floatType,
                                                                        ColumnSpec.doubleType })
         {
-            createTable(String.format("CREATE TABLE %%s (pk int PRIMARY KEY, v %s)",
+
+
+            String tbl = "table_" + (counter++);
+            createTable(String.format("CREATE TABLE %s.%s (pk int PRIMARY KEY, v %s)",
+                                      ks, tbl,
                                       dataType.toString()));
             for (int i = 0; i < 10_000; i++)
             {
@@ -46,15 +53,15 @@ public class DataGeneratorsIntegrationTest extends CQLTester
                 long d2 = dataType.generator().adjustEntropyDomain(rng.nextLong());
                 for (long d : new long[]{ d1, d2 })
                 {
-                    execute("INSERT INTO %s (pk, v) VALUES (?,?) USING TIMESTAMP 1",
+                    execute(String.format("INSERT INTO %s.%s (pk, v) VALUES (?,?) USING TIMESTAMP 1", ks,tbl),
                             i, dataType.generator().inflate(d));
                 }
 
                 if (dataType.compareLexicographically(d1, d2) > 0)
-                    assertRows(execute("SELECT v FROM %s WHERE pk=?", i),
+                    assertRows(execute(String.format("SELECT v FROM %s.%s WHERE pk=?", ks, tbl), i),
                                row(dataType.generator().inflate(d1)));
                 else
-                    assertRows(execute("SELECT v FROM %s WHERE pk=?", i),
+                    assertRows(execute(String.format("SELECT v FROM %s.%s WHERE pk=?", ks, tbl), i),
                                row(dataType.generator().inflate(d2)));
             }
         }

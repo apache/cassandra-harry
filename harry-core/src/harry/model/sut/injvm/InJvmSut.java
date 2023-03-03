@@ -16,28 +16,20 @@
  *  limitations under the License.
  */
 
-package harry.runner;
+package harry.model.sut.injvm;
 
-import harry.core.Configuration;
-import harry.model.sut.InJvmSut;
+import org.apache.cassandra.distributed.api.ICluster;
+import org.apache.cassandra.distributed.api.IInvokableInstance;
 
-import java.io.File;
-
-public class HarryRunnerJvm extends HarryRunner {
-
-    public static void main(String[] args) throws Throwable {
-        InJvmSut.init();
-
-        HarryRunnerJvm runner = new HarryRunnerJvm();
-        File configFile = runner.loadConfig(args);
-
-        Configuration configuration = Configuration.fromFile(configFile);
-        runner.run(configuration);
+public class InJvmSut extends InJvmSutBase<IInvokableInstance, ICluster<IInvokableInstance>>
+{
+    public InJvmSut(ICluster<IInvokableInstance> cluster)
+    {
+        super(cluster, 10);
     }
 
-
-    @Override
-    public void beforeRun(Runner.TimedRunner runner) {
-
+    public InJvmSut(ICluster<IInvokableInstance> cluster, int threads)
+    {
+        super(cluster, threads);
     }
 }

@@ -35,9 +35,6 @@ clock:
     epoch_length: 1
     epoch_time_unit: "SECONDS"
 
-run_time: 2
-run_time_unit: "HOURS"
-
 # System under test: a Cassandra node or cluster. Default implementation is in_jvm (in-jvm DTest cluster).
 # Harry also supports external clusters.
 system_under_test:

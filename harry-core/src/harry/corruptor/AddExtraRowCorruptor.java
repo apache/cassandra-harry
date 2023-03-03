@@ -31,6 +31,7 @@ import harry.model.SelectHelper;
 import harry.model.sut.SystemUnderTest;
 import harry.operations.WriteHelper;
 import harry.operations.Query;
+import harry.runner.DataTracker;
 
 public class AddExtraRowCorruptor implements QueryResponseCorruptor
 {
@@ -38,34 +39,34 @@ public class AddExtraRowCorruptor implements QueryResponseCorruptor
 
     private final SchemaSpec schema;
     private final OpSelectors.MonotonicClock clock;
+    private final DataTracker tracker;
     private final OpSelectors.DescriptorSelector descriptorSelector;
 
     public AddExtraRowCorruptor(SchemaSpec schema,
                                 OpSelectors.MonotonicClock clock,
+                                DataTracker tracker,
                                 OpSelectors.DescriptorSelector descriptorSelector)
     {
         this.schema = schema;
         this.clock = clock;
+        this.tracker = tracker;
         this.descriptorSelector = descriptorSelector;
     }
 
     public boolean maybeCorrupt(Query query, SystemUnderTest sut)
     {
         Set<Long> cds = new HashSet<>();
-        long maxLts = 0;
+        long maxLts = tracker.maxStarted();
         for (Object[] obj : sut.execute(query.toSelectStatement(), SystemUnderTest.ConsistencyLevel.ALL))
         {
             ResultSetRow row = SelectHelper.resultSetToRow(schema, clock, obj);
             // TODO: extract CD cheaper
             cds.add(row.cd);
-            for (int i = 0; i < row.lts.length; i++)
-                maxLts = Math.max(maxLts, row.lts[i]);
         }
-
         boolean partitionIsFull = cds.size() >= descriptorSelector.maxPartitionSize();
 
         long attempt = 0;
-        long cd = descriptorSelector.randomCd(query.pd, attempt, schema);;
+        long cd = descriptorSelector.randomCd(query.pd, attempt, schema);
         while (!query.match(cd) || cds.contains(cd))
         {
             if (partitionIsFull)

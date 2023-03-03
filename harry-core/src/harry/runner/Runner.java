@@ -24,25 +24,33 @@ import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.OutputStreamWriter;
 import java.util.ArrayList;
-import java.util.Collection;
+import java.util.Arrays;
+import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
-import java.util.concurrent.CompletableFuture;
+import java.util.Map;
 import java.util.concurrent.CopyOnWriteArrayList;
-import java.util.concurrent.Executors;
-import java.util.concurrent.ScheduledExecutorService;
-import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.concurrent.atomic.AtomicInteger;
-import java.util.function.BooleanSupplier;
+import java.util.function.Consumer;
+import java.util.function.Supplier;
 import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import harry.concurrent.ExecutorFactory;
+import harry.concurrent.Interruptible;
+import harry.concurrent.Shutdownable;
+import harry.concurrent.WaitQueue;
 import harry.core.Configuration;
 import harry.core.Run;
 import harry.visitors.Visitor;
+
+import static harry.concurrent.Clock.Global.nanoTime;
+import static harry.concurrent.InfiniteLoopExecutor.Daemon.NON_DAEMON;
+import static harry.concurrent.InfiniteLoopExecutor.Interrupts.UNSYNCHRONIZED;
+import static harry.concurrent.InfiniteLoopExecutor.SimulatorSafe.SAFE;
 
 public abstract class Runner
 {
@@ -50,31 +58,33 @@ public abstract class Runner
 
     protected final Run run;
     protected final Configuration config;
-    protected final ScheduledExecutorService executor;
 
     // If there's an error, there's a good chance we're going to hit it more than once
     // since we have multiple concurrent checkers running
-    protected final CopyOnWriteArrayList<Throwable> errors;
+    protected final List<Throwable> errors;
 
-    public Runner(Run run, Configuration config, int concurrency)
+    public Runner(Run run, Configuration config)
     {
         this.run = run;
         this.config = config;
         this.errors = new CopyOnWriteArrayList<>();
-        this.executor = Executors.newScheduledThreadPool(concurrency);
     }
+
+    public void run() throws Throwable
+    {
+        init(config, run);
+        runInternal();
+        teardown();
+    }
+
+    protected abstract void runInternal() throws Throwable;
 
     public Run getRun()
     {
         return run;
     }
 
-    public int getErrorCount()
-    {
-        return errors.size();
-    }
-
-    public void init()
+    public static void init(Configuration config, Run run)
     {
         if (config.create_schema)
         {
@@ -124,51 +134,8 @@ public abstract class Runner
         }
     }
 
-    public CompletableFuture<?> initAndStartAll()
-    {
-        init();
-        return start();
-    }
-
     public abstract String type();
         
-    public abstract void shutdown() throws InterruptedException;
-    
-    protected CompletableFuture<?> start()
-    {
-        return start(true, () -> false);
-    }
-    
-    protected abstract void shutDownVisitors();
-
-    @SuppressWarnings("ResultOfMethodCallIgnored")
-    protected void shutDownExecutors() throws InterruptedException
-    {
-        executor.shutdownNow();
-        executor.awaitTermination(1, TimeUnit.MINUTES);
-    }
-    
-    protected abstract CompletableFuture<?> start(boolean reportErrors, BooleanSupplier parentExit);
-
-    protected Runnable reportThrowable(Runnable runnable, CompletableFuture<?> future)
-    {
-        return () ->
-        {
-            try
-            {
-                if (!future.isDone())
-                    runnable.run();
-            }
-            catch (Throwable t)
-            {
-                errors.add(t);
-                
-                if (!future.isDone())
-                    future.completeExceptionally(t);
-            }
-        };
-    }
-
     public interface RunnerFactory
     {
         Runner make(Run run, Configuration config);
@@ -178,39 +145,19 @@ public abstract class Runner
     {
         public final long runtime;
         public final TimeUnit runtimeUnit;
-        
-        protected final ScheduledExecutorService shutdownExecutor;
 
-        public TimedRunner(Run run, Configuration config, int concurrency, long runtime, TimeUnit runtimeUnit)
+        public TimedRunner(Run run, Configuration config, long runtime, TimeUnit runtimeUnit)
         {
-            super(run, config, concurrency);
+            super(run, config);
 
-            this.shutdownExecutor = Executors.newSingleThreadScheduledExecutor();
             this.runtime = runtime;
             this.runtimeUnit = runtimeUnit;
         }
+    }
 
-        protected ScheduledFuture<?> scheduleTermination(AtomicBoolean terminated)
-        {
-            return shutdownExecutor.schedule(() ->
-                                             {
-                                                 logger.info("Runner has reached configured runtime. Stopping...");
-                                                 // TODO: wait for the last full validation?
-                                                 terminated.set(true);
-                                             },
-                                             runtime,
-                                             runtimeUnit);
-        }
-
-        @Override
-        @SuppressWarnings("ResultOfMethodCallIgnored")
-        protected void shutDownExecutors() throws InterruptedException
-        {
-            shutdownExecutor.shutdownNow();
-            shutdownExecutor.awaitTermination(1, TimeUnit.MINUTES);
-            executor.shutdownNow();
-            executor.awaitTermination(1, TimeUnit.MINUTES);
-        }
+    public static Configuration.RunnerConfiguration single(Visitor.VisitorFactory visitor)
+    {
+        return (run, config) -> new SingleVisitRunner(run, config, Collections.singletonList(visitor));
     }
 
     public static class SingleVisitRunner extends Runner
@@ -218,10 +165,10 @@ public abstract class Runner
         private final List<Visitor> visitors;
 
         public SingleVisitRunner(Run run,
-                                Configuration config,
-                                List<? extends Visitor.VisitorFactory> visitorFactories)
+                                 Configuration config,
+                                 List<? extends Visitor.VisitorFactory> visitorFactories)
         {
-            super(run, config, 1);
+            super(run, config);
             this.visitors = visitorFactories.stream().map(factory -> factory.make(run)).collect(Collectors.toList());
         }
 
@@ -231,50 +178,30 @@ public abstract class Runner
             return "single";
         }
 
-        @Override
-        protected CompletableFuture<?> start(boolean reportErrors, BooleanSupplier parentExit)
+        public void runInternal()
         {
-            CompletableFuture<?> future = new CompletableFuture<>();
-
-            if (reportErrors)
-                future.whenComplete((a, b) -> maybeReportErrors());
-
-            executor.submit(reportThrowable(() -> run(visitors, future, parentExit), future));
-            return future;
-        }
-
-        private void run(List<Visitor> visitors, CompletableFuture<?> future, BooleanSupplier parentExit)
-        {
-            for (Visitor value: visitors)
-            {
-                if (parentExit.getAsBoolean())
-                    break;
-
+            for (Visitor value : visitors)
                 value.visit();
-            }
-
-            future.complete(null);
-        }
-
-        @Override
-        public void shutdown() throws InterruptedException
-        {
-            logger.info("Shutting down...");
-            shutDownVisitors();
-
-            // we need to wait for all threads that use schema to stop before we can tear down and drop the table
-            shutDownExecutors();
-
-            teardown();
-        }
-
-        @Override
-        protected void shutDownVisitors()
-        {
-            shutDownVisitors(visitors);
         }
     }
 
+    public static Configuration.RunnerConfiguration sequential(Visitor.VisitorFactory visitor,
+                                                               long runtime, TimeUnit runtimeUnit)
+    {
+        return (r, c) -> new SequentialRunner(r, c, Collections.singletonList(visitor), runtime, runtimeUnit);
+    }
+
+    public static Runner sequential(Run run,
+                                    Configuration config,
+                                    List<Visitor.VisitorFactory> poolConfigurations,
+                                    long runtime, TimeUnit runtimeUnit)
+    {
+        return new SequentialRunner(run, config, poolConfigurations, runtime, runtimeUnit);
+    }
+
+    /**
+     * Runs all visitors sequentially, in the loop, for a specified amount of time
+     */
     public static class SequentialRunner extends TimedRunner
     {
         protected final List<Visitor> visitors;
@@ -284,7 +211,7 @@ public abstract class Runner
                                 List<? extends Visitor.VisitorFactory> visitorFactories,
                                 long runtime, TimeUnit runtimeUnit)
         {
-            super(run, config, 1, runtime, runtimeUnit);
+            super(run, config, runtime, runtimeUnit);
 
             this.visitors = visitorFactories.stream().map(factory -> factory.make(run)).collect(Collectors.toList());
         }
@@ -296,85 +223,38 @@ public abstract class Runner
         }
 
         @Override
-        protected CompletableFuture<?> start(boolean reportErrors, BooleanSupplier parentExit)
+        public void runInternal() throws Throwable
         {
-            CompletableFuture<?> future = new CompletableFuture<>();
-            
-            if (reportErrors)
-                future.whenComplete((a, b) -> maybeReportErrors());
-
-            AtomicBoolean terminated = new AtomicBoolean(false);
-            scheduleTermination(terminated);
-            BooleanSupplier exit = () -> Thread.currentThread().isInterrupted() || future.isDone() 
-                                         || terminated.get() || parentExit.getAsBoolean();
-
-            executor.submit(reportThrowable(() -> run(visitors, future, exit), future));
-            return future;
-        }
-
-        protected void run(List<Visitor> visitors,
-                           CompletableFuture<?> future,
-                           BooleanSupplier exit)
-        {
-            while (!exit.getAsBoolean())
+            long deadline = nanoTime() + runtimeUnit.toNanos(runtime);;
+            while (nanoTime() < deadline)
             {
-                for (Visitor visitor: visitors)
-                {
-                    if (exit.getAsBoolean())
-                        break;
+                for (Visitor visitor : visitors)
                     visitor.visit();
-                }
             }
-
-            future.complete(null);
-        }
-
-        @Override
-        public void shutdown() throws InterruptedException
-        {
-            logger.info("Shutting down...");
-
-            shutDownVisitors();
-
-            // we need to wait for all threads that use schema to stop before we can tear down and drop the table
-            shutDownExecutors();
-            
-            teardown();
-        }
-
-        @Override
-        protected void shutDownVisitors()
-        {
-            shutDownVisitors(visitors);
         }
     }
 
-    // TODO: this requires some significant improvement
+    public static Runner concurrent(Configuration config,
+                                    List<Configuration.VisitorPoolConfiguration> poolConfigurations,
+                                    long runtime, TimeUnit runtimeUnit)
+    {
+        return new ConcurrentRunner(config.createRun(), config, poolConfigurations, runtime, runtimeUnit);
+    }
+
+    /**
+     * Runs all visitors concurrently, each visitor in its own thread, looped, for a specified amount of time
+     */
     public static class ConcurrentRunner extends TimedRunner
     {
-        private final List<List<Visitor>> perThreadVisitors;
-        private final int concurrency;
+        private final List<Configuration.VisitorPoolConfiguration> poolConfigurations;
 
         public ConcurrentRunner(Run run,
                                 Configuration config,
-                                int concurrency,
-                                List<? extends Visitor.VisitorFactory> visitorFactories,
+                                List<Configuration.VisitorPoolConfiguration> poolConfigurations,
                                 long runtime, TimeUnit runtimeUnit)
         {
-            super(run, config, concurrency, runtime, runtimeUnit);
-
-            this.concurrency = concurrency;
-            this.perThreadVisitors = new ArrayList<>(concurrency);
-
-            for (int i = 0; i < concurrency; i++)
-            {
-                List<Visitor> visitors = new ArrayList<>();
-
-                for (Visitor.VisitorFactory factory : visitorFactories)
-                    visitors.add(factory.make(run));
-
-                perThreadVisitors.add(visitors);
-            }
+            super(run, config, runtime, runtimeUnit);
+            this.poolConfigurations = poolConfigurations;
         }
 
         @Override
@@ -383,93 +263,122 @@ public abstract class Runner
             return "concurrent";
         }
 
-        @Override
-        protected CompletableFuture<?> start(boolean reportErrors, BooleanSupplier parentExit)
+        public void runInternal() throws Throwable
         {
-            CompletableFuture<?> future = new CompletableFuture<>();
-            
-            if (reportErrors)
-                future.whenComplete((a, b) -> maybeReportErrors());
+            List<Interruptible> threads = new ArrayList<>();
+            WaitQueue queue = WaitQueue.newWaitQueue();
+            WaitQueue.Signal interrupt = queue.register();
 
-            AtomicBoolean terminated = new AtomicBoolean(false);
-            scheduleTermination(terminated);
-            BooleanSupplier exit = () -> Thread.currentThread().isInterrupted() || future.isDone() 
-                                         || terminated.get() || parentExit.getAsBoolean();
-            
-            AtomicInteger liveCount = new AtomicInteger(0);
-            
-            for (int i = 0; i < concurrency; i++)
+            for (Configuration.VisitorPoolConfiguration poolConfiguration : poolConfigurations)
             {
-                List<Visitor> visitors = perThreadVisitors.get(i);
-                executor.submit(reportThrowable(() -> run(visitors, future, exit, liveCount), future));
-            }
-
-            return future;
-        }
-
-        private void run(List<Visitor> visitors,
-                         CompletableFuture<?> future,
-                         BooleanSupplier exit,
-                         AtomicInteger liveCount)
-        {
-            liveCount.incrementAndGet();
-            
-            while (!exit.getAsBoolean())
-            {
-                for (Visitor visitor : visitors)
+                for (int i = 0; i < poolConfiguration.concurrency; i++)
                 {
-                    if (exit.getAsBoolean())
-                        break;
-
-                    visitor.visit();
+                    Visitor visitor = poolConfiguration.visitor.make(run);
+                    String name = String.format("%s-%d", poolConfiguration.prefix, i + 1);
+                    Interruptible thread = ExecutorFactory.Global.executorFactory().infiniteLoop(name, wrapInterrupt((state) -> {
+                        if (state == Interruptible.State.NORMAL)
+                            visitor.visit();
+                    }, interrupt::signal, errors::add), SAFE, NON_DAEMON, UNSYNCHRONIZED);
+                    threads.add(thread);
                 }
             }
-            
-            // If we're the last worker still running, complete the future....
-            if (liveCount.decrementAndGet() == 0)
-                future.complete(null);
-        }
 
-        @Override
-        public void shutdown() throws InterruptedException
-        {
-            logger.info("Shutting down...");
-            shutDownVisitors();
-
-            // we need to wait for all threads that use schema to stop before we can tear down and drop the table
-            shutDownExecutors();
-
-            teardown();
-        }
-
-        @Override
-        protected void shutDownVisitors()
-        {
-            shutDownVisitors(perThreadVisitors.stream().flatMap(Collection::stream).collect(Collectors.toList()));
+            interrupt.await(runtime, runtimeUnit);
+            shutdown(threads::stream);
+            if (!errors.isEmpty())
+                throw merge(errors);
         }
     }
 
-    protected static void shutDownVisitors(List<Visitor> visitors)
+    public static Runner chain(Configuration config,
+                               Configuration.RunnerConfiguration... runners)
     {
-        Throwable error = null;
-        
-        for (Visitor visitor : visitors)
+        return new ChainRunner(config.createRun(), config, Arrays.asList(runners));
+    }
+
+    /**
+     * Chain runner is somewhat similar to StagedRunner in that it would execute multiple runners one after
+     * another, but unlike StagedRunner, it is single-shot: it will just run them once.
+     */
+    public static class ChainRunner extends Runner
+    {
+        private final List<Runner> stages;
+
+        public ChainRunner(Run run,
+                           Configuration config,
+                           List<Configuration.RunnerConfiguration> runnerFactories)
         {
+            super(run, config);
+            this.stages = new ArrayList<>();
+            for (Configuration.RunnerConfiguration runner : runnerFactories)
+                stages.add(runner.make(run, config));
+        }
+
+        protected void runInternal() throws Throwable
+        {
+            for (Runner stage : stages)
+                stage.runInternal();
+        }
+
+        public String type()
+        {
+            return "chain";
+        }
+    }
+
+    public static void shutdown(Supplier<Stream<Interruptible>> threads)
+    {
+        threads.get().forEach(Shutdownable::shutdown);
+        threads.get().forEach((interruptible) -> {
             try
             {
-                visitor.shutdown();
+                if (!interruptible.awaitTermination(60, TimeUnit.SECONDS))
+                    logger.info("Could not terminate before the timeout: " + threads.get().map(Shutdownable::isTerminated).collect(Collectors.toList()));
             }
             catch (InterruptedException e)
             {
-                if (error != null)
-                    error.addSuppressed(e);
-                else
-                    error = e;
+                throw new RuntimeException(e);
             }
+        });
+
+    }
+
+    public static Interruptible.Task wrapInterrupt(Interruptible.Task runnable, Runnable signalStop, Consumer<Throwable> registerException)
+    {
+        return (state) -> {
+            try
+            {
+                runnable.run(state);
+            }
+            catch (InterruptedException t)
+            {
+                signalStop.run();
+            }
+            catch (Throwable t)
+            {
+                // Since some of the exceptions are thrown from inside instances
+                if (!t.getClass().toString().contains("InterruptedException"))
+                    registerException.accept(t);
+                signalStop.run();
+            }
+        };
+    }
+
+    public static Throwable merge(List<Throwable> existingFail)
+    {
+        if (existingFail.size() == 1)
+            return existingFail.get(0);
+
+        Throwable e = existingFail.get(0);
+        Throwable ret = e;
+        for (int i = 1; i < existingFail.size(); i++)
+        {
+            Throwable current = existingFail.get(i);
+            e.addSuppressed(current);
+            e = current;
         }
-        
-        if (error != null)
-            logger.warn("Failed to shut down all visitors!", error);
+
+        return ret;
     }
 
     private static void dumpExceptionToFile(BufferedWriter bw, Throwable throwable) throws IOException
@@ -496,7 +405,7 @@ public abstract class Runner
         bw.newLine();
     }
 
-    private static void dumpStateToFile(Run run, Configuration config, List<Throwable> t)
+    public static void dumpStateToFile(Run run, Configuration config, List<Throwable> t)
     {
         try
         {
@@ -518,12 +427,9 @@ public abstract class Runner
             builder.setClock(run.clock.toConfig());
             builder.setDataTracker(run.tracker.toConfig());
 
-            try (BufferedWriter bw = new BufferedWriter(new OutputStreamWriter(new FileOutputStream(file))))
-            {
-                bw.write(Configuration.toYamlString(builder.build()));
-                bw.flush();
-            }
+            Configuration.toFile(file, builder.build());
         }
+
         catch (Throwable e)
         {
             logger.error("Caught an error while trying to dump to file", e);

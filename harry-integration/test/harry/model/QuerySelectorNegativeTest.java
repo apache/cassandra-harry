@@ -78,6 +78,7 @@ public class QuerySelectorNegativeTest extends IntegrationTestBase
                                                                        HideRowCorruptor::new),
                              (run) -> new AddExtraRowCorruptor(run.schemaSpec,
                                                                run.clock,
+                                                               run.tracker,
                                                                run.descriptorSelector)
         );
     }
