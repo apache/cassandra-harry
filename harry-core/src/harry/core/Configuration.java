@@ -61,8 +61,9 @@ import harry.visitors.LoggingVisitor;
 import harry.visitors.MutatingVisitor;
 import harry.visitors.MutatingRowVisitor;
 import harry.visitors.OperationExecutor;
-import harry.visitors.Visitor;
 import harry.visitors.RecentValidator;
+import harry.visitors.Visitor;
+import harry.visitors.RandomValidator;
 import harry.runner.Runner;
 import harry.util.BitSet;
 import org.reflections.Reflections;
@@ -291,7 +292,7 @@ public class Configuration
         DataTrackerConfiguration data_tracker = new DefaultDataTrackerConfiguration();
         RunnerConfiguration runner;
         SutConfiguration system_under_test;
-        PDSelectorConfiguration partition_descriptor_selector = new Configuration.DefaultPDSelectorConfiguration(10, 100);
+        PDSelectorConfiguration partition_descriptor_selector = new Configuration.DefaultPDSelectorConfiguration(10, 100, 0);
         CDSelectorConfiguration clustering_descriptor_selector; // TODO: sensible default value
 
         public ConfigurationBuilder setSeed(long seed)
@@ -719,18 +720,30 @@ public class Configuration
     {
         public final int window_size;
         public final int slide_after_repeats;
+        public final long position_offset;
 
-        @JsonCreator
-        public DefaultPDSelectorConfiguration(@JsonProperty(value = "window_size", defaultValue = "10") int window_size,
-                                              @JsonProperty(value = "slide_after_repeats", defaultValue = "100") int slide_after_repeats)
+        @Deprecated
+        public DefaultPDSelectorConfiguration(int window_size,
+                                              int slide_after_repeats)
         {
             this.window_size = window_size;
             this.slide_after_repeats = slide_after_repeats;
+            this.position_offset = 0L;
+        }
+
+        @JsonCreator
+        public DefaultPDSelectorConfiguration(@JsonProperty(value = "window_size", defaultValue = "10") int window_size,
+                                              @JsonProperty(value = "slide_after_repeats", defaultValue = "100") int slide_after_repeats,
+                                              @JsonProperty(value = "position_offset", defaultValue = "0") long position_offset)
+        {
+            this.window_size = window_size;
+            this.slide_after_repeats = slide_after_repeats;
+            this.position_offset = position_offset;
         }
 
         public OpSelectors.PdSelector make(OpSelectors.Rng rng)
         {
-            return new OpSelectors.DefaultPdSelector(rng, window_size, slide_after_repeats);
+            return new OpSelectors.DefaultPdSelector(rng, window_size, slide_after_repeats, position_offset);
         }
     }
 
@@ -1083,27 +1096,49 @@ public class Configuration
     public static class RecentPartitionsValidatorConfiguration implements VisitorConfiguration
     {
         public final int partition_count;
-        public final int trigger_after;
         public final int queries;
         public final Configuration.ModelConfiguration modelConfiguration;
 
         // TODO: make query selector configurable
         @JsonCreator
         public RecentPartitionsValidatorConfiguration(@JsonProperty("partition_count") int partition_count,
-                                                      @JsonProperty("trigger_after") int trigger_after,
                                                       @JsonProperty("queries_per_partition") int queries,
                                                       @JsonProperty("model") Configuration.ModelConfiguration model)
         {
             this.partition_count = partition_count;
             this.queries = queries;
-            this.trigger_after = trigger_after;
             this.modelConfiguration = model;
         }
 
         @Override
         public Visitor make(Run run)
         {
-            return new RecentValidator(partition_count, queries, trigger_after, run, modelConfiguration);
+            return new RecentValidator(partition_count, queries, run, modelConfiguration);
+        }
+    }
+
+    @JsonTypeName("validate_random_partitions")
+    public static class RandomPartitionValidatorConfiguration implements VisitorConfiguration
+    {
+        public final int partition_count;
+        public final int queries;
+        public final Configuration.ModelConfiguration modelConfiguration;
+
+        // TODO: make query selector configurable
+        @JsonCreator
+        public RandomPartitionValidatorConfiguration(@JsonProperty("partition_count") int partition_count,
+                                                     @JsonProperty("queries_per_partition") int queries,
+                                                     @JsonProperty("model") Configuration.ModelConfiguration model)
+        {
+            this.partition_count = partition_count;
+            this.queries = queries;
+            this.modelConfiguration = model;
+        }
+
+        @Override
+        public Visitor make(Run run)
+        {
+            return new RandomValidator(partition_count, queries, run, modelConfiguration);
         }
     }
 

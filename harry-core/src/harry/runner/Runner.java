@@ -31,6 +31,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Consumer;
 import java.util.function.Supplier;
 import java.util.stream.Collectors;
@@ -275,9 +276,13 @@ public abstract class Runner
                 {
                     Visitor visitor = poolConfiguration.visitor.make(run);
                     String name = String.format("%s-%d", poolConfiguration.prefix, i + 1);
+                    AtomicLong counter = new AtomicLong();
                     Interruptible thread = ExecutorFactory.Global.executorFactory().infiniteLoop(name, wrapInterrupt((state) -> {
                         if (state == Interruptible.State.NORMAL)
                             visitor.visit();
+                        long cnt = counter.incrementAndGet();
+                        if (cnt % 1000 == 0)
+                            logger.info("Visitor {} has cycled {} times", name, cnt);
                     }, interrupt::signal, errors::add), SAFE, NON_DAEMON, UNSYNCHRONIZED);
                     threads.add(thread);
                 }

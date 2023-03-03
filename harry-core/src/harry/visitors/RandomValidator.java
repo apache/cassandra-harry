@@ -24,9 +24,7 @@ import java.io.FileNotFoundException;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.OutputStreamWriter;
-import java.util.HashSet;
-import java.util.Set;
-import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.Random;
 import java.util.concurrent.atomic.AtomicLong;
 
 import org.slf4j.Logger;
@@ -34,16 +32,17 @@ import org.slf4j.LoggerFactory;
 
 import harry.core.MetricReporter;
 import harry.core.Run;
+import harry.generators.RngUtils;
 import harry.generators.Surjections;
 import harry.model.Model;
 import harry.model.OpSelectors;
 import harry.operations.Query;
 import harry.operations.QueryGenerator;
 
-public class RecentValidator implements Visitor
+public class RandomValidator implements Visitor
 {
     private final BufferedWriter validationLog;
-    private static final Logger logger = LoggerFactory.getLogger(RecentValidator.class);
+    private static final Logger logger = LoggerFactory.getLogger(RandomValidator.class);
     private final Model model;
 
     private final OpSelectors.PdSelector pdSelector;
@@ -54,7 +53,7 @@ public class RecentValidator implements Visitor
     private final int partitionCount;
     private final int queries;
 
-    public RecentValidator(int partitionCount,
+    public RandomValidator(int partitionCount,
                            int queries,
                            Run run,
                            Model.ModelFactory modelFactory)
@@ -65,8 +64,7 @@ public class RecentValidator implements Visitor
         this.pdSelector = run.pdSelector;
         this.clock = run.clock;
         this.querySelector = new QueryGenerator.TypedQueryGenerator(run.rng,
-                                                                    // TODO: make query kind configurable
-                                                                    Surjections.enumValues(Query.QueryKind.class),
+                                                                    Surjections.pick(Query.QueryKind.SINGLE_PARTITION),
                                                                     run.rangeSelector);
         this.model = modelFactory.make(run);
         File f = new File("validation.log");
@@ -81,37 +79,33 @@ public class RecentValidator implements Visitor
     }
 
     // TODO: expose metric, how many times validated recent partitions
-    private int validateRecentPartitions()
+    private int validateRandomPartitions()
     {
-        long pos = pdSelector.maxPosition(clock.peek());
+        Random rng = new Random();
+        long maxPos = pdSelector.maxPosition(clock.peek());
 
-        int maxPartitions = partitionCount;
-        while (pos >= 0 && maxPartitions > 0 && !Thread.currentThread().isInterrupted())
+        int cnt = 0;
+        for (int i = 0; i < partitionCount && !Thread.currentThread().isInterrupted(); i++)
         {
+            metricReporter.validateRandomQuery();
+            long pos = RngUtils.trim(rng.nextLong(), maxPos);
             long visitLts = pdSelector.minLtsAt(pos);
-            for (int i = 0; i < queries; i++)
+            for (int j = 0; j < queries && !Thread.currentThread().isInterrupted(); j++)
             {
-                metricReporter.validateRandomQuery();
-                Query query = querySelector.inflate(visitLts, i);
-                // TODO: add pd skipping from shrinker here, too
-                log(i, query);
+                Query query = querySelector.inflate(visitLts, cnt);
+                log(j, query);
                 model.validate(query);
+                cnt++;
             }
-
-            pos--;
-            maxPartitions--;
         }
-        
-        return partitionCount - maxPartitions;
+
+        return partitionCount;
     }
 
     @Override
     public void visit()
     {
-        long lts = clock.peek();
-        logger.info("Validating (up to) {} recent partitions as of lts {}...", partitionCount, lts);
-        int count = validateRecentPartitions();
-        logger.info("...finished validating {} recent partitions as of lts {}.", count, lts);
+        validateRandomPartitions();
     }
 
     private void log(int modifier, Query query)
