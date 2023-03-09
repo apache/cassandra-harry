@@ -20,19 +20,13 @@ package harry.reconciler;
 
 import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.Collection;
-import java.util.Iterator;
 import java.util.List;
-import java.util.Map;
-import java.util.NavigableMap;
-import java.util.TreeMap;
 import java.util.function.Function;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import harry.core.Run;
-import harry.ddl.ColumnSpec;
 import harry.ddl.SchemaSpec;
 import harry.model.OpSelectors;
 import harry.operations.Query;
@@ -47,8 +41,6 @@ import harry.visitors.ReplayingVisitor;
 import harry.visitors.VisitExecutor;
 
 import static harry.generators.DataGenerators.NIL_DESCR;
-import static harry.generators.DataGenerators.UNSET_DESCR;
-import static harry.model.Model.NO_TIMESTAMP;
 
 /**
  * A simple Cassandra-style reconciler for operations against model state.
@@ -62,7 +54,7 @@ public class Reconciler
 {
     private static final Logger logger = LoggerFactory.getLogger(Reconciler.class);
 
-    private static long STATIC_CLUSTERING = NIL_DESCR;
+    public static long STATIC_CLUSTERING = NIL_DESCR;
 
     private final OpSelectors.DescriptorSelector descriptorSelector;
     private final OpSelectors.PdSelector pdSelector;
@@ -86,11 +78,11 @@ public class Reconciler
         this.visitorFactory = ltsVisitorFactory;
     }
 
-    private final long debugCd = Long.getLong("debug_cd", -1L);
+    private final long debugCd = Long.getLong("harry.reconciler.debug_cd", -1L);
 
     public PartitionState inflatePartitionState(final long pd, DataTracker tracker, Query query)
     {
-        PartitionState partitionState = new PartitionState(pd);
+        PartitionState partitionState = new PartitionState(pd, debugCd, schema);
 
         class Processor extends VisitExecutor
         {
@@ -139,7 +131,6 @@ public class Reconciler
                     case UPDATE_WITH_STATICS:
                         if (debugCd != -1 && cd == debugCd)
                             logger.info("Writing {} ({}) at {}/{}", cd, opType, lts, opId);
-                        // TODO: switch to Operation as an entity that can just be passed here
                         writes.add(new ReplayingVisitor.Operation(cd, opId, opType));
                         break;
                     case DELETE_COLUMN_WITH_STATICS:
@@ -272,219 +263,7 @@ public class Reconciler
 
         return partitionState;
     }
-
-    public class PartitionState implements Iterable<RowState>
-    {
-        private final long pd;
-        private final NavigableMap<Long, RowState> rows;
-        private RowState staticRow;
-
-        private PartitionState(long pd)
-        {
-            this.pd = pd;
-            rows = new TreeMap<>();
-            if (!schema.staticColumns.isEmpty())
-            {
-                staticRow = new RowState(this,
-                                         STATIC_CLUSTERING,
-                                         arr(schema.staticColumns.size(), NIL_DESCR),
-                                         arr(schema.staticColumns.size(), NO_TIMESTAMP));
-            }
-        }
-
-        private void writeStaticRow(long[] staticVds,
-                                    long lts)
-        {
-            if (staticRow != null)
-                staticRow = updateRowState(staticRow, schema.staticColumns, STATIC_CLUSTERING, staticVds, lts, false);
-        }
-
-        private void write(long cd,
-                           long[] vds,
-                           long lts,
-                           boolean writePrimaryKeyLiveness)
-        {
-            rows.compute(cd, (cd_, current) -> updateRowState(current, schema.regularColumns, cd, vds, lts, writePrimaryKeyLiveness));
-        }
-
-        private void delete(Ranges.Range range,
-                            long lts)
-        {
-            if (range.minBound > range.maxBound)
-                return;
-
-            Iterator<Map.Entry<Long, RowState>> iter = rows.subMap(range.minBound, range.minInclusive,
-                                                                              range.maxBound, range.maxInclusive)
-                                                                      .entrySet()
-                                                                      .iterator();
-            while (iter.hasNext())
-            {
-                Map.Entry<Long, RowState> e = iter.next();
-                if (debugCd != -1 && e.getKey() == debugCd)
-                    logger.info("Hiding {} at {} because of range tombstone {}", debugCd, lts, range);
-
-                // assert row state doesn't have fresher lts
-                iter.remove();
-            }
-        }
-
-        private void delete(long cd,
-                            long lts)
-        {
-            RowState state = rows.remove(cd);
-            if (state != null)
-            {
-                for (long v : state.lts)
-                    assert lts >= v : String.format("Attempted to remove a row with a tombstone that has older timestamp (%d): %s", lts, state);
-            }
-        }
-        public boolean isEmpty()
-        {
-            return rows.isEmpty();
-        }
-
-        private RowState updateRowState(RowState currentState, List<ColumnSpec<?>> columns, long cd, long[] vds, long lts, boolean writePrimaryKeyLiveness)
-        {
-            if (currentState == null)
-            {
-                long[] ltss = new long[vds.length];
-                long[] vdsCopy = new long[vds.length];
-                for (int i = 0; i < vds.length; i++)
-                {
-                    if (vds[i] != UNSET_DESCR)
-                    {
-                        ltss[i] = lts;
-                        vdsCopy[i] = vds[i];
-                    }
-                    else
-                    {
-                        ltss[i] = NO_TIMESTAMP;
-                        vdsCopy[i] = NIL_DESCR;
-                    }
-                }
-
-                currentState = new RowState(this, cd, vdsCopy, ltss);
-            }
-            else
-            {
-                assert currentState.vds.length == vds.length;
-                for (int i = 0; i < vds.length; i++)
-                {
-                    if (vds[i] == UNSET_DESCR)
-                        continue;
-
-                    assert lts >= currentState.lts[i] : String.format("Out-of-order LTS: %d. Max seen: %s", lts, currentState.lts[i]); // sanity check; we're iterating in lts order
-
-                    if (currentState.lts[i] == lts)
-                    {
-                        // Timestamp collision case
-                        ColumnSpec<?> column = columns.get(i);
-                        if (column.type.compareLexicographically(vds[i], currentState.vds[i]) > 0)
-                            currentState.vds[i] = vds[i];
-                    }
-                    else
-                    {
-                        currentState.vds[i] = vds[i];
-                        assert lts > currentState.lts[i];
-                        currentState.lts[i] = lts;
-                    }
-                }
-            }
-
-            if (writePrimaryKeyLiveness)
-                currentState.hasPrimaryKeyLivenessInfo = true;
-
-            return currentState;
-        }
-
-        private void deleteRegularColumns(long lts, long cd, int columnOffset, BitSet columns, BitSet mask)
-        {
-            deleteColumns(lts, rows.get(cd), columnOffset, columns, mask);
-        }
-
-        private void deleteStaticColumns(long lts, int columnOffset, BitSet columns, BitSet mask)
-        {
-            deleteColumns(lts, staticRow, columnOffset, columns, mask);
-        }
-
-        private void deleteColumns(long lts, RowState state, int columnOffset, BitSet columns, BitSet mask)
-        {
-            if (state == null)
-                return;
-
-            //TODO: optimise by iterating over the columns that were removed by this deletion
-            //TODO: optimise final decision to fully remove the column by counting a number of set/unset columns
-            boolean allNil = true;
-            for (int i = 0; i < state.vds.length; i++)
-            {
-                if (columns.isSet(columnOffset + i, mask))
-                {
-                    state.vds[i] = NIL_DESCR;
-                    state.lts[i] = NO_TIMESTAMP;
-                }
-                else if (state.vds[i] != NIL_DESCR)
-                {
-                    allNil = false;
-                }
-            }
-
-            if (state.cd != STATIC_CLUSTERING && allNil & !state.hasPrimaryKeyLivenessInfo)
-                delete(state.cd, lts);
-        }
-
-        private void deletePartition(long lts)
-        {
-            if (debugCd != -1)
-                logger.info("Hiding {} at {} because partition deletion", debugCd, lts);
-
-            rows.clear();
-            if (!schema.staticColumns.isEmpty())
-            {
-                Arrays.fill(staticRow.vds, NIL_DESCR);
-                Arrays.fill(staticRow.lts, NO_TIMESTAMP);
-            }
-        }
-
-        public Iterator<RowState> iterator()
-        {
-            return iterator(false);
-        }
-
-        public Iterator<RowState> iterator(boolean reverse)
-        {
-            if (reverse)
-                return rows.descendingMap().values().iterator();
-
-            return rows.values().iterator();
-        }
-
-        public Collection<RowState> rows(boolean reverse)
-        {
-            if (reverse)
-                return rows.descendingMap().values();
-
-            return rows.values();
-        }
-
-        public RowState staticRow()
-        {
-            return staticRow;
-        }
-
-        public String toString(SchemaSpec schema)
-        {
-            StringBuilder sb = new StringBuilder();
-
-            if (staticRow != null)
-                sb.append("Static row: " + staticRow.toString(schema)).append("\n");
-
-            for (RowState row : rows.values())
-                sb.append(row.toString(schema)).append("\n");
-
-            return sb.toString();
-        }
-    }
-
+    
     public static long[] arr(int length, long fill)
     {
         long[] arr = new long[length];
@@ -509,6 +288,11 @@ public class Reconciler
             this.cd = cd;
             this.vds = vds;
             this.lts = lts;
+        }
+
+        public RowState clone()
+        {
+            return new RowState(partitionState, cd, Arrays.copyOf(vds, vds.length), Arrays.copyOf(lts, lts.length));
         }
 
         public String toString()

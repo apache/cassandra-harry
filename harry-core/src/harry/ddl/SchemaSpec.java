@@ -18,11 +18,7 @@
 
 package harry.ddl;
 
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.Iterator;
-import java.util.List;
-import java.util.Objects;
+import java.util.*;
 import java.util.function.Consumer;
 
 import harry.generators.DataGenerators;
@@ -54,6 +50,7 @@ public class SchemaSpec
     public final List<ColumnSpec<?>> regularColumns;
     public final List<ColumnSpec<?>> staticColumns;
     public final List<ColumnSpec<?>> allColumns;
+    public final Set<ColumnSpec<?>> allColumnsSet;
 
     public final BitSet ALL_COLUMNS_BITSET;
     public final int regularColumnsOffset;
@@ -109,6 +106,7 @@ public class SchemaSpec
             all.add(columnSpec);
         }
         this.allColumns = Collections.unmodifiableList(all);
+        this.allColumnsSet = Collections.unmodifiableSet(new LinkedHashSet<>(all));
 
         this.pkGenerator = DataGenerators.createKeyGenerator(partitionKeys);
         this.ckGenerator = DataGenerators.createKeyGenerator(clusteringKeys);

@@ -110,7 +110,6 @@ public class QuerySelectorNegativeTest extends IntegrationTestBase
             Run run = config.createRun();
             run.sut.schemaChange(run.schemaSpec.compile().cql());
             System.out.println(run.schemaSpec.compile().cql());
-            OpSelectors.MonotonicClock clock = run.clock;
 
             Visitor visitor = new MutatingVisitor(run, MutatingRowVisitor::new);
             Model model = new QuiescentChecker(run);
@@ -129,7 +128,6 @@ public class QuerySelectorNegativeTest extends IntegrationTestBase
                                                              run.rng);
 
                 QueryGenerator.TypedQueryGenerator querySelector = new QueryGenerator.TypedQueryGenerator(run.rng, queryGen);
-
                 Query query = querySelector.inflate(verificationLts, counter);
 
                 model.validate(query);

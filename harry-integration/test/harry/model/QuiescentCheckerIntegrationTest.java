@@ -196,7 +196,8 @@ public class QuiescentCheckerIntegrationTest extends ModelTestBase
                          String expected = "Returned row state doesn't match the one predicted by the model";
                          String expected2 = "Timestamps in the row state don't match ones predicted by the model";
 
-                         if (t.getMessage().contains(expected) || t.getMessage().contains(expected2))
+                         if (t.getMessage() != null &&
+                             (t.getMessage().contains(expected) || t.getMessage().contains(expected2)))
                              return;
 
                          throw new AssertionError(String.format("Exception string mismatch.\nExpected error: %s.\nActual error: %s", expected, t.getMessage()),
@@ -205,7 +206,7 @@ public class QuiescentCheckerIntegrationTest extends ModelTestBase
     }
 
     @Override
-    Configuration.ModelConfiguration modelConfiguration()
+    protected Configuration.ModelConfiguration modelConfiguration()
     {
         return new Configuration.QuiescentCheckerConfig();
     }

@@ -73,7 +73,7 @@ public abstract class ModelTestBase extends IntegrationTestBase
         }
     }
 
-    abstract Configuration.ModelConfiguration modelConfiguration();
+    protected abstract Configuration.ModelConfiguration modelConfiguration();
 
     protected SingleValidator validator(Run run)
     {

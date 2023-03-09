@@ -63,7 +63,7 @@ public class ConcurrentQuiescentCheckerIntegrationTest extends ModelTestBase
     }
 
     @Override
-    Configuration.ModelConfiguration modelConfiguration()
+    protected Configuration.ModelConfiguration modelConfiguration()
     {
         return new Configuration.QuiescentCheckerConfig();
     }

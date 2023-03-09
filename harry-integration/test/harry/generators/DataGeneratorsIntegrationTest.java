@@ -46,7 +46,7 @@ public class DataGeneratorsIntegrationTest extends CQLTester
             String tbl = "table_" + (counter++);
             createTable(String.format("CREATE TABLE %s.%s (pk int PRIMARY KEY, v %s)",
                                       ks, tbl,
-                                      dataType.toString()));
+                                      dataType));
             for (int i = 0; i < 10_000; i++)
             {
                 long d1 = dataType.generator().adjustEntropyDomain(rng.nextLong());

@@ -48,6 +48,13 @@ public class ResultSetRow
         this.slts = slts;
     }
 
+    public ResultSetRow clone()
+    {
+        return new ResultSetRow(pd, cd,
+                                Arrays.copyOf(sds, sds.length), Arrays.copyOf(slts, slts.length),
+                                Arrays.copyOf(vds, vds.length), Arrays.copyOf(lts, lts.length));
+    }
+
     public String toString()
     {
         return "resultSetRow("
