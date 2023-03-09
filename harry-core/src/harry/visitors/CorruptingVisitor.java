@@ -52,6 +52,7 @@ public class CorruptingVisitor implements Visitor
                                                                 HideRowCorruptor::new),
         new AddExtraRowCorruptor(run.schemaSpec,
                                  run.clock,
+                                 run.tracker,
                                  run.descriptorSelector),
         new QueryResponseCorruptor.SimpleQueryResponseCorruptor(run.schemaSpec,
                                                                 run.clock,

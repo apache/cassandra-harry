@@ -16,12 +16,14 @@
  *  limitations under the License.
  */
 
-package harry.model.sut;
+package harry.model.sut.injvm;
 
 import java.io.File;
 import java.io.IOException;
 import java.nio.file.Files;
-import java.util.Arrays;
+import java.util.ArrayList;
+import java.util.Iterator;
+import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -36,21 +38,15 @@ import org.slf4j.LoggerFactory;
 import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import harry.core.Configuration;
-import org.apache.cassandra.distributed.api.Feature;
+import harry.model.sut.SystemUnderTest;
 import org.apache.cassandra.distributed.api.ICluster;
 import org.apache.cassandra.distributed.api.IInstance;
 import org.apache.cassandra.distributed.api.IInstanceConfig;
 import org.apache.cassandra.distributed.api.IMessage;
 import org.apache.cassandra.distributed.api.IMessageFilters;
-import relocated.shaded.com.google.common.collect.Iterators;
 
 public class InJvmSutBase<NODE extends IInstance, CLUSTER extends ICluster<NODE>> implements SystemUnderTest.FaultInjectingSut
 {
-    public static void init()
-    {
-        Configuration.registerSubtypes(InJvmSutBaseConfiguration.class);
-    }
-
     private static final Logger logger = LoggerFactory.getLogger(InJvmSutBase.class);
 
     // TODO: shut down properly
@@ -120,11 +116,11 @@ public class InJvmSutBase<NODE extends IInstance, CLUSTER extends ICluster<NODE>
             }
             else if (statement.contains("SELECT"))
             {
-                return Iterators.toArray(cluster
-                                         // round-robin
-                                         .coordinator(coordinator)
-                                         .executeWithPaging(statement, toApiCl(cl), 1, bindings),
-                                         Object[].class);
+                return toArray(cluster
+                               // round-robin
+                               .coordinator(coordinator)
+                               .executeWithPaging(statement, toApiCl(cl), 1, bindings),
+                               Object[].class);
             }
             else
             {
@@ -139,10 +135,6 @@ public class InJvmSutBase<NODE extends IInstance, CLUSTER extends ICluster<NODE>
             // TODO: find a better way to work around timeouts
             if (t.getMessage().contains("timed out"))
                 return execute(statement, cl, coordinator, bindings);
-
-            logger.error(String.format("Caught error while trying execute statement %s (%s): %s",
-                                       statement, Arrays.toString(bindings), t.getMessage()),
-                         t);
             throw t;
         }
     }
@@ -242,23 +234,7 @@ public class InJvmSutBase<NODE extends IInstance, CLUSTER extends ICluster<NODE>
 
             CLUSTER cluster;
 
-            cluster = cluster((cfg) -> {
-                                  // TODO: make this configurable
-                                  cfg.with(Feature.NETWORK, Feature.GOSSIP, Feature.NATIVE_PROTOCOL)
-                                     .set("row_cache_size_in_mb", 10L)
-                                     .set("index_summary_capacity_in_mb", 10L)
-                                     .set("counter_cache_size_in_mb", 10L)
-                                     .set("key_cache_size_in_mb", 10L)
-                                     .set("file_cache_size_in_mb", 10)
-                                     .set("memtable_heap_space_in_mb", 128)
-                                     .set("memtable_offheap_space_in_mb", 128)
-                                     .set("memtable_flush_writers", 1)
-                                     .set("concurrent_compactors", 1)
-                                     .set("concurrent_reads", 5)
-                                     .set("concurrent_writes", 5)
-                                     .set("compaction_throughput_mb_per_sec", 10)
-                                     .set("hinted_handoff_enabled", false);
-                              },
+            cluster = cluster(defaultConfig(),
                               nodes,
                               new File(root));
 
@@ -267,6 +243,25 @@ public class InJvmSutBase<NODE extends IInstance, CLUSTER extends ICluster<NODE>
         }
     }
 
+    public static Consumer<IInstanceConfig> defaultConfig()
+    {
+        return (cfg) -> {
+            // TODO: make this configurable
+            cfg.set("row_cache_size", "256MiB")
+               .set("index_summary_capacity", "256MiB")
+               .set("counter_cache_size", "256MiB")
+               .set("key_cache_size", "256MiB")
+               .set("file_cache_size", "256MiB")
+               .set("memtable_heap_space", "512MiB")
+               .set("memtable_offheap_space", "512MiB")
+               .set("memtable_flush_writers", 2)
+               .set("concurrent_compactors", 2)
+               .set("concurrent_reads", 5)
+               .set("concurrent_writes", 5)
+               .set("compaction_throughput_mb_per_sec", 10)
+               .set("hinted_handoff_enabled", false);
+        };
+    }
     public static org.apache.cassandra.distributed.api.ConsistencyLevel toApiCl(ConsistencyLevel cl)
     {
         switch (cl)
@@ -278,4 +273,13 @@ public class InJvmSutBase<NODE extends IInstance, CLUSTER extends ICluster<NODE>
         }
         throw new IllegalArgumentException("Don't know a CL: " + cl);
     }
+
+    public static <T> T[] toArray(Iterator<? extends T> iterator, Class<T> klass) {
+        List<T> list = new ArrayList<>();
+        while (iterator.hasNext())
+            list.add(iterator.next());
+        T[] arr = (T[]) java.lang.reflect.Array.newInstance(klass, list.size());
+        return list.toArray(arr);
+    }
+
 }

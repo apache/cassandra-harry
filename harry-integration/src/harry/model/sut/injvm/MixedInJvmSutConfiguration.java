@@ -16,7 +16,8 @@
  *  limitations under the License.
  */
 
-package harry.model.sut;
+package harry.model.sut.injvm;
+
 
 import java.io.File;
 import java.io.IOException;
@@ -24,41 +25,17 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.function.Consumer;
 
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-
 import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.annotation.JsonTypeName;
-import harry.core.Configuration;
 import org.apache.cassandra.distributed.UpgradeableCluster;
+import org.apache.cassandra.distributed.api.ICluster;
 import org.apache.cassandra.distributed.api.IInstanceConfig;
 import org.apache.cassandra.distributed.api.IUpgradeableInstance;
 import org.apache.cassandra.distributed.shared.Versions;
 
-/**
- * Make sure to set -Dcassandra.test.dtest_jar_path when using this class
- */
-public class MixedVersionInJvmSut extends InJvmSutBase<IUpgradeableInstance, UpgradeableCluster>
-{
-    public static void init()
-    {
-        Configuration.registerSubtypes(MixedInJvmSutConfiguration.class);
-    }
-
-    private static final Logger logger = LoggerFactory.getLogger(MixedVersionInJvmSut.class);
-    private final Versions.Version initialVersion;
-    private final List<Versions.Version> versions;
-
-    public MixedVersionInJvmSut(UpgradeableCluster cluster, Versions.Version initialVersion, List<Versions.Version> versions)
-    {
-        super(cluster, 10);
-        this.initialVersion = initialVersion;
-        this.versions = versions;
-    }
-
-    @JsonTypeName("mixed_in_jvm")
-    public static class MixedInJvmSutConfiguration extends InJvmSutBaseConfiguration<IUpgradeableInstance, UpgradeableCluster>
+@JsonTypeName("mixed_in_jvm")
+public class MixedInJvmSutConfiguration extends InJvmSutBase.InJvmSutBaseConfiguration<IUpgradeableInstance, ICluster<IUpgradeableInstance>>
     {
         public final String initial_version;
         public final List<String> versions;
@@ -85,7 +62,7 @@ public class MixedVersionInJvmSut extends InJvmSutBase<IUpgradeableInstance, Upg
                 upgradeVersions.add(allVersions.get(version));
         }
 
-        protected UpgradeableCluster cluster(Consumer<IInstanceConfig> cfg, int nodes, File root)
+        protected ICluster<IUpgradeableInstance> cluster(Consumer<IInstanceConfig> cfg, int nodes, File root)
         {
             try
             {
@@ -102,37 +79,8 @@ public class MixedVersionInJvmSut extends InJvmSutBase<IUpgradeableInstance, Upg
             }
         }
 
-        protected InJvmSutBase<IUpgradeableInstance, UpgradeableCluster> sut(UpgradeableCluster cluster)
+        protected InJvmSutBase<IUpgradeableInstance, ICluster<IUpgradeableInstance>> sut(ICluster<IUpgradeableInstance> cluster)
         {
             return new MixedVersionInJvmSut(cluster, initialVersion, upgradeVersions);
         }
     }
-
-    @Override
-    public void afterSchemaInit()
-    {
-        for (int i = 1; i <= cluster.size(); i++)
-        {
-            Versions.Version v = versions.get(i - 1);
-            if (!v.equals(initialVersion))
-            {
-                logger.info("Upgrading {} node from {} to {}", i, initialVersion, v);
-                IUpgradeableInstance instance = cluster.get(i);
-                try
-                {
-                    instance.shutdown().get();
-                }
-                catch (Throwable e)
-                {
-                    throw new RuntimeException(e);
-                }
-                instance.setVersion(v);
-                instance.startup();
-            }
-            else
-            {
-                logger.info("Skipping {} node upgrade, since it is already at the required version ({})", i, initialVersion);
-            }
-        }
-    }
-}

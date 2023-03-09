@@ -19,42 +19,71 @@
 package harry.runner;
 
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 import java.util.concurrent.PriorityBlockingQueue;
 import java.util.concurrent.atomic.AtomicLong;
-
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import java.util.function.LongConsumer;
 
 import harry.core.Configuration;
 import harry.core.VisibleForTesting;
+import harry.concurrent.WaitQueue;
 
-public class DefaultDataTracker extends DataTracker
+public class DefaultDataTracker implements DataTracker
 {
-    private static final Logger logger = LoggerFactory.getLogger(DefaultDataTracker.class);
+     protected final AtomicLong maxSeenLts;
+    protected final AtomicLong maxCompleteLts;
+    protected final PriorityBlockingQueue<Long> reorderBuffer;
+    protected final DrainReorderQueueTask reorderTask;
 
-    private final AtomicLong maxSeenLts;
-    // TODO: This is a trivial implementation that can be significantly improved upon
-    // for example, we could use a bitmap that records `1`s for all lts that are after
-    // the consecutive, and "collapse" the bitmap state into the long as soon as we see
-    // consecutive `1` on the left side.
-    private final AtomicLong maxCompleteLts;
-    private final PriorityBlockingQueue<Long> reorderBuffer;
+    protected List<LongConsumer> onStarted = new ArrayList<>();
+    protected List<LongConsumer> onFinished = new ArrayList<>();
 
     public DefaultDataTracker()
     {
         this.maxSeenLts = new AtomicLong(-1);
         this.maxCompleteLts = new AtomicLong(-1);
         this.reorderBuffer = new PriorityBlockingQueue<>(100);
+        this.reorderTask = new DrainReorderQueueTask();
+        this.reorderTask.start();
     }
 
-    // TODO: there's also some room for improvement in terms of concurrency
-    protected void startedInternal(long lts)
+    @Override
+    public void onLtsStarted(LongConsumer onLts)
+    {
+        this.onStarted.add(onLts);
+    }
+
+    @Override
+    public void onLtsFinished(LongConsumer onLts)
+    {
+        this.onFinished.add(onLts);
+    }
+
+    @Override
+    public void beginModification(long lts)
+    {
+        assert lts >= 0;
+        startedInternal(lts);
+        for (LongConsumer consumer : onStarted)
+            consumer.accept(lts);
+    }
+
+    @Override
+    public void endModification(long lts)
+    {
+        finishedInternal(lts);
+        for (LongConsumer consumer : onFinished)
+            consumer.accept(lts);
+    }
+
+    void startedInternal(long lts)
     {
         recordEvent(lts, false);
     }
 
-    protected void finishedInternal(long lts)
+    void finishedInternal(long lts)
     {
         recordEvent(lts, true);
     }
@@ -67,43 +96,58 @@ public class DefaultDataTracker extends DataTracker
         if (!finished)
             return;
 
-        long maxAchievedConsecutive = drainReorderQueue();
-
-        if (maxAchievedConsecutive + 1 == lts)
-            maxCompleteLts.compareAndSet(maxAchievedConsecutive, lts);
-        else
+        if (!maxCompleteLts.compareAndSet(lts - 1, lts))
             reorderBuffer.offer(lts);
+
+        reorderTask.notify.signalAll();
     }
 
-    public long drainReorderQueue()
+    private class DrainReorderQueueTask extends Thread
     {
-        final long expected = maxCompleteLts.get();
-        long maxAchievedConsecutive = expected;
-        if (reorderBuffer.isEmpty())
-            return maxAchievedConsecutive;
+        private final WaitQueue notify;
 
-        boolean catchingUp = false;
-
-        Long smallest = reorderBuffer.poll();
-        while (smallest != null && smallest == maxAchievedConsecutive + 1)
+        private DrainReorderQueueTask()
         {
-            maxAchievedConsecutive++;
-            catchingUp = true;
-            smallest = reorderBuffer.poll();
+            super("DrainReorderQueueTask");
+            this.notify = WaitQueue.newWaitQueue();
         }
 
-        // put back
-        if (smallest != null)
-            reorderBuffer.offer(smallest);
+        public void run()
+        {
+            while (!Thread.interrupted())
+            {
+                try
+                {
+                    WaitQueue.Signal signal = notify.register();
+                    runOnce();
+                    signal.awaitUninterruptibly();
+                }
+                catch (Throwable t)
+                {
+                    t.printStackTrace();
+                }
+            }
+        }
 
-        if (catchingUp)
-            maxCompleteLts.compareAndSet(expected, maxAchievedConsecutive);
+        public void runOnce()
+        {
+            long maxAchievedConsecutive = maxCompleteLts.get();
+            if (reorderBuffer.isEmpty())
+                return;
 
-        int bufferSize = reorderBuffer.size();
-        if (bufferSize > 100)
-            logger.warn("Reorder buffer size has grown up to " + reorderBuffer.size());
-        return maxAchievedConsecutive;
+            Long smallest = reorderBuffer.peek();
+            while (smallest != null && smallest == maxAchievedConsecutive + 1)
+            {
+                boolean res = maxCompleteLts.compareAndSet(maxAchievedConsecutive, smallest);
+                assert res : String.format("Should have exclusive access to maxCompleteLts, but someone wrote %d, while %d was expected", maxCompleteLts.get(), maxAchievedConsecutive);
+                maxAchievedConsecutive = smallest;
+                long removed = reorderBuffer.remove();
+                assert smallest == removed : String.format("Tried to remove %d but removed %d", smallest, removed);
+                smallest = reorderBuffer.peek();
+            }
+        }
     }
+
 
     public long maxStarted()
     {
@@ -112,22 +156,30 @@ public class DefaultDataTracker extends DataTracker
 
     public long maxConsecutiveFinished()
     {
-        if (!reorderBuffer.isEmpty())
-            return drainReorderQueue();
-
         return maxCompleteLts.get();
+    }
+
+    public boolean isFinished(long lts)
+    {
+        return lts <= maxConsecutiveFinished() || reorderBuffer.contains(lts);
     }
 
     public Configuration.DataTrackerConfiguration toConfig()
     {
-        return new Configuration.DefaultDataTrackerConfiguration(maxSeenLts.get(), maxCompleteLts.get());
+        return new Configuration.DefaultDataTrackerConfiguration(maxSeenLts.get(), maxCompleteLts.get(), new ArrayList<>(reorderBuffer));
     }
 
     @VisibleForTesting
-    public void forceLts(long maxSeen, long maxComplete)
+    public void forceLts(long maxSeen, long maxComplete, List<Long> reorderBuffer)
     {
+        System.out.printf("Forcing maxSeen: %d, maxComplete: %d, reorderBuffer: %s%n", maxSeen, maxComplete, reorderBuffer);
         this.maxSeenLts.set(maxSeen);
         this.maxCompleteLts.set(maxComplete);
+        if (reorderBuffer != null)
+        {
+            reorderBuffer.sort(Long::compareTo);
+            this.reorderBuffer.addAll(reorderBuffer);
+        }
     }
 
     public String toString()

@@ -18,11 +18,9 @@
 
 package harry.runner;
 
+import java.util.Collections;
 import java.util.List;
-import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.function.BooleanSupplier;
 
 import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonProperty;
@@ -31,16 +29,31 @@ import harry.core.Configuration;
 import harry.core.Run;
 import harry.visitors.Visitor;
 
+import static harry.concurrent.Clock.Global.nanoTime;
+
+/**
+ * Runner that allows to run for a specific number of logical timestamps, rather
+ * than being configured by time.
+ */
 public class UpToLtsRunner extends Runner.SequentialRunner
 {
     public static final String TYPE = "up_to_lts";
 
-    public static void register()
+    private final long maxLts;
+
+    public static Configuration.RunnerConfiguration factory(List<? extends Visitor.VisitorFactory> visitorFactories,
+                                                            long maxLts,
+                                                            long runtime, TimeUnit runtimeUnit)
     {
-        Configuration.registerSubtypes(UpToLtsRunnerConfig.class);
+        return (r, c) -> new UpToLtsRunner(r, c, visitorFactories, maxLts, runtime, runtimeUnit);
     }
 
-    private final long maxLts;
+    public static Configuration.RunnerConfiguration factory(Visitor.VisitorFactory visitorFactory,
+                                                            long maxLts,
+                                                            long runtime, TimeUnit runtimeUnit)
+    {
+        return (r, c) -> new UpToLtsRunner(r, c, Collections.singletonList(visitorFactory), maxLts, runtime, runtimeUnit);
+    }
 
     public UpToLtsRunner(Run run,
                          Configuration config, 
@@ -59,21 +72,14 @@ public class UpToLtsRunner extends Runner.SequentialRunner
     }
 
     @Override
-    protected CompletableFuture<?> start(boolean reportErrors, BooleanSupplier parentExit)
+    public void runInternal()
     {
-        CompletableFuture<?> future = new CompletableFuture<>();
-
-        if (reportErrors)
-            future.whenComplete((a, b) -> maybeReportErrors());
-
-        AtomicBoolean terminated = new AtomicBoolean(false);
-        scheduleTermination(terminated);
-        BooleanSupplier exit = () -> run.clock.peek() >= maxLts
-                                     || Thread.currentThread().isInterrupted() || future.isDone()
-                                     || terminated.get() || parentExit.getAsBoolean();
-
-        executor.submit(reportThrowable(() -> run(visitors, future, exit), future));
-        return future;
+        long deadline = nanoTime() + runtimeUnit.toNanos(runtime);
+        while (run.tracker.maxStarted() < maxLts && nanoTime() < deadline)
+        {
+            for (Visitor visitor : visitors)
+                visitor.visit();
+        }
     }
 
     @JsonTypeName(TYPE)

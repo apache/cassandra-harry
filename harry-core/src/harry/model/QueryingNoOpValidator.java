@@ -16,27 +16,26 @@
  *  limitations under the License.
  */
 
-package harry.runner;
+package harry.model;
 
 import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonTypeName;
 import harry.core.Configuration;
 import harry.core.Run;
-import harry.model.Model;
 import harry.model.sut.SystemUnderTest;
 import harry.operations.CompiledStatement;
 import harry.operations.Query;
 
-public class QueryingNoOpChecker implements Model
+/**
+ * A model that can be used to "simply" run random queries. Does not perform validation
+ * of the results that it sees. Useful for increasing concurrency and triggering
+ * exceptions rather than data loss issues.
+ */
+public class QueryingNoOpValidator implements Model
 {
-    public static void init()
-    {
-        Configuration.registerSubtypes(QueryingNoOpCheckerConfig.class);
-    }
-
     private final Run run;
 
-    public QueryingNoOpChecker(Run run)
+    public QueryingNoOpValidator(Run run)
     {
         this.run = run;
     }
@@ -50,7 +49,7 @@ public class QueryingNoOpChecker implements Model
                         compiled.bindings());
     }
 
-    @JsonTypeName("querying_no_op_checker")
+    @JsonTypeName("no_op")
     public static class QueryingNoOpCheckerConfig implements Configuration.ModelConfiguration
     {
         @JsonCreator
@@ -60,7 +59,7 @@ public class QueryingNoOpChecker implements Model
 
         public Model make(Run run)
         {
-            return new QueryingNoOpChecker(run);
+            return new QueryingNoOpValidator(run);
         }
     }
 }

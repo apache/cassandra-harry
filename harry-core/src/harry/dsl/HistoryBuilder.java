@@ -115,6 +115,11 @@ public class HistoryBuilder implements Iterable<ReplayingVisitor.Visit>
         {
             return historyBuilder.position(pd(lts));
         }
+
+        public long maxPosition(long maxLts)
+        {
+            return historyBuilder.partitions;
+        }
     }
 
     private static abstract class Step

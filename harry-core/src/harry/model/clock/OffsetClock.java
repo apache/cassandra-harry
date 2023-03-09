@@ -28,12 +28,18 @@ import harry.model.OpSelectors;
 
 public class OffsetClock implements OpSelectors.MonotonicClock
 {
-    final AtomicLong lts = new AtomicLong(ApproximateMonotonicClock.START_VALUE);
+    final AtomicLong lts;
 
     private final long base;
 
     public OffsetClock(long base)
     {
+        this(ApproximateMonotonicClock.START_VALUE, base);
+    }
+
+    public OffsetClock(long startValue, long base)
+    {
+        this.lts = new AtomicLong(startValue);
         this.base = base;
     }
 
@@ -59,23 +65,26 @@ public class OffsetClock implements OpSelectors.MonotonicClock
 
     public Configuration.ClockConfiguration toConfig()
     {
-        throw new RuntimeException("not implemented");
+        return new OffsetClockConfiguration(lts.get(), base);
     }
 
     @JsonTypeName("offset")
     public static class OffsetClockConfiguration implements Configuration.ClockConfiguration
     {
         public final long offset;
+        public final long base;
 
         @JsonCreator
-        public OffsetClockConfiguration(@JsonProperty("offset") int offset)
+        public OffsetClockConfiguration(@JsonProperty("offset") long offset,
+                                        @JsonProperty(value = "base", defaultValue = "0") long base)
         {
             this.offset = offset;
+            this.base = base;
         }
 
         public OpSelectors.MonotonicClock make()
         {
-            return new OffsetClock(offset);
+            return new OffsetClock(base, offset);
         }
     }
 }

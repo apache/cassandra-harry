@@ -4,6 +4,94 @@ The project aims to generate _reproducible_ workloads that are as close to real-
 as possible, while being able to _efficiently_ verify the cluster state against
 the model without pausing the workload itself.
 
+# TL;DR
+
+One way to see Harry is as a read/write stress tool that can check if the read results
+are consistent with what it knows that it has written. This means that in order to test
+Apache Cassandra with Harry, all you need is to run Harry.
+
+If you're using an external cluster (i.e. `./bin/cassandra -f`, CCM, docker, kubernetes,
+or just a deployed cluster), just use the command line mini stress tool:
+
+```
+make stress ARGS="conf/external.yaml --read=2 --write=2 --duration=60000 --validate-all-local"
+```
+
+This command will start perform concurrent read/write workload, 2 read and 2 write threads for
+60 seconds, and will validate presence of each written row on each node locally when it
+concludes. If it sees any inconsistencies, it will inform you accordingly. There are plenty
+configurables in the configuration files (schema, partition size, timestamp generation rules,
+authentication params, ratios for different mutation query types, and many more).
+
+An equivalent for an in-jvm cluster is:
+
+```
+try (Cluster cluster = builder().withNodes(3)
+                                .start())
+{
+    SchemaSpec schema = new SchemaSpec("harry", "test_table",
+                                       asList(pk("pk1", asciiType), pk("pk1", int64Type)),
+                                       asList(ck("ck1", asciiType), ck("ck1", int64Type)),
+                                       asList(regularColumn("regular1", asciiType), regularColumn("regular1", int64Type)),
+                                       asList(staticColumn("static1", asciiType), staticColumn("static1", int64Type)));
+
+    Configuration config = Configuration.fromFile("conf/example.yaml")
+                                        .unbuild()
+                                        .setKeyspaceDdl(String.format("CREATE KEYSPACE IF NOT EXISTS %s WITH replication = {'class': 'SimpleStrategy', 'replication_factor': %d};", schema.keyspace, 3))
+                                        .setSUT(() -> new InJvmSut(cluster))
+                                        .build();
+
+    Run run = config.createRun();
+
+    concurrent(run, config,
+               asList(pool("Writer", 2, MutatingVisitor::new),
+                      pool("Reader", 2, RandomPartitionValidator::new)),
+               2, TimeUnit.MINUTES)
+    .run();
+}
+```
+
+# What's available
+
+## System Under Test implementations
+
+ * `in_jvm/InJvmSut` - simple in-JVM-dtest system under test.
+ * `println/PrintlnSut` - system under test that prints to sdtout instead of executing queries on the cluster; useful for debugging.
+ * `mixed_in_jvm/MixedVersionInJvmSut` - in-JVM-dtest system under test that works with mixed version clusters.
+ * `external/ExternalClusterSut` - system under test that works with CCM, Docker, Kubernetes, or cluster you may. 
+   have deployed elsewhere 
+
+Both in-JVM SUTs have fault-injecting functionality available.
+
+## Visitors
+
+  * `single/SingleValidator` - visitor that runs several different read queries against a single partition that is associated with current logical timestamp, and validates their results using given model. 
+  * `all_partitions/AllPartitionsValidator` - concurrently validates all partitions that were visited during this run.
+  * `repair_and_validate_local_states/RepairingLocalStateValidator` - similar to `AllPartitionsValidator`, but performs repair before checking node states.
+  * `mutating/MutatingVisitor` - visitor that performs all sorts of mutations.
+  * `logging/LoggingVisitor` - similar to `MutatingVisitor`, but also logs all operations to a file; useful for debug purposes.
+  * `corrupting/CorruptingVisitor` - visitor that will deliberately change data in the partition it visits. Useful for negative tests (i.e. to ensure that your model actually detects data inconsistencies). 
+
+And more.
+
+## Models
+
+  * `querying_no_op/QueryingNoOpValidator` - a model that can be used to "simply" run random queries.
+  * `quiescent_checker/QuiescentChecker` - a model that can be used to verify results of any read that has no writes to the same partition_ concurrent to it. Should be used in conjunction with locking data tracker.
+  * `quiescent_local_state_checker/QuiescentLocalStateChecker` - a model that can check local states of each replica that has to own 
+
+## Runners 
+
+  * `sequential/SequentialRunner` - runs all visitors sequentially, in the loop, for a specified amount of time; useful for simple tests that do not have to exercise concurrent read/write path.   
+  * `concurrent/ConcurrentRunner` - runs all visitors concurrently, each visitor in its own thread, looped, for a specified amount of time; useful for things like concurrent read/write workloads.
+  * `chain/ChainRunner` - receives other runners as input, and runs them one after another once. Useful for both simple and complex scenarios that involve both read/write workloads, validating all partitions, exercising other node-local or cluster-wide operations.
+  * `staged/StagedRunner` - receives other runners (stages) as input, and runs them one after another in a loop; useful for implementing complex scenarios, such as read/write workloads followed by some cluster changing operations. 
+
+## Clock
+  
+  * `approximate_monotonic/ApproxomateMonotonicClock` - a timestamp supplier implementation that tries to keep as close to real time as possible, while preserving mapping from real-time to logical timestamps.
+  * `offset/OffsetClock` - a (monotonic) clock that supplies timestamps that do not have any relation to real time.
+
 # Introduction
 
 Harry has two primary modes of functionality:
@@ -653,17 +741,13 @@ of writing, there's no official repository where these jars are released, so you
 have to build it manually:
 
 ```
-git clone git@github.com:apache/cassandra.git
-cd cassandra
-./build-shaded-dtest-jar.sh 4.0-beta4 4.0.0-SNAPSHOT
-cd ~/../harry/
-mvn package -DskipTests -nsu
+make package
 mvn dependency:copy-dependencies
-java -cp harry-runner/target/harry-runner-0.0.1-SNAPSHOT.jar:$(find harrry-runner/target/dependency/*.jar | tr -s '\n' ':'). harry.runner.HarryRunner
-```
+java -cp harry-core/target/harry-core-0.0.2-SNAPSHOT.jar:$(find harrry-core/target/dependency/*.jar | tr -s '\n' ':'). harry.runner.HarryRunner
 
-`4.0-beta3` is a version of Cassandra which you can find in `build.xml`, and
-`4.0.0-SNAPSHOT` is a version of dtest jar that'll be installed under
+
+`4.2` is a version of Cassandra which you can find in `build.xml`, and
+`4.2-SNAPSHOT` is a version of dtest jar that'll be installed under
 `org.apache.cassandra:cassandra-dtest-local` in your `~/.m2/repository`.
 
 Alternatively, you can use a Docker container. For that just run:
@@ -671,7 +755,7 @@ Alternatively, you can use a Docker container. For that just run:
 ```
 git clone git@github.com:apache/cassandra.git
 cd cassandra
-./build-shaded-dtest-jar.sh 4.0-beta4 4.0.0-SNAPSHOT
+./build-shaded-dtest-jar.sh 4.2 4.2-SNAPSHOT
 cd ~/../harry/
 make run
 ```

@@ -92,7 +92,7 @@ public class TrivialShrinker
                 if (pdsToSkip.contains(pdToCheck))
                     continue;
                 pdsToSkip.add(pdToCheck);
-                config.make(run, configuration).init();
+                Runner.init(configuration, run);
 
                 try
                 {
@@ -125,7 +125,7 @@ public class TrivialShrinker
                 if (ltsToSkip.contains(ltsToCheck) || pdsToSkip.contains(run.pdSelector.pd(lts, run.schemaSpec)))
                     continue;
                 ltsToSkip.add(ltsToCheck);
-                config.make(run, configuration).init();
+                Runner.init(configuration, run);
 
                 try
                 {

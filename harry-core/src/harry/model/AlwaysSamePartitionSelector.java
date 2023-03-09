@@ -51,6 +51,11 @@ public class AlwaysSamePartitionSelector extends OpSelectors.PdSelector
         return 0;
     }
 
+    public long maxPosition(long maxLts)
+    {
+        return 0;
+    }
+
     @JsonTypeName("always_same")
     public static class AlwaysSamePartitionSelectorConfiguration implements Configuration.PDSelectorConfiguration
     {

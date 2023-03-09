@@ -16,43 +16,22 @@
  *  limitations under the License.
  */
 
-package harry.model.sut;
+package harry.model.sut.injvm;
 
 import java.io.File;
 import java.io.IOException;
-import java.util.Arrays;
 import java.util.function.Consumer;
-import java.util.stream.Collectors;
 
 import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.annotation.JsonTypeName;
-import harry.core.Configuration;
 import org.apache.cassandra.distributed.Cluster;
+import org.apache.cassandra.distributed.api.ICluster;
 import org.apache.cassandra.distributed.api.IInstanceConfig;
 import org.apache.cassandra.distributed.api.IInvokableInstance;
-import org.apache.cassandra.locator.EndpointsForToken;
-import org.apache.cassandra.service.StorageService;
 
-public class InJvmSut extends InJvmSutBase<IInvokableInstance, Cluster>
-{
-    public static void init()
-    {
-        Configuration.registerSubtypes(InJvmSutConfiguration.class);
-    }
-
-    public InJvmSut(Cluster cluster)
-    {
-        super(cluster, 10);
-    }
-
-    public InJvmSut(Cluster cluster, int threads)
-    {
-        super(cluster, threads);
-    }
-
-    @JsonTypeName("in_jvm")
-    public static class InJvmSutConfiguration extends InJvmSutBaseConfiguration<IInvokableInstance, Cluster>
+@JsonTypeName("in_jvm")
+public class InJvmSutConfiguration extends InJvmSutBase.InJvmSutBaseConfiguration<IInvokableInstance, ICluster<IInvokableInstance>>
     {
         @JsonCreator
         public InJvmSutConfiguration(@JsonProperty(value = "nodes", defaultValue = "3") int nodes,
@@ -62,13 +41,13 @@ public class InJvmSut extends InJvmSutBase<IInvokableInstance, Cluster>
             super(nodes, worker_threads, root);
         }
 
-        protected Cluster cluster(Consumer<IInstanceConfig> cfg, int nodes, File root)
+        protected ICluster<IInvokableInstance> cluster(Consumer<IInstanceConfig> cfg, int nodes, File root)
         {
             try
             {
                 return Cluster.build().withConfig(cfg)
-                               .withNodes(nodes)
-                               .withRoot(root)
+                              .withNodes(nodes)
+                              .withRoot(root)
                               .createWithoutStarting();
             }
             catch (IOException e)
@@ -77,22 +56,8 @@ public class InJvmSut extends InJvmSutBase<IInvokableInstance, Cluster>
             }
         }
 
-        protected InJvmSutBase<IInvokableInstance, Cluster> sut(Cluster cluster)
+        protected InJvmSutBase<IInvokableInstance, ICluster<IInvokableInstance>> sut(ICluster<IInvokableInstance> cluster)
         {
             return new InJvmSut(cluster);
         }
     }
-
-    public int[] getReplicasFor(Object[] partitionKey, String keyspace, String table)
-    {
-        return cluster.get(1).appliesOnInstance((Object[] pk, String ks) ->
-                                                {
-                                                    String pkString = Arrays.stream(pk).map(Object::toString).collect(Collectors.joining(":"));
-                                                    EndpointsForToken endpoints = StorageService.instance.getNaturalReplicasForToken(ks, table, pkString);
-                                                    int[] nodes = new int[endpoints.size()];
-                                                    for (int i = 0; i < endpoints.size(); i++)
-                                                        nodes[i] = endpoints.get(i).endpoint().address.getAddress()[3];
-                                                    return nodes;
-                                                }).apply(partitionKey, keyspace);
-    }
-}

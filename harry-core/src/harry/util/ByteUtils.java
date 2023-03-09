@@ -92,6 +92,13 @@ public class ByteUtils
         return b;
     }
 
+    public static ByteBuffer[] objectsToBytes(Object... objects)
+    {
+        ByteBuffer[] bytes = new ByteBuffer[objects.length];
+        for (int i = 0; i < objects.length; i++)
+            bytes[i] = objectToBytes(objects[i]);
+        return bytes;
+    }
 
     public static ByteBuffer objectToBytes(Object obj)
     {
@@ -129,46 +136,6 @@ public class ByteUtils
             throw new IllegalArgumentException(String.format("Cannot convert value %s of type %s",
                                                              obj,
                                                              obj.getClass()));
-    }
-
-    public static ByteBuffer pack(Collection<ByteBuffer> buffers, int elements)
-    {
-        int size = 0;
-        for (ByteBuffer bb : buffers)
-            size += sizeOfValue(bb);
-
-        ByteBuffer result = ByteBuffer.allocate(sizeOfCollectionSize(elements) + size);
-        writeCollectionSize(result, elements);
-        for (ByteBuffer bb : buffers)
-            writeValue(result, bb);
-        result.flip();
-        return result;
-    }
-
-    public static int sizeOfValue(ByteBuffer value)
-    {
-        return value == null ? 4 : 4 + value.remaining();
-    }
-
-    protected static void writeCollectionSize(ByteBuffer output, int elements)
-    {
-        output.putInt(elements);
-    }
-    public static void writeValue(ByteBuffer output, ByteBuffer value)
-    {
-        if (value == null)
-        {
-            output.putInt(-1);
-            return;
-        }
-
-        output.putInt(value.remaining());
-        output.put(value.duplicate());
-    }
-
-    protected static int sizeOfCollectionSize(int elements)
-    {
-        return 4;
     }
 
     public static ByteBuffer compose(ByteBuffer... buffers) {

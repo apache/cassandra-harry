@@ -25,10 +25,12 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
+import java.util.function.Function;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import harry.core.Configuration;
 import harry.core.Run;
 import harry.model.OpSelectors;
 import harry.model.sut.SystemUnderTest;
@@ -39,10 +41,25 @@ public class MutatingVisitor extends GeneratingVisitor
 {
     private static final Logger logger = LoggerFactory.getLogger(MutatingVisitor.class);
 
+    public MutatingVisitor(Run run)
+    {
+        this(run, MutatingRowVisitor::new);
+    }
+
     public MutatingVisitor(Run run,
                            OperationExecutor.RowVisitorFactory rowVisitorFactory)
     {
         this(run, new MutatingVisitExecutor(run, rowVisitorFactory.make(run)));
+    }
+
+    public static Configuration.VisitorConfiguration factory()
+    {
+        return MutatingVisitor::new;
+    }
+
+    public static Configuration.VisitorConfiguration factory(Function<Run, VisitExecutor> rowVisitorFactory)
+    {
+        return (r) -> new MutatingVisitor(r, rowVisitorFactory.apply(r));
     }
 
     public MutatingVisitor(Run run,
@@ -64,25 +81,33 @@ public class MutatingVisitor extends GeneratingVisitor
         protected final DataTracker tracker;
         protected final SystemUnderTest sut;
         protected final OperationExecutor rowVisitor;
+        protected final SystemUnderTest.ConsistencyLevel consistencyLevel;
         private final int maxRetries = 10;
 
         public MutatingVisitExecutor(Run run, OperationExecutor rowVisitor)
+        {
+            this(run, rowVisitor, SystemUnderTest.ConsistencyLevel.QUORUM);
+        }
+
+        public MutatingVisitExecutor(Run run, OperationExecutor rowVisitor, SystemUnderTest.ConsistencyLevel consistencyLevel)
         {
             this.descriptorSelector = run.descriptorSelector;
             this.tracker = run.tracker;
             this.sut = run.sut;
             this.rowVisitor = rowVisitor;
+            this.consistencyLevel = consistencyLevel;
         }
 
         @Override
         public void beforeLts(long lts, long pd)
         {
-            tracker.started(lts);
+            tracker.beginModification(lts);
         }
 
         @Override
         public void afterLts(long lts, long pd)
         {
+            // TODO: switch to Cassandra futures!
             for (CompletableFuture<?> future : futures)
             {
                 try
@@ -91,11 +116,15 @@ public class MutatingVisitor extends GeneratingVisitor
                 }
                 catch (Throwable t)
                 {
-                    throw new IllegalStateException("Couldn't repeat operations within timeout bounds.", t);
+                    int complete = 0;
+                    for (CompletableFuture<?> f : futures)
+                        if (f.isDone()) complete++;
+
+                    throw new IllegalStateException(String.format("Couldn't repeat operations within timeout bounds. %d out of %d futures complete", complete, futures.size()), t);
                 }
             }
             futures.clear();
-            tracker.finished(lts);
+            tracker.endModification(lts);
         }
 
         @Override
@@ -157,7 +186,7 @@ public class MutatingVisitor extends GeneratingVisitor
             if (retries > this.maxRetries)
                 throw new IllegalStateException(String.format("Can not execute statement %s after %d retries", statement, retries));
 
-            sut.executeAsync(statement.cql(), SystemUnderTest.ConsistencyLevel.QUORUM, statement.bindings())
+            sut.executeAsync(statement.cql(), consistencyLevel, statement.bindings())
                .whenComplete((res, t) -> {
                    if (t != null)
                    {
@@ -165,7 +194,8 @@ public class MutatingVisitor extends GeneratingVisitor
                        int delaySecs = 1;
                        executor.schedule(() -> executeAsyncWithRetries(future, statement, retries + 1), delaySecs, TimeUnit.SECONDS);
                        logger.info("Scheduled retry to happen with delay {} seconds", delaySecs);
-                   }else
+                   }
+                   else
                        future.complete(res);
                });
         }

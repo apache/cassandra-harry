@@ -18,16 +18,19 @@
 
 package harry.visitors;
 
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
-import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.function.LongPredicate;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import harry.concurrent.ExecutorFactory;
+import harry.concurrent.Interruptible;
+import harry.concurrent.WaitQueue;
+import harry.core.Configuration;
 import harry.core.MetricReporter;
 import harry.core.Run;
 import harry.ddl.SchemaSpec;
@@ -35,9 +38,16 @@ import harry.model.Model;
 import harry.model.OpSelectors;
 import harry.model.sut.SystemUnderTest;
 import harry.operations.Query;
+import harry.runner.DataTracker;
+import harry.runner.Runner;
 
-// This might be something that potentially grows into the validator described in the design doc;
-// right now it's just a helper/container class
+import static harry.concurrent.InfiniteLoopExecutor.Daemon.NON_DAEMON;
+import static harry.concurrent.InfiniteLoopExecutor.Interrupts.UNSYNCHRONIZED;
+import static harry.concurrent.InfiniteLoopExecutor.SimulatorSafe.SAFE;
+
+/**
+ * Concurrently validates all partitions that were visited during this run.
+ */
 public class AllPartitionsValidator implements Visitor
 {
     private static final Logger logger = LoggerFactory.getLogger(AllPartitionsValidator.class);
@@ -48,21 +58,32 @@ public class AllPartitionsValidator implements Visitor
     protected final OpSelectors.MonotonicClock clock;
     protected final OpSelectors.PdSelector pdSelector;
     protected final MetricReporter metricReporter;
-    protected final ExecutorService executor;
     protected final SystemUnderTest sut;
+    protected final DataTracker tracker;
 
-    protected final AtomicBoolean condition;
-    protected final AtomicLong maxPos;
-
+    protected final LongPredicate condition;
     protected final int concurrency;
-    protected final int triggerAfter;
 
-    public AllPartitionsValidator(int concurrency,
-                                  int triggerAfter,
-                                  Run run,
+    public static Configuration.VisitorConfiguration factory(int concurrency,
+                                                             LongPredicate condition,
+                                                             Model.ModelFactory modelFactory)
+    {
+        return (r) -> new AllPartitionsValidator(r, concurrency, condition, modelFactory);
+    }
+
+    public AllPartitionsValidator(Run run,
+                                  int concurrency,
+                                  long triggerAfter,
                                   Model.ModelFactory modelFactory)
     {
-        this.triggerAfter = triggerAfter;
+        this(run, concurrency, (lts) -> (lts > 0 && lts % triggerAfter == 0), modelFactory);
+    }
+
+    public AllPartitionsValidator(Run run,
+                                  int concurrency,
+                                  LongPredicate condition,
+                                  Model.ModelFactory modelFactory)
+    {
         this.metricReporter = run.metricReporter;
         this.model = modelFactory.make(run);
         this.schema = run.schemaSpec;
@@ -70,68 +91,57 @@ public class AllPartitionsValidator implements Visitor
         this.sut = run.sut;
         this.pdSelector = run.pdSelector;
         this.concurrency = concurrency;
-        this.executor = Executors.newFixedThreadPool(concurrency);
-        this.condition = new AtomicBoolean();
-        this.maxPos = new AtomicLong(-1);
-        run.tracker.onLtsStarted((lts) -> {
-            maxPos.updateAndGet(current -> Math.max(pdSelector.positionFor(lts), current));
-            if (triggerAfter == 0 || (triggerAfter > 0 && lts % triggerAfter == 0))
-                condition.set(true);
-        });
+        this.tracker = run.tracker;
+        this.condition = condition;
     }
 
-    protected CompletableFuture<Void> validateAllPartitions(ExecutorService executor, int parallelism)
+    protected void validateAllPartitions() throws Throwable
     {
-        final long maxPos = this.maxPos.get();
-        AtomicLong cnt = new AtomicLong();
-        CompletableFuture<?>[] futures = new CompletableFuture[parallelism];
-        AtomicBoolean isDone = new AtomicBoolean(false);
+        List<Interruptible> threads = new ArrayList<>();
+        WaitQueue queue = WaitQueue.newWaitQueue();
+        WaitQueue.Signal interrupt = queue.register();
+        List<Throwable> errors = new CopyOnWriteArrayList<>();
 
-        for (int i = 0; i < parallelism; i++)
+        final long maxPosition = pdSelector.maxPosition(tracker.maxStarted());
+        AtomicLong currentPosition = new AtomicLong();
+        for (int i = 0; i < concurrency; i++)
         {
-            futures[i] = CompletableFuture.supplyAsync(() -> {
-                long pos;
-                while ((pos = cnt.getAndIncrement()) < maxPos && !executor.isShutdown() && !Thread.interrupted() && !isDone.get())
-                {
-                    if (pos > 0 && pos % 100 == 0)
-                        logger.info(String.format("Validated %d out of %d partitions", pos, maxPos));
-                    long visitLts = pdSelector.minLtsAt(pos);
-
-                    metricReporter.validatePartition();
-
-                    for (boolean reverse : new boolean[]{ true, false })
-                    {
-                        try
-                        {
-                            model.validate(Query.selectPartition(schema, pdSelector.pd(visitLts, schema), reverse));
-                        }
-                        catch (Throwable t)
-                        {
-                            isDone.set(true);
-                            logger.error("Caught an error while validating all partitions.", t);
-                            throw t;
-                        }
-                    }
-                }
-                return null;
-            }, executor);
+            Interruptible thread = ExecutorFactory.Global.executorFactory().infiniteLoop(String.format("AllPartitionsValidator-%d", i + 1),
+                                                                                         Runner.wrapInterrupt((state) -> {
+                                                                                             if (state == Interruptible.State.NORMAL)
+                                                                                             {
+                                                                                                 metricReporter.validatePartition();
+                                                                                                 long pos = currentPosition.getAndIncrement();
+                                                                                                 if (pos < maxPosition)
+                                                                                                 {
+                                                                                                     for (boolean reverse : new boolean[]{ true, false })
+                                                                                                         model.validate(Query.selectPartition(schema, pdSelector.pd(pdSelector.minLtsAt(pos), schema), reverse));
+                                                                                                 }
+                                                                                                 else
+                                                                                                 {
+                                                                                                     interrupt.signalAll();
+                                                                                                 }
+                                                                                             }
+                                                                                         }, interrupt::signal, errors::add), SAFE, NON_DAEMON, UNSYNCHRONIZED);
+            threads.add(thread);
         }
 
-        return CompletableFuture.allOf(futures);
+        interrupt.awaitUninterruptibly();
+
+        Runner.shutdown(threads::stream);
+        if (!errors.isEmpty())
+            throw Runner.merge(errors);
     }
 
     public void visit()
     {
-        // TODO: this is ok for now, but if/when we bring exhaustive checker back, we need to change this:
-        // we'll probably want a low-concurrency validator somewhere in background all the time.
-        if (condition.compareAndSet(true, false))
+        long lts = clock.peek();
+        if (condition.test(lts))
         {
-            long lts = clock.peek();
             logger.info("Starting validation of all partitions as of lts {}...", lts);
-
             try
             {
-                validateAllPartitions(executor, concurrency).get();
+                validateAllPartitions();
             }
             catch (Throwable e)
             {
@@ -142,11 +152,5 @@ public class AllPartitionsValidator implements Visitor
         }
     }
 
-    @SuppressWarnings("ResultOfMethodCallIgnored")
-    @Override
-    public void shutdown() throws InterruptedException
-    {
-        executor.shutdown();
-        executor.awaitTermination(60, TimeUnit.SECONDS);
-    }
+
 }

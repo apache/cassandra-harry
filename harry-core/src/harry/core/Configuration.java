@@ -18,14 +18,23 @@
 
 package harry.core;
 
+import java.io.BufferedWriter;
 import java.io.File;
+import java.io.FileOutputStream;
+import java.io.IOException;
+import java.io.OutputStreamWriter;
+import java.lang.annotation.Annotation;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Consumer;
+import java.util.stream.Collectors;
 
 import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonProperty;
@@ -38,14 +47,12 @@ import harry.ddl.SchemaGenerators;
 import harry.ddl.SchemaSpec;
 import harry.generators.Surjections;
 import harry.generators.distribution.Distribution;
-import harry.model.AlwaysSamePartitionSelector;
 import harry.model.Model;
 import harry.model.OpSelectors;
 import harry.model.QuiescentChecker;
 import harry.model.clock.ApproximateMonotonicClock;
-import harry.model.clock.OffsetClock;
-import harry.model.sut.PrintlnSut;
 import harry.model.sut.SystemUnderTest;
+import harry.runner.LockingDataTracker;
 import harry.visitors.AllPartitionsValidator;
 import harry.visitors.CorruptingVisitor;
 import harry.runner.DataTracker;
@@ -54,55 +61,42 @@ import harry.visitors.LoggingVisitor;
 import harry.visitors.MutatingVisitor;
 import harry.visitors.MutatingRowVisitor;
 import harry.visitors.OperationExecutor;
-import harry.visitors.ParallelRecentValidator;
 import harry.visitors.Visitor;
 import harry.visitors.RecentValidator;
 import harry.runner.Runner;
-import harry.visitors.Sampler;
 import harry.util.BitSet;
+import org.reflections.Reflections;
+import org.reflections.scanners.Scanners;
+import org.reflections.util.NameHelper;
 
 public class Configuration
 {
+    private enum NameUtils implements NameHelper
+    {
+        INSTANCE;
+    }
+
     private static final ObjectMapper mapper;
 
-    private static final String DEFAULT_KEYSPACE = "harry";
+    private static <A extends Annotation> Set<Class<?>> findClassesMarkedWith(Class<A> annotation)
+    {
+        Reflections reflections = new Reflections(org.reflections.util.ConfigurationBuilder.build("harry").setExpandSuperTypes(false));
+        Collection<Class<?>> classes = NameUtils.INSTANCE.forNames(reflections.get(Scanners.TypesAnnotated.get(annotation.getName())),
+                                                                   reflections.getConfiguration().getClassLoaders());
+        return new HashSet<>(classes);
+    }
 
     static
     {
+
         mapper = new ObjectMapper(new YAMLFactory()
                                   .disable(YAMLGenerator.Feature.USE_NATIVE_TYPE_ID)
                                   .disable(YAMLGenerator.Feature.WRITE_DOC_START_MARKER)
                                   .disable(YAMLGenerator.Feature.CANONICAL_OUTPUT)
                                   .enable(YAMLGenerator.Feature.INDENT_ARRAYS));
-        mapper.registerSubtypes(Configuration.DebugApproximateMonotonicClockConfiguration.class);
-        mapper.registerSubtypes(Configuration.ApproximateMonotonicClockConfiguration.class);
-        mapper.registerSubtypes(Configuration.ConcurrentRunnerConfig.class);
-        mapper.registerSubtypes(Configuration.SequentialRunnerConfig.class);
-        mapper.registerSubtypes(Configuration.SingleVisitRunnerConfig.class);
-        mapper.registerSubtypes(Configuration.DefaultDataTrackerConfiguration.class);
-        mapper.registerSubtypes(Configuration.NoOpDataTrackerConfiguration.class);
 
-        mapper.registerSubtypes(Configuration.QuiescentCheckerConfig.class);
-        mapper.registerSubtypes(NoOpCheckerConfig.class);
-        mapper.registerSubtypes(Configuration.DefaultCDSelectorConfiguration.class);
-        mapper.registerSubtypes(Configuration.DefaultPDSelectorConfiguration.class);
-        mapper.registerSubtypes(Configuration.ConstantDistributionConfig.class);
-        mapper.registerSubtypes(DefaultSchemaProviderConfiguration.class);
-        mapper.registerSubtypes(MutatingRowVisitorConfiguration.class);
-
-        mapper.registerSubtypes(MutatingVisitorConfiguation.class);
-        mapper.registerSubtypes(LoggingVisitorConfiguration.class);
-        mapper.registerSubtypes(AllPartitionsValidatorConfiguration.class);
-        mapper.registerSubtypes(ParallelRecentValidator.ParallelRecentValidatorConfig.class);
-        mapper.registerSubtypes(Sampler.SamplerConfiguration.class);
-        mapper.registerSubtypes(CorruptingVisitorConfiguration.class);
-        mapper.registerSubtypes(RecentPartitionsValidatorConfiguration.class);
-        mapper.registerSubtypes(FixedSchemaProviderConfiguration.class);
-        mapper.registerSubtypes(AlwaysSamePartitionSelector.AlwaysSamePartitionSelectorConfiguration.class);
-        mapper.registerSubtypes(OffsetClock.OffsetClockConfiguration.class);
-        mapper.registerSubtypes(PrintlnSut.PrintlnSutConfiguration.class);
-        mapper.registerSubtypes(NoOpDataTrackerConfiguration.class);
-        mapper.registerSubtypes(NoOpMetricReporterConfiguration.class);
+        findClassesMarkedWith(JsonTypeName.class)
+        .forEach(mapper::registerSubtypes);
     }
 
     public final long seed;
@@ -156,6 +150,18 @@ public class Configuration
         mapper.registerSubtypes(classes);
     }
 
+    public static void toFile(File file, Configuration config)
+    {
+        try (BufferedWriter bw = new BufferedWriter(new OutputStreamWriter(new FileOutputStream(file))))
+        {
+            bw.write(Configuration.toYamlString(config));
+            bw.flush();
+        }
+        catch (IOException e)
+        {
+            throw new RuntimeException(e);
+        }
+    }
     public static String toYamlString(Configuration config)
     {
         try
@@ -229,21 +235,21 @@ public class Configuration
 
             long seed = snapshot.seed;
 
-            DataTracker tracker = snapshot.data_tracker == null ? new DefaultDataTrackerConfiguration().make() : snapshot.data_tracker.make();
             OpSelectors.Rng rng = new OpSelectors.PCGFast(seed);
-
-            OpSelectors.MonotonicClock clock = snapshot.clock.make();
-
-            MetricReporter metricReporter = snapshot.metric_reporter.make();
 
             // TODO: validate that operation kind is compatible with schema, due to statics etc
             sut = snapshot.system_under_test.make();
-
             SchemaSpec schemaSpec = snapshot.schema_provider.make(seed, sut);
             schemaSpec.validate();
 
             OpSelectors.PdSelector pdSelector = snapshot.partition_descriptor_selector.make(rng);
+            DataTrackerConfiguration dataTrackerConfiguration = snapshot.data_tracker == null ? new DefaultDataTrackerConfiguration() : snapshot.data_tracker;
+            DataTracker tracker = dataTrackerConfiguration.make(pdSelector, schemaSpec);
+
             OpSelectors.DescriptorSelector descriptorSelector = snapshot.clustering_descriptor_selector.make(rng, schemaSpec);
+            OpSelectors.MonotonicClock clock = snapshot.clock.make();
+
+            MetricReporter metricReporter = snapshot.metric_reporter.make();
 
             return new Run(rng,
                            clock,
@@ -306,7 +312,7 @@ public class Configuration
             return this;
         }
 
-        public ConfigurationBuilder setDataTracker(String keyspace_ddl)
+        public ConfigurationBuilder setKeyspaceDdl(String keyspace_ddl)
         {
             this.keyspace_ddl = keyspace_ddl;
             return this;
@@ -396,14 +402,18 @@ public class Configuration
     {
         ConfigurationBuilder builder = new ConfigurationBuilder();
         builder.seed = seed;
+
         builder.schema_provider = schema_provider;
+        builder.keyspace_ddl = keyspace_ddl;
         builder.drop_schema = drop_schema;
         builder.create_schema = create_schema;
         builder.truncate_table = truncate_table;
 
+        builder.data_tracker = data_tracker;
         builder.clock = clock;
         builder.runner = runner;
         builder.system_under_test = system_under_test;
+        builder.metric_reporter = metric_reporter;
 
         builder.partition_descriptor_selector = partition_descriptor_selector;
         builder.clustering_descriptor_selector = clustering_descriptor_selector;
@@ -426,7 +436,7 @@ public class Configuration
         {
         }
 
-        public DataTracker make()
+        public DataTracker make(OpSelectors.PdSelector pdSelector, SchemaSpec schemaSpec)
         {
             return DataTracker.NO_OP;
         }
@@ -437,27 +447,59 @@ public class Configuration
     {
         public final long max_seen_lts;
         public final long max_complete_lts;
+        public final List<Long> reorder_buffer;
 
         public DefaultDataTrackerConfiguration()
         {
-            this(-1, -1);
+            this(-1, -1, null);
         }
 
         @JsonCreator
         public DefaultDataTrackerConfiguration(@JsonProperty(value = "max_seen_lts", defaultValue = "-1") long max_seen_lts,
-                                               @JsonProperty(value = "max_complete_lts", defaultValue = "-1") long max_complete_lts)
+                                               @JsonProperty(value = "max_complete_lts", defaultValue = "-1") long max_complete_lts,
+                                               @JsonProperty(value = "reorder_buffer", defaultValue = "null") List<Long> reorder_buffer)
         {
             this.max_seen_lts = max_seen_lts;
             this.max_complete_lts = max_complete_lts;
+            this.reorder_buffer = reorder_buffer;
         }
 
-        public DataTracker make()
+        @Override
+        public DataTracker make(OpSelectors.PdSelector pdSelector, SchemaSpec schemaSpec)
         {
-            DefaultDataTracker defaultDataTracker = new DefaultDataTracker();
-            defaultDataTracker.forceLts(max_seen_lts, max_complete_lts);
-            return defaultDataTracker;
+            DefaultDataTracker tracker = new DefaultDataTracker();
+            tracker.forceLts(max_seen_lts, max_complete_lts, reorder_buffer);
+            return tracker;
         }
     }
+
+    @JsonTypeName("locking")
+    public static class LockingDataTrackerConfiguration implements DataTrackerConfiguration
+    {
+        public final long max_seen_lts;
+        public final long max_complete_lts;
+        public final List<Long> reorder_buffer;
+
+        @JsonCreator
+        public LockingDataTrackerConfiguration(@JsonProperty(value = "max_seen_lts", defaultValue = "-1") long max_seen_lts,
+                                               @JsonProperty(value = "max_complete_lts", defaultValue = "-1") long max_complete_lts,
+                                               @JsonProperty(value = "reorder_buffer", defaultValue = "null") List<Long> reorder_buffer)
+        {
+            this.max_seen_lts = max_seen_lts;
+            this.max_complete_lts = max_complete_lts;
+            this.reorder_buffer = reorder_buffer;
+        }
+
+        @Override
+        public DataTracker make(OpSelectors.PdSelector pdSelector, SchemaSpec schemaSpec)
+        {
+            LockingDataTracker tracker = new LockingDataTracker(pdSelector, schemaSpec);
+            tracker.forceLts(max_seen_lts, max_complete_lts, reorder_buffer);
+            return tracker;
+        }
+    }
+
+
 
     @JsonTypeInfo(use = JsonTypeInfo.Id.NAME, include = JsonTypeInfo.As.WRAPPER_OBJECT)
     public interface ClockConfiguration extends OpSelectors.MonotonicClockFactory
@@ -538,22 +580,18 @@ public class Configuration
     @JsonTypeName("concurrent")
     public static class ConcurrentRunnerConfig implements RunnerConfiguration
     {
-        public final int concurrency;
-
-        @JsonProperty(value = "visitors")
-        public final List<VisitorConfiguration> visitorFactories;
+        @JsonProperty(value = "visitor_pools")
+        public final List<VisitorPoolConfiguration> visitor_pools;
 
         public final long run_time;
         public final TimeUnit run_time_unit;
 
         @JsonCreator
-        public ConcurrentRunnerConfig(@JsonProperty(value = "concurrency", defaultValue = "4") int concurrency,
-                                      @JsonProperty(value = "visitors") List<VisitorConfiguration> visitors,
+        public ConcurrentRunnerConfig(@JsonProperty(value = "visitor_pools") List<VisitorPoolConfiguration> visitor_pools,
                                       @JsonProperty(value = "run_time", defaultValue = "2") long runtime,
                                       @JsonProperty(value = "run_time_unit", defaultValue = "HOURS") TimeUnit runtimeUnit)
         {
-            this.concurrency = concurrency;
-            this.visitorFactories = visitors;
+            this.visitor_pools = visitor_pools;
             this.run_time = runtime;
             this.run_time_unit = runtimeUnit;
         }
@@ -561,7 +599,29 @@ public class Configuration
         @Override
         public Runner make(Run run, Configuration config)
         {
-            return new Runner.ConcurrentRunner(run, config, concurrency, visitorFactories, run_time, run_time_unit);
+            return new Runner.ConcurrentRunner(run, config, visitor_pools, run_time, run_time_unit);
+        }
+    }
+
+    public static class VisitorPoolConfiguration
+    {
+        public final String prefix;
+        public final int concurrency;
+        public final VisitorConfiguration visitor;
+
+        @JsonCreator
+        public VisitorPoolConfiguration(@JsonProperty(value = "prefix") String prefix,
+                                        @JsonProperty(value = "concurrency") int concurrency,
+                                        @JsonProperty(value = "visitor") VisitorConfiguration visitor)
+        {
+            this.prefix = prefix;
+            this.concurrency = concurrency;
+            this.visitor = visitor;
+        }
+
+        public static VisitorPoolConfiguration pool(String prefix, int concurrency, VisitorConfiguration visitor)
+        {
+            return new VisitorPoolConfiguration(prefix, concurrency, visitor);
         }
     }
 
@@ -998,7 +1058,7 @@ public class Configuration
 
         public Visitor make(Run run)
         {
-            return new AllPartitionsValidator(concurrency, trigger_after, run, modelConfiguration);
+            return new AllPartitionsValidator(run, concurrency, trigger_after, modelConfiguration);
         }
     }
 
