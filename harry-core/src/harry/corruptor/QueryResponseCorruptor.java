@@ -84,11 +84,25 @@ public interface QueryResponseCorruptor
                             mismatch = true;
                         }
                     }
-                    assert mismatch || before.length != after.length;
+                    assert mismatch || before.length != after.length : String.format("Could not corrupt.\n" +
+                                                                                     "Before\n%s\n" +
+                                                                                     "After\n%s\nkma",
+                                                                                     toString(before),
+                                                                                     toString(after));
                     return true;
                 }
             }
             return false;
+        }
+
+        private static String toString(Object[][] obj)
+        {
+            StringBuilder sb = new StringBuilder();
+            for (Object[] objects : obj)
+            {
+                sb.append(Arrays.toString(objects)).append("\n");
+            }
+            return sb.toString();
         }
     }
 }

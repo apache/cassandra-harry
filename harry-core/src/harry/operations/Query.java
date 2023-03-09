@@ -18,20 +18,20 @@
 
 package harry.operations;
 
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.Collections;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
+import java.util.function.LongSupplier;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import harry.ddl.ColumnSpec;
 import harry.ddl.SchemaSpec;
+import harry.generators.DataGenerators;
+import harry.generators.RngUtils;
 import harry.model.SelectHelper;
 import harry.util.Ranges;
 
+import static harry.operations.QueryGenerator.relationKind;
 import static harry.operations.Relation.FORWARD_COMPARATOR;
 
 public abstract class Query
@@ -243,14 +243,24 @@ public abstract class Query
     }
 
 
+    public CompiledStatement toWildcardSelectStatement()
+    {
+        return SelectHelper.select(schemaSpec, pd, null, reverse, false);
+    }
+
     public CompiledStatement toSelectStatement()
     {
-        return toSelectStatement(true);
+        return SelectHelper.select(schemaSpec, pd, schemaSpec.allColumnsSet, relations, reverse, true);
     }
 
     public CompiledStatement toSelectStatement(boolean includeWriteTime)
     {
-        return SelectHelper.select(schemaSpec, pd, relations, reverse, includeWriteTime);
+        return SelectHelper.select(schemaSpec, pd, schemaSpec.allColumnsSet, relations, reverse, includeWriteTime);
+    }
+
+    public CompiledStatement toSelectStatement(Set<ColumnSpec<?>> columns, boolean includeWriteTime)
+    {
+        return SelectHelper.select(schemaSpec, pd, columns, relations, reverse, includeWriteTime);
     }
 
     public CompiledStatement toDeleteStatement(long rts)
@@ -262,7 +272,212 @@ public abstract class Query
 
     public static Query selectPartition(SchemaSpec schemaSpec, long pd, boolean reverse)
     {
-        return new SinglePartitionQuery(QueryKind.SINGLE_PARTITION, pd, reverse, Collections.emptyList(), schemaSpec);
+        return new Query.SinglePartitionQuery(Query.QueryKind.SINGLE_PARTITION,
+                                              pd,
+                                              reverse,
+                                              Collections.emptyList(),
+                                              schemaSpec);
+    }
+
+    public static Query singleClustering(SchemaSpec schema, long pd, long cd, boolean reverse)
+    {
+        return new Query.SingleClusteringQuery(Query.QueryKind.SINGLE_CLUSTERING,
+                                               pd,
+                                               cd,
+                                               reverse,
+                                               Relation.eqRelations(schema.ckGenerator.slice(cd), schema.clusteringKeys),
+                                               schema);
+    }
+
+    public static Query clusteringSliceQuery(SchemaSpec schema, long pd, long cd, long queryDescriptor, boolean isGt, boolean isEquals, boolean reverse)
+    {
+        List<Relation> relations = new ArrayList<>();
+
+        long[] sliced = schema.ckGenerator.slice(cd);
+        long min;
+        long max;
+        int nonEqFrom = RngUtils.asInt(queryDescriptor, 0, sliced.length - 1);
+
+        long[] minBound = new long[sliced.length];
+        long[] maxBound = new long[sliced.length];
+
+        // Algorithm that determines boundaries for a clustering slice.
+        //
+        // Basic principles are not hard but there are a few edge cases. I haven't figured out how to simplify
+        // those, so there might be some room for improvement. In short, what we want to achieve is:
+        //
+        // 1. Every part that is restricted with an EQ relation goes into the bound verbatim.
+        // 2. Every part that is restricted with a non-EQ relation (LT, GT, LTE, GTE) is taken into the bound
+        //    if it is required to satisfy the relationship. For example, in `ck1 = 0 AND ck2 < 5`, ck2 will go
+        //    to the _max_ boundary, and minimum value will go to the _min_ boundary, since we can select every
+        //    descriptor that is prefixed with ck1.
+        // 3. Every other part (e.g., ones that are not explicitly mentioned in the query) has to be restricted
+        //    according to equality. For example, in `ck1 = 0 AND ck2 < 5`, ck3 that is present in schema but not
+        //    mentioned in query, makes sure that any value between [0, min_value, min_value] and [0, 5, min_value]
+        //    is matched.
+        //
+        // One edge case is a query on the first clustering key: `ck1 < 5`. In this case, we have to fixup the lower
+        // value to the minimum possible value. We could really just do Long.MIN_VALUE, but in case we forget to
+        // adjust entropy elsewhere, it'll be caught correctly here.
+        for (int i = 0; i < sliced.length; i++)
+        {
+            long v = sliced[i];
+            DataGenerators.KeyGenerator gen = schema.ckGenerator;
+            ColumnSpec column = schema.clusteringKeys.get(i);
+            int idx = i;
+            LongSupplier maxSupplier = () -> gen.maxValue(idx);
+            LongSupplier minSupplier = () -> gen.minValue(idx);
+
+            if (i < nonEqFrom)
+            {
+                relations.add(Relation.eqRelation(schema.clusteringKeys.get(i), v));
+                minBound[i] = v;
+                maxBound[i] = v;
+            }
+            else if (i == nonEqFrom)
+            {
+                relations.add(Relation.relation(relationKind(isGt, isEquals), schema.clusteringKeys.get(i), v));
+
+                if (column.isReversed())
+                {
+                    minBound[i] = isGt ? minSupplier.getAsLong() : v;
+                    maxBound[i] = isGt ? v : maxSupplier.getAsLong();
+                }
+                else
+                {
+                    minBound[i] = isGt ? v : minSupplier.getAsLong();
+                    maxBound[i] = isGt ? maxSupplier.getAsLong() : v;
+                }
+            }
+            else
+            {
+                if (isEquals)
+                {
+                    minBound[i] = minSupplier.getAsLong();
+                    maxBound[i] = maxSupplier.getAsLong();
+                }
+                // If we have a non-eq case, all subsequent bounds have to correspond to the maximum in normal case,
+                // or minimum in case the last bound locked with a relation was reversed.
+                //
+                // For example, if we have (ck1, ck2, ck3) as (ASC, DESC, ASC), and query ck1 > X, we'll have:
+                //  [xxxxx | max_value | max_value]
+                //    ck1       ck2         ck3
+                // which will exclude xxxx, but take every possible (ck1 > xxxxx) prefixed value.
+                //
+                // Similarly, if we have (ck1, ck2, ck3) as (ASC, DESC, ASC), and query ck1 <= X, we'll have:
+                //  [xxxxx | max_value | max_value]
+                // which will include every (ck1 < xxxxx), and any clustering prefixed with xxxxx.
+                else if (schema.clusteringKeys.get(nonEqFrom).isReversed())
+                    maxBound[i] = minBound[i] = isGt ? minSupplier.getAsLong() : maxSupplier.getAsLong();
+                else
+                    maxBound[i] = minBound[i] = isGt ? maxSupplier.getAsLong() : minSupplier.getAsLong();
+            }
+        }
+
+        if (schema.clusteringKeys.get(nonEqFrom).isReversed())
+            isGt = !isGt;
+
+        min = schema.ckGenerator.stitch(minBound);
+        max = schema.ckGenerator.stitch(maxBound);
+
+        if (nonEqFrom == 0)
+        {
+            min = isGt ? min : schema.ckGenerator.minValue();
+            max = !isGt ? max : schema.ckGenerator.maxValue();
+        }
+
+        // if we're about to create an "impossible" query, just bump the modifier and re-generate
+        if (min == max && !isEquals)
+            throw new IllegalArgumentException("Impossible Query");
+
+        return new Query.ClusteringSliceQuery(Query.QueryKind.CLUSTERING_SLICE,
+                                              pd,
+                                              min,
+                                              max,
+                                              relationKind(true, isGt ? isEquals : true),
+                                              relationKind(false, !isGt ? isEquals : true),
+                                              reverse,
+                                              relations,
+                                              schema);
+    }
+
+    public static Query clusteringRangeQuery(SchemaSpec schema, long pd, long cd1, long cd2, long queryDescriptor, boolean isMinEq, boolean isMaxEq, boolean reverse)
+    {
+        List<Relation> relations = new ArrayList<>();
+
+        long[] minBound = schema.ckGenerator.slice(cd1);
+        long[] maxBound = schema.ckGenerator.slice(cd2);
+
+        int nonEqFrom = RngUtils.asInt(queryDescriptor, 0, schema.clusteringKeys.size() - 1);
+
+        // Logic here is similar to how clustering slices are implemented, except for both lower and upper bound
+        // get their values from sliced value in (1) and (2) cases:
+        //
+        // 1. Every part that is restricted with an EQ relation, takes its value from the min bound.
+        //    TODO: this can actually be improved, since in case of hierarchical clustering generation we can
+        //          pick out of the keys that are already locked. That said, we'll exercise more cases the way
+        //          it is implemented right now.
+        // 2. Every part that is restricted with a non-EQ relation is taken into the bound, if it is used in
+        //    the query. For example in, `ck1 = 0 AND ck2 > 2 AND ck2 < 5`, ck2 values 2 and 5 will be placed,
+        //    correspondingly, to the min and max bound.
+        // 3. Every other part has to be restricted according to equality. Similar to clustering slice, we have
+        //    to decide whether we use a min or the max value for the bound. Foe example `ck1 = 0 AND ck2 > 2 AND ck2 <= 5`,
+        //    assuming we have ck3 that is present in schema but not mentioned in the query, we'll have bounds
+        //    created as follows: [0, 2, max_value] and [0, 5, max_value]. Idea here is that since ck2 = 2 is excluded,
+        //    we also disallow all ck3 values for [0, 2] prefix. Similarly, since ck2 = 5 is included, we allow every
+        //    ck3 value with a prefix of [0, 5].
+        for (int i = 0; i < schema.clusteringKeys.size(); i++)
+        {
+            ColumnSpec<?> col = schema.clusteringKeys.get(i);
+            if (i < nonEqFrom)
+            {
+                relations.add(Relation.eqRelation(col, minBound[i]));
+                maxBound[i] = minBound[i];
+            }
+            else if (i == nonEqFrom)
+            {
+                long minLocked = Math.min(minBound[nonEqFrom], maxBound[nonEqFrom]);
+                long maxLocked = Math.max(minBound[nonEqFrom], maxBound[nonEqFrom]);
+                relations.add(Relation.relation(relationKind(true, col.isReversed() ? isMaxEq : isMinEq), col,
+                                                col.isReversed() ? maxLocked : minLocked));
+                relations.add(Relation.relation(relationKind(false, col.isReversed() ? isMinEq : isMaxEq), col,
+                                                col.isReversed() ? minLocked : maxLocked));
+                minBound[i] = minLocked;
+                maxBound[i] = maxLocked;
+
+                // Impossible query
+                if (i == 0 && minLocked == maxLocked)
+                    throw new IllegalArgumentException("impossible query");
+            }
+            else
+            {
+                minBound[i] = isMinEq ? schema.ckGenerator.minValue(i) : schema.ckGenerator.maxValue(i);
+                maxBound[i] = isMaxEq ? schema.ckGenerator.maxValue(i) : schema.ckGenerator.minValue(i);
+            }
+        }
+
+        long stitchedMin = schema.ckGenerator.stitch(minBound);
+        long stitchedMax = schema.ckGenerator.stitch(maxBound);
+
+        // if we're about to create an "impossible" query, just bump the modifier and re-generate
+        // TODO: this isn't considered "normal" that we do it this way, but I'd rather fix it with
+        //       a refactoring that's mentioned below
+        if (stitchedMin == stitchedMax)
+            throw new IllegalArgumentException("impossible query");
+
+        // TODO: one of the ways to get rid of garbage here, and potentially even simplify the code is to
+        //       simply return bounds here. After bounds are created, we slice them and generate query right
+        //       from the bounds. In this case, we can even say that things like -inf/+inf are special values,
+        //       and use them as placeholders. Also, it'll be easier to manipulate relations.
+        return new Query.ClusteringRangeQuery(Query.QueryKind.CLUSTERING_RANGE,
+                                              pd,
+                                              stitchedMin,
+                                              stitchedMax,
+                                              relationKind(true, isMinEq),
+                                              relationKind(false, isMaxEq),
+                                              reverse,
+                                              relations,
+                                              schema);
     }
 
     public enum QueryKind

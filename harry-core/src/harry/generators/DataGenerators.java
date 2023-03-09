@@ -67,6 +67,8 @@ public class DataGenerators
             ColumnSpec columnSpec = columns.get(i);
             if (data[i] == null)
                 descriptors[i] = NIL_DESCR;
+            else if (data[i] == UNSET_VALUE)
+                descriptors[i] = UNSET_DESCR;
             else
                 descriptors[i] = columnSpec.deflate(data[i]);
         }

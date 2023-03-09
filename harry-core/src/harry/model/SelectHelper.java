@@ -18,23 +18,29 @@
 
 package harry.model;
 
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.List;
+import java.util.*;
 
 import harry.data.ResultSetRow;
 import harry.ddl.ColumnSpec;
 import harry.ddl.SchemaSpec;
+import harry.generators.DataGenerators;
 import harry.model.sut.SystemUnderTest;
 import harry.operations.CompiledStatement;
 import harry.operations.Relation;
 import harry.operations.Query;
 
+import static harry.generators.DataGenerators.UNSET_DESCR;
+
 public class SelectHelper
 {
+    public static CompiledStatement selectWildcard(SchemaSpec schema, long pd)
+    {
+        return select(schema, pd, null, Collections.emptyList(), false, true);
+    }
+
     public static CompiledStatement select(SchemaSpec schema, long pd)
     {
-        return select(schema, pd, Collections.emptyList(), false, true);
+        return select(schema, pd, schema.allColumnsSet, Collections.emptyList(), false, true);
     }
 
     /**
@@ -44,30 +50,68 @@ public class SelectHelper
      */
     public static CompiledStatement select(SchemaSpec schema, long pd, List<Relation> relations, boolean reverse, boolean includeWriteTime)
     {
+        return select(schema, pd, schema.allColumnsSet, relations, reverse, includeWriteTime);
+    }
+
+    public static CompiledStatement selectWildcard(SchemaSpec schema, long pd, List<Relation> relations, boolean reverse, boolean includeWriteTime)
+    {
+        return select(schema, pd, null, relations, reverse, includeWriteTime);
+    }
+
+    public static CompiledStatement select(SchemaSpec schema, long pd, Set<ColumnSpec<?>> columns, List<Relation> relations, boolean reverse, boolean includeWriteTime)
+    {
+        boolean isWildcardQuery = columns == null;
+        if (isWildcardQuery)
+        {
+            columns = schema.allColumnsSet;
+            includeWriteTime = false;
+        }
+
         StringBuilder b = new StringBuilder();
         b.append("SELECT ");
 
-        for (int i = 0; i < schema.allColumns.size(); i++)
+        boolean isFirst = true;
+        if (isWildcardQuery)
         {
-            ColumnSpec<?> spec = schema.allColumns.get(i);
-            if (i > 0)
-                b.append(", ");
-            b.append(spec.name);
+            b.append("*");
+        }
+        else
+        {
+            for (int i = 0; i < schema.allColumns.size(); i++)
+            {
+                ColumnSpec<?> spec = schema.allColumns.get(i);
+                if (columns != null && !columns.contains(spec))
+                    continue;
+
+                if (isFirst)
+                    isFirst = false;
+                else
+                    b.append(", ");
+                b.append(spec.name);
+            }
         }
 
         if (includeWriteTime)
         {
-            for (ColumnSpec<?> column : schema.staticColumns)
+            for (ColumnSpec<?> spec : schema.staticColumns)
+            {
+                if (columns != null && !columns.contains(spec))
+                    continue;
                 b.append(", ")
                  .append("writetime(")
-                 .append(column.name)
+                 .append(spec.name)
                  .append(")");
+            }
 
-            for (ColumnSpec<?> column : schema.regularColumns)
+            for (ColumnSpec<?> spec : schema.regularColumns)
+            {
+                if (columns != null && !columns.contains(spec))
+                    continue;
                 b.append(", ")
                  .append("writetime(")
-                 .append(column.name)
+                 .append(spec.name)
                  .append(")");
+            }
         }
 
         b.append(" FROM ")
@@ -157,6 +201,64 @@ public class SelectHelper
         return name + " DESC";
     }
 
+
+    public static Object[] broadenResult(SchemaSpec schemaSpec, Set<ColumnSpec<?>> columns, Object[] result)
+    {
+        boolean isWildcardQuery = columns == null;
+
+        if (isWildcardQuery)
+            columns = schemaSpec.allColumnsSet;
+        else if (schemaSpec.allColumns.size() == columns.size())
+            return result;
+
+        Object[] newRes = new Object[schemaSpec.allColumns.size() + schemaSpec.staticColumns.size() + schemaSpec.regularColumns.size()];
+
+        int origPointer = 0;
+        int newPointer = 0;
+        for (int i = 0; i < schemaSpec.allColumns.size(); i++)
+        {
+            ColumnSpec<?> column = schemaSpec.allColumns.get(i);
+            if (columns.contains(column))
+                newRes[newPointer] = result[origPointer++];
+            else
+                newRes[newPointer] = DataGenerators.UNSET_VALUE;
+            newPointer++;
+        }
+
+        // Make sure to include writetime, but only in case query actually includes writetime (for example, it's not a wildcard query)
+        for (int i = 0; i < schemaSpec.staticColumns.size() && origPointer < result.length; i++)
+        {
+            ColumnSpec<?> column = schemaSpec.staticColumns.get(i);
+            if (columns.contains(column))
+                newRes[newPointer] = result[origPointer++];
+            else
+                newRes[newPointer] = null;
+            newPointer++;
+        }
+
+        for (int i = 0; i < schemaSpec.regularColumns.size() && origPointer < result.length; i++)
+        {
+            ColumnSpec<?> column = schemaSpec.regularColumns.get(i);
+            if (columns.contains(column))
+                newRes[newPointer] = result[origPointer++];
+            else
+                newRes[newPointer] = null;
+            newPointer++;
+        }
+
+        return newRes;
+    }
+
+    static boolean isDeflatable(Object[] columns)
+    {
+        for (Object column : columns)
+        {
+            if (column == DataGenerators.UNSET_VALUE)
+                return false;
+        }
+        return true;
+    }
+
     public static ResultSetRow resultSetToRow(SchemaSpec schema, OpSelectors.MonotonicClock clock, Object[] result)
     {
         Object[] partitionKey = new Object[schema.partitionKeys.size()];
@@ -183,8 +285,8 @@ public class SelectHelper
             lts[i] = v == null ? Model.NO_TIMESTAMP : clock.lts((long) v);
         }
 
-        return new ResultSetRow(schema.deflatePartitionKey(partitionKey),
-                                schema.deflateClusteringKey(clusteringKey),
+        return new ResultSetRow(isDeflatable(partitionKey) ? schema.deflatePartitionKey(partitionKey) : UNSET_DESCR,
+                                isDeflatable(clusteringKey) ? schema.deflateClusteringKey(clusteringKey) : UNSET_DESCR,
                                 schema.staticColumns.isEmpty() ? null : schema.deflateStaticColumns(staticColumns),
                                 schema.staticColumns.isEmpty() ? null : slts,
                                 schema.deflateRegularColumns(regularColumns),
@@ -193,12 +295,16 @@ public class SelectHelper
 
     public static List<ResultSetRow> execute(SystemUnderTest sut, OpSelectors.MonotonicClock clock, Query query)
     {
-        CompiledStatement compiled = query.toSelectStatement();
+        return execute(sut, clock, query, query.schemaSpec.allColumnsSet);
+    }
+
+    public static List<ResultSetRow> execute(SystemUnderTest sut, OpSelectors.MonotonicClock clock, Query query, Set<ColumnSpec<?>> columns)
+    {
+        CompiledStatement compiled = query.toSelectStatement(columns, true);
         Object[][] objects = sut.executeIdempotent(compiled.cql(), SystemUnderTest.ConsistencyLevel.QUORUM, compiled.bindings());
         List<ResultSetRow> result = new ArrayList<>();
         for (Object[] obj : objects)
-            result.add(resultSetToRow(query.schemaSpec, clock, obj));
-
+            result.add(resultSetToRow(query.schemaSpec, clock, broadenResult(query.schemaSpec, columns, obj)));
         return result;
     }
 }

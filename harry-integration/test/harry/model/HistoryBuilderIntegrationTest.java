@@ -185,7 +185,7 @@ public class HistoryBuilderIntegrationTest extends ModelTestBase
         }
     }
 
-    Configuration.ModelConfiguration modelConfiguration()
+    protected Configuration.ModelConfiguration modelConfiguration()
     {
         return new Configuration.QuiescentCheckerConfig();
     }
