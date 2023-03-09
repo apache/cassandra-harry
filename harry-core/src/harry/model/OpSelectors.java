@@ -273,17 +273,25 @@ public interface OpSelectors
         private final long switchAfter;
         private final long windowSize;
 
+        private final long positionOffset;
+
         public DefaultPdSelector(OpSelectors.Rng rng, long windowSize, long slideAfterRepeats)
+        {
+            this(rng, windowSize, slideAfterRepeats, 0L);
+        }
+
+        public DefaultPdSelector(OpSelectors.Rng rng, long windowSize, long slideAfterRepeats, long positionOffset)
         {
             this.rng = rng;
             this.slideAfterRepeats = slideAfterRepeats;
             this.windowSize = windowSize;
             this.switchAfter = windowSize * slideAfterRepeats;
+            this.positionOffset = positionOffset;
         }
 
         protected long pd(long lts)
         {
-            return rng.randomNumber(positionFor(lts), PARTITION_DESCRIPTOR_STREAM_ID);
+            return rng.randomNumber(positionOffset + positionFor(lts), PARTITION_DESCRIPTOR_STREAM_ID);
         }
 
         public long minLtsAt(long position)
@@ -305,10 +313,10 @@ public interface OpSelectors
         {
             long maxPosition = maxPosition(maxLts);
             if (maxPosition == 0)
-                return schema.adjustPdEntropy(rng.randomNumber(0, PARTITION_DESCRIPTOR_STREAM_ID));
+                return schema.adjustPdEntropy(rng.randomNumber(positionOffset, PARTITION_DESCRIPTOR_STREAM_ID));
 
             int idx = RngUtils.asInt(rng.randomNumber(visitLts, maxPosition), 0, (int) (maxPosition - 1));
-            return schema.adjustPdEntropy(rng.randomNumber(idx, PARTITION_DESCRIPTOR_STREAM_ID));
+            return schema.adjustPdEntropy(rng.randomNumber(positionOffset + idx, PARTITION_DESCRIPTOR_STREAM_ID));
         }
 
         public long maxPosition(long maxLts)
@@ -331,7 +339,7 @@ public interface OpSelectors
 
         public long positionForPd(long pd)
         {
-            return rng.sequenceNumber(pd, PARTITION_DESCRIPTOR_STREAM_ID);
+            return rng.sequenceNumber(pd, PARTITION_DESCRIPTOR_STREAM_ID) - positionOffset;
         }
 
         public long nextLts(long lts)
@@ -371,7 +379,7 @@ public interface OpSelectors
 
         public long maxLtsFor(long pd)
         {
-            long position = rng.sequenceNumber(pd, PARTITION_DESCRIPTOR_STREAM_ID);
+            long position = rng.sequenceNumber(pd, PARTITION_DESCRIPTOR_STREAM_ID) - positionOffset;
             return position * switchAfter + (slideAfterRepeats - 1) * windowSize;
         }
 
@@ -587,6 +595,7 @@ public interface OpSelectors
     // TODO: add a way to limit partition size alltogether; current "number of rows" notion is a bit misleading
     public static class DefaultDescriptorSelector extends DescriptorSelector
     {
+        protected final static long ROW_ID_STREAM = 0x726F4772069640AL;
         protected final static long NUMBER_OF_MODIFICATIONS_STREAM = 0xf490c5272baL;
         protected final static long ROWS_PER_OPERATION_STREAM = 0x5e03812e293L;
         protected final static long BITSET_IDX_STREAM = 0x92eb607bef1L;

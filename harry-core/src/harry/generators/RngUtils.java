@@ -84,12 +84,24 @@ public class RngUtils
         return Math.abs((int) current % (max + 1));
     }
 
+    public static long trim(long current, long max)
+    {
+        return Math.abs(current % (max + 1));
+    }
+
     // Generate a value in [min, max] range: from min _inclusive_ to max _inclusive_.
     public static int asInt(long current, int min, int max)
     {
         if (min == max)
             return min;
         return min + asInt(current, max - min);
+    }
+
+    public static long trim(long current, long min, long max)
+    {
+        if (min == max)
+            return min;
+        return min + trim(current, max - min);
     }
 
     public static boolean asBoolean(long current)
