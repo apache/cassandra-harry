@@ -18,6 +18,8 @@
 
 package harry.model;
 
+import java.util.Arrays;
+import java.util.Collections;
 import java.util.concurrent.TimeUnit;
 import java.util.function.BiConsumer;
 import java.util.function.Function;
@@ -27,15 +29,17 @@ import harry.core.Configuration;
 import harry.core.Run;
 import harry.ddl.SchemaGenerators;
 import harry.ddl.SchemaSpec;
-import harry.visitors.LoggingVisitor;
-import harry.visitors.MutatingRowVisitor;
 import harry.runner.Runner;
+import harry.runner.UpToLtsRunner;
+import harry.visitors.MutatingRowVisitor;
+import harry.visitors.MutatingVisitor;
 import harry.visitors.SingleValidator;
-import harry.visitors.Visitor;
 
 public abstract class ModelTestBase extends IntegrationTestBase
 {
-    void negativeTest(Function<Run, Boolean> corrupt, BiConsumer<Throwable, Run> validate)
+    private final int ITERATIONS = 20_000;
+
+    void negativeTest(Function<Run, Boolean> corrupt, BiConsumer<Throwable, Run> validate) throws Throwable
     {
         Supplier<SchemaSpec> supplier = SchemaGenerators.progression(SchemaGenerators.DEFAULT_SWITCH_AFTER);
         for (int i = 0; i < SchemaGenerators.DEFAULT_RUNS; i++)
@@ -62,18 +66,10 @@ public abstract class ModelTestBase extends IntegrationTestBase
             Configuration config = builder.build();
             Runner runner = config.createRunner();
             
-            try
-            {
-                Run run = runner.getRun();
-                beforeEach();
-                run.sut.schemaChange(run.schemaSpec.compile().cql());
-
-                runner.initAndStartAll().get(4, TimeUnit.MINUTES);
-            }
-            finally
-            {
-                runner.shutdown();
-            }
+            Run run = runner.getRun();
+            beforeEach();
+            run.sut.schemaChange(run.schemaSpec.compile().cql());
+            runner.run();
         }
     }
 
@@ -89,37 +85,54 @@ public abstract class ModelTestBase extends IntegrationTestBase
         return sharedConfiguration(seed, schema);
     }
 
-    void negativeTest(Function<Run, Boolean> corrupt, BiConsumer<Throwable, Run> validate, int counter, SchemaSpec schemaSpec)
+    void negativeTest(Function<Run, Boolean> corrupt, BiConsumer<Throwable, Run> validate, int counter, SchemaSpec schemaSpec) throws Throwable
     {
-        Configuration config = configuration(counter, schemaSpec).build();
+        Configuration config = configuration(counter, schemaSpec)
+                               .setCreateSchema(true)
+                               .setKeyspaceDdl(String.format("CREATE KEYSPACE IF NOT EXISTS %s WITH replication = {'class': 'SimpleStrategy', 'replication_factor': %d};",
+                                                             schemaSpec.keyspace, cluster.size()))
+                               .setDropSchema(true)
+                               .build();
 
         Run run = config.createRun();
-        beforeEach();
-        run.sut.schemaChange(run.schemaSpec.compile().cql());
-        System.out.println(run.schemaSpec.compile().cql());
 
-        Visitor visitor = new LoggingVisitor(run, MutatingRowVisitor::new);
+        new Runner.ChainRunner(run, config,
+                               Arrays.asList(writer(ITERATIONS, 2, TimeUnit.MINUTES),
+                                             (r,  c) -> new Runner.SingleVisitRunner(r, c, Collections.singletonList(this::validator)) {
+                                                 @Override
+                                                 public void runInternal()
+                                                 {
+                                                     if (!corrupt.apply(run))
+                                                     {
+                                                         System.out.println("Could not corrupt");
+                                                         return;
+                                                     }
+                                                     try
+                                                     {
+                                                         super.runInternal();
+                                                         throw new ShouldHaveThrownException();
+                                                     }
+                                                     catch (Throwable t)
+                                                     {
+                                                         validate.accept(t, run);
+                                                     }
+                                                 }
+                                             })).run();
+    }
 
-        for (int i = 0; i < 20000; i++)
-            visitor.visit();
+    public static Configuration.RunnerConfiguration writer(long iterations, int runtime, TimeUnit timeUnit)
+    {
+        return (run, config) -> {
+            return new UpToLtsRunner(run, config,
+                                     Collections.singletonList((r_) -> new MutatingVisitor(r_, MutatingRowVisitor::new)),
+                                     iterations,
+                                     runtime, timeUnit);
+        };
+    }
 
-        SingleValidator validator = validator(run);
-        validator.visit(0);
+    public static class ShouldHaveThrownException extends AssertionError
+    {
 
-        if (!corrupt.apply(run))
-        {
-            System.out.println("Could not corrupt");
-            return;
-        }
-
-        try
-        {
-            validator.visit(0);
-        }
-        catch (Throwable t)
-        {
-            validate.accept(t, run);
-        }
     }
 }
 

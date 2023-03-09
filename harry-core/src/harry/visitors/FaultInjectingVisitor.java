@@ -16,7 +16,7 @@
  *  limitations under the License.
  */
 
-package harry.runner;
+package harry.visitors;
 
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executors;
@@ -31,33 +31,14 @@ import harry.core.Configuration;
 import harry.core.Run;
 import harry.model.sut.SystemUnderTest;
 import harry.operations.CompiledStatement;
-import harry.visitors.LoggingVisitor;
-import harry.visitors.OperationExecutor;
-import harry.visitors.Visitor;
 
+/**
+ * Fault injecting visitor: randomly fails some of the queries.
+ *
+ * Requires {@code FaultInjectingSut} to function.
+ */
 public class FaultInjectingVisitor extends LoggingVisitor
 {
-    public static void init()
-    {
-        Configuration.registerSubtypes(FaultInjectingVisitorConfiguration.class);
-    }
-
-    @JsonTypeName("fault_injecting")
-    public static class FaultInjectingVisitorConfiguration extends Configuration.MutatingVisitorConfiguation
-    {
-        @JsonCreator
-        public FaultInjectingVisitorConfiguration(@JsonProperty("row_visitor") Configuration.RowVisitorConfiguration row_visitor)
-        {
-            super(row_visitor);
-        }
-
-        @Override
-        public Visitor make(Run run)
-        {
-            return new FaultInjectingVisitor(run, row_visitor);
-        }
-    }
-
     private final AtomicInteger cnt = new AtomicInteger();
 
     private final SystemUnderTest.FaultInjectingSut sut;
@@ -96,4 +77,21 @@ public class FaultInjectingVisitor extends LoggingVisitor
                    originator.complete(res);
            });
     }
+
+    @JsonTypeName("fault_injecting")
+    public static class FaultInjectingVisitorConfiguration extends Configuration.MutatingVisitorConfiguation
+    {
+        @JsonCreator
+        public FaultInjectingVisitorConfiguration(@JsonProperty("row_visitor") Configuration.RowVisitorConfiguration row_visitor)
+        {
+            super(row_visitor);
+        }
+
+        @Override
+        public Visitor make(Run run)
+        {
+            return new FaultInjectingVisitor(run, row_visitor);
+        }
+    }
+
 }

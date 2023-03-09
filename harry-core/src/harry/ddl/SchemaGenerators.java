@@ -61,7 +61,8 @@ public class SchemaGenerators
                                                                  ColumnSpec.int16Type,
                                                                  ColumnSpec.int32Type,
                                                                  ColumnSpec.int64Type,
-                                                                 ColumnSpec.booleanType,
+                                                                 // TODO: ByteBufferUtil#objectToBytes doesn't understand booleans
+                                                                 //ColumnSpec.booleanType,
                                                                  ColumnSpec.floatType,
                                                                  ColumnSpec.doubleType,
                                                                  ColumnSpec.asciiType,
@@ -354,7 +355,7 @@ public class SchemaGenerators
     {
         return new SchemaGenerators.Builder(DEFAULT_KEYSPACE_NAME, () -> table)
                .partitionKeySpec(1, 3,
-                                 columnTypes)
+                                 partitionKeyTypes)
                .clusteringKeySpec(1, 3,
                                   clusteringKeyTypes)
                .regularColumnSpec(3, 5,

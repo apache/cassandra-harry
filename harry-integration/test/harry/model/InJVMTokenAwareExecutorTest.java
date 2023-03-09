@@ -18,6 +18,7 @@
 
 package harry.model;
 
+import java.util.concurrent.TimeUnit;
 import java.util.function.Supplier;
 
 import org.junit.Before;
@@ -28,12 +29,12 @@ import harry.core.Configuration;
 import harry.core.Run;
 import harry.ddl.SchemaGenerators;
 import harry.ddl.SchemaSpec;
-import harry.model.sut.InJVMTokenAwareVisitExecutor;
-import harry.model.sut.InJvmSut;
 import harry.model.sut.SystemUnderTest;
-import harry.runner.RepairingLocalStateValidator;
+import harry.model.sut.injvm.InJVMTokenAwareVisitExecutor;
+import harry.model.sut.injvm.InJvmSut;
+import harry.runner.Runner;
+import harry.runner.UpToLtsRunner;
 import harry.visitors.MutatingVisitor;
-import harry.visitors.Visitor;
 import org.apache.cassandra.distributed.Cluster;
 import org.apache.cassandra.distributed.api.Feature;
 
@@ -58,7 +59,7 @@ public class InJVMTokenAwareExecutorTest extends IntegrationTestBase
     }
 
     @Test
-    public void testRepair()
+    public void testRepair() throws Throwable
     {
         Supplier<SchemaSpec> schemaGen = SchemaGenerators.progression(1);
         for (int cnt = 0; cnt < SchemaGenerators.DEFAULT_RUNS; cnt++)
@@ -70,21 +71,14 @@ public class InJVMTokenAwareExecutorTest extends IntegrationTestBase
             Run run = configuration.createRun();
             run.sut.schemaChange(run.schemaSpec.compile().cql());
 
-            Visitor visitor = new MutatingVisitor(run, new InJVMTokenAwareVisitExecutor(run,
-                                                                                        new Configuration.MutatingRowVisitorConfiguration(),
-                                                                                        SystemUnderTest.ConsistencyLevel.NODE_LOCAL));
 
-            OpSelectors.MonotonicClock clock = run.clock;
-            long maxPd = 0;
-            for (int i = 0; i < 10000; i++)
-            {
-                visitor.visit();
-                maxPd = Math.max(maxPd, run.pdSelector.positionFor(clock.peek()));
-            }
-
-            RepairingLocalStateValidator validator = new RepairingLocalStateValidator(5, 1, run, new Configuration.QuiescentCheckerConfig());
-            validator.visit();
+            Runner.chain(configuration,
+                         UpToLtsRunner.factory(MutatingVisitor.factory(InJVMTokenAwareVisitExecutor.factory(new Configuration.MutatingRowVisitorConfiguration(),
+                                                                                                            SystemUnderTest.ConsistencyLevel.NODE_LOCAL,
+                                                                                                            3)),
+                                               10_000, 2, TimeUnit.SECONDS),
+                         Runner.single(RepairingLocalStateValidator.factory(5, (v) -> true, QuiescentChecker::new)))
+                  .run();
         }
-
     }
 }

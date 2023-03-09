@@ -28,9 +28,9 @@ import harry.core.Run;
 import harry.data.ResultSetRow;
 import harry.ddl.SchemaSpec;
 import harry.model.sut.SystemUnderTest;
+import harry.operations.Query;
 import harry.reconciler.Reconciler;
 import harry.runner.DataTracker;
-import harry.operations.Query;
 
 import static harry.generators.DataGenerators.NIL_DESCR;
 
@@ -59,22 +59,17 @@ public class QuiescentChecker implements Model
 
     public void validate(Query query)
     {
+        tracker.beginValidation(query.pd);
         validate(() -> SelectHelper.execute(sut, clock, query), query);
+        tracker.endValidation(query.pd);
     }
 
     protected void validate(Supplier<List<ResultSetRow>> rowsSupplier, Query query)
     {
-        long maxCompeteLts = tracker.maxConsecutiveFinished();
-        long maxSeenLts = tracker.maxStarted();
-
-        assert maxCompeteLts == maxSeenLts : String.format("Runner hasn't settled down yet. " +
-                                                           "Quiescent model can't be reliably used in such cases. " +
-                                                           "Max complete: %d. Max seen: %d",
-                                                           maxCompeteLts, maxSeenLts);
-
         List<ResultSetRow> actualRows = rowsSupplier.get();
         Iterator<ResultSetRow> actual = actualRows.iterator();
-        Reconciler.PartitionState partitionState = reconciler.inflatePartitionState(query.pd, maxSeenLts, query);
+
+        Reconciler.PartitionState partitionState = reconciler.inflatePartitionState(query.pd, tracker, query);
         Collection<Reconciler.RowState> expectedRows = partitionState.rows(query.reverse);
 
         Iterator<Reconciler.RowState> expected = expectedRows.iterator();
@@ -85,7 +80,7 @@ public class QuiescentChecker implements Model
             ResultSetRow actualRowState = actual.next();
             if (actualRowState.cd != partitionState.staticRow().cd)
                 throw new ValidationException(partitionState.toString(schema),
-                                              toString(actualRows, schema),
+                                              toString(actualRows),
                                               "Found a row while model predicts statics only:" +
                                               "\nExpected: %s" +
                                               "\nActual: %s" +
@@ -97,10 +92,9 @@ public class QuiescentChecker implements Model
             {
                 if (actualRowState.vds[i] != NIL_DESCR || actualRowState.lts[i] != NO_TIMESTAMP)
                     throw new ValidationException(partitionState.toString(schema),
-                                                  toString(actualRows, schema),
+                                                  toString(actualRows),
                                                   "Found a row while model predicts statics only:" +
                                                   "\nActual: %s" +
-                                                  "\nQuery: %s" +
                                                   "\nQuery: %s",
                                                   actualRowState, query.toSelectStatement());
             }
@@ -115,7 +109,7 @@ public class QuiescentChecker implements Model
             // TODO: this is not necessarily true. It can also be that ordering is incorrect.
             if (actualRowState.cd != expectedRowState.cd)
                 throw new ValidationException(partitionState.toString(schema),
-                                              toString(actualRows, schema),
+                                              toString(actualRows),
                                               "Found a row in the model that is not present in the resultset:" +
                                               "\nExpected: %s" +
                                               "\nActual: %s" +
@@ -125,7 +119,7 @@ public class QuiescentChecker implements Model
 
             if (!Arrays.equals(actualRowState.vds, expectedRowState.vds))
                 throw new ValidationException(partitionState.toString(schema),
-                                              toString(actualRows, schema),
+                                              toString(actualRows),
                                               "Returned row state doesn't match the one predicted by the model:" +
                                               "\nExpected: %s (%s)" +
                                               "\nActual:   %s (%s)." +
@@ -136,11 +130,12 @@ public class QuiescentChecker implements Model
 
             if (!Arrays.equals(actualRowState.lts, expectedRowState.lts))
                 throw new ValidationException(partitionState.toString(schema),
-                                              toString(actualRows, schema),
+                                              toString(actualRows),
                                               "Timestamps in the row state don't match ones predicted by the model:" +
                                               "\nExpected: %s (%s)" +
                                               "\nActual:   %s (%s)." +
-                                              "\nQuery: %s",
+                                              "\nQuery: %s" +
+                                              "\nMax started: %d, Max finished: %d, %d reordered: %s",
                                               Arrays.toString(expectedRowState.lts), expectedRowState.toString(schema),
                                               Arrays.toString(actualRowState.lts), actualRowState,
                                               query.toSelectStatement());
@@ -152,7 +147,7 @@ public class QuiescentChecker implements Model
         if (actual.hasNext() || expected.hasNext())
         {
             throw new ValidationException(partitionState.toString(schema),
-                                          toString(actualRows, schema),
+                                          toString(actualRows),
                                           "Expected results to have the same number of results, but %s result iterator has more results." +
                                           "\nExpected: %s" +
                                           "\nActual:   %s" +
@@ -173,7 +168,7 @@ public class QuiescentChecker implements Model
     {
         if (!Arrays.equals(staticRow.vds, actualRowState.sds))
             throw new ValidationException(partitionState.toString(schemaSpec),
-                                          toString(actualRows, schemaSpec),
+                                          toString(actualRows),
                                           "Returned static row state doesn't match the one predicted by the model:" +
                                           "\nExpected: %s (%s)" +
                                           "\nActual:   %s (%s)." +
@@ -184,7 +179,7 @@ public class QuiescentChecker implements Model
 
         if (!Arrays.equals(staticRow.lts, actualRowState.slts))
             throw new ValidationException(partitionState.toString(schemaSpec),
-                                          toString(actualRows, schemaSpec),
+                                          toString(actualRows),
                                           "Timestamps in the static row state don't match ones predicted by the model:" +
                                           "\nExpected: %s (%s)" +
                                           "\nActual:   %s (%s)." +
@@ -203,12 +198,12 @@ public class QuiescentChecker implements Model
         return builder.toString();
     }
 
-    public static String toString(List<ResultSetRow> collection, SchemaSpec schema)
+    public static String toString(List<ResultSetRow> collection)
     {
         StringBuilder builder = new StringBuilder();
 
         for (ResultSetRow rowState : collection)
-            builder.append(rowState.toString(schema)).append("\n");
+            builder.append(rowState.toString()).append("\n");
         return builder.toString();
     }
 }

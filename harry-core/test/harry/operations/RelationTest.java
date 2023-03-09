@@ -130,6 +130,11 @@ public class RelationTest
                                                                       {
                                                                           throw new RuntimeException("not implemented");
                                                                       }
+
+                                                                      public long maxPosition(long maxLts)
+                                                                      {
+                                                                          throw new RuntimeException("not implemented");
+                                                                      }
                                                                   },
                                                                   new OpSelectors.DescriptorSelector()
                                                                   {

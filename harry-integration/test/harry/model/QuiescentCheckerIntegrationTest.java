@@ -45,18 +45,25 @@ import harry.visitors.SingleValidator;
 
 public class QuiescentCheckerIntegrationTest extends ModelTestBase
 {
+    private final long CORRUPT_LTS = 0L;
+
     @Override
     protected SingleValidator validator(Run run)
     {
-        return new SingleValidator(100, run, modelConfiguration());
+        return new SingleValidator(100, run, modelConfiguration()) {
+            public void visit()
+            {
+                visit(CORRUPT_LTS);
+            }
+        };
     }
 
     @Test
-    public void testNormalCondition()
+    public void testNormalCondition() throws Throwable
     {
         negativeTest((run) -> true,
                      (t, run) -> {
-                         if (t != null)
+                         if (!(t instanceof ShouldHaveThrownException))
                              throw new AssertionError(String.format("Throwable was supposed to be null. Schema: %s",
                                                                     run.schemaSpec.compile().cql()),
                                                       t);
@@ -82,7 +89,7 @@ public class QuiescentCheckerIntegrationTest extends ModelTestBase
         Model.ModelFactory factory = modelConfiguration();
 
         ConcurrentRunnerConfig concurrent = 
-                new ConcurrentRunnerConfig(4, Collections.singletonList(new LoggingVisitorConfiguration(new Configuration.MutatingRowVisitorConfiguration())),
+                new ConcurrentRunnerConfig(Arrays.asList(new Configuration.VisitorPoolConfiguration("Writer", 4, new Configuration.MutatingVisitorConfiguation(new Configuration.MutatingRowVisitorConfiguration()))),
                                            30, TimeUnit.SECONDS);
         SingleVisitRunnerConfig sequential = 
                 new SingleVisitRunnerConfig(Collections.singletonList(new RecentPartitionsValidatorConfiguration(1024, 0, 1, factory::make)));
@@ -93,7 +100,7 @@ public class QuiescentCheckerIntegrationTest extends ModelTestBase
     }
 
     @Test
-    public void testDetectsMissingRow()
+    public void testDetectsMissingRow() throws Throwable
     {
         negativeTest((run) -> {
                          SimpleQueryResponseCorruptor corruptor = new SimpleQueryResponseCorruptor(run.schemaSpec,
@@ -101,7 +108,7 @@ public class QuiescentCheckerIntegrationTest extends ModelTestBase
                                                                                                    HideRowCorruptor::new);
 
                          Query query = Query.selectPartition(run.schemaSpec,
-                                                             run.pdSelector.pd(0, run.schemaSpec),
+                                                             run.pdSelector.pd(CORRUPT_LTS, run.schemaSpec),
                                                              false);
 
                          return corruptor.maybeCorrupt(query, run.sut);
@@ -120,23 +127,24 @@ public class QuiescentCheckerIntegrationTest extends ModelTestBase
     }
 
     @Test
-    public void testDetectsExtraRow()
+    public void testDetectsExtraRow() throws Throwable
     {
         negativeTest((run) -> {
                          QueryResponseCorruptor corruptor = new AddExtraRowCorruptor(run.schemaSpec,
                                                                                      run.clock,
+                                                                                     run.tracker,
                                                                                      run.descriptorSelector);
 
                          return corruptor.maybeCorrupt(Query.selectPartition(run.schemaSpec,
-                                                                             run.pdSelector.pd(0, run.schemaSpec),
+                                                                             run.pdSelector.pd(CORRUPT_LTS, run.schemaSpec),
                                                                              false),
                                                        run.sut);
                      },
                      (t, run) -> {
                          String expected = "Found a row in the model that is not present in the resultset";
                          String expected2 = "Expected results to have the same number of results, but actual result iterator has more results";
-
-                         if (t.getMessage().contains(expected) || t.getMessage().contains(expected2))
+                         String expected3 = "Found a row while model predicts statics only";
+                         if (t.getMessage().contains(expected) || t.getMessage().contains(expected2) || t.getMessage().contains(expected3))
                              return;
 
                          throw new AssertionError(String.format("Exception string mismatch.\nExpected error: %s.\nActual error: %s", expected, t.getMessage()),
@@ -146,7 +154,7 @@ public class QuiescentCheckerIntegrationTest extends ModelTestBase
 
 
     @Test
-    public void testDetectsRemovedColumn()
+    public void testDetectsRemovedColumn() throws Throwable
     {
         negativeTest((run) -> {
                          SimpleQueryResponseCorruptor corruptor = new SimpleQueryResponseCorruptor(run.schemaSpec,
@@ -154,7 +162,7 @@ public class QuiescentCheckerIntegrationTest extends ModelTestBase
                                                                                                    HideValueCorruptor::new);
 
                          return corruptor.maybeCorrupt(Query.selectPartition(run.schemaSpec,
-                                                                             run.pdSelector.pd(0, run.schemaSpec),
+                                                                             run.pdSelector.pd(CORRUPT_LTS, run.schemaSpec),
                                                                              false),
                                                        run.sut);
                      },
@@ -172,7 +180,7 @@ public class QuiescentCheckerIntegrationTest extends ModelTestBase
 
 
     @Test
-    public void testDetectsOverwrittenRow()
+    public void testDetectsOverwrittenRow() throws Throwable
     {
         negativeTest((run) -> {
                          SimpleQueryResponseCorruptor corruptor = new SimpleQueryResponseCorruptor(run.schemaSpec,
@@ -180,7 +188,7 @@ public class QuiescentCheckerIntegrationTest extends ModelTestBase
                                                                                                    ChangeValueCorruptor::new);
 
                          return corruptor.maybeCorrupt(Query.selectPartition(run.schemaSpec,
-                                                                             run.pdSelector.pd(0, run.schemaSpec),
+                                                                             run.pdSelector.pd(CORRUPT_LTS, run.schemaSpec),
                                                                              false),
                                                        run.sut);
                      },

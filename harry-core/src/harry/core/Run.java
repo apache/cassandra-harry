@@ -38,7 +38,6 @@ public class Run
 
     public final MetricReporter metricReporter;
 
-
     public Run(OpSelectors.Rng rng,
                OpSelectors.MonotonicClock clock,
                OpSelectors.PdSelector pdSelector,
@@ -63,7 +62,6 @@ public class Run
                 SystemUnderTest sut,
                 MetricReporter metricReporter)
     {
-
         this.rng = rng;
         this.clock = clock;
         this.pdSelector = pdSelector;

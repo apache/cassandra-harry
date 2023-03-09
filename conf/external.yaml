@@ -18,11 +18,25 @@ seed: 1596731732524
 
 # Default schema provider generates random schema
 schema_provider:
-  default: {}
-
-drop_schema: false
-create_schema: true
-truncate_table: false
+  fixed:
+    keyspace: harry
+    table: test_table
+    partition_keys:
+      pk1: bigint
+      pk2: ascii
+    clustering_keys:
+      ck1: ascii
+      ck2: bigint
+    regular_columns:
+      v1: ascii
+      v2: bigint
+      v3: ascii
+      v4: bigint
+    static_keys:
+      s1: ascii
+      s2: bigint
+      s3: ascii
+      s4: bigint
 
 # Clock is a component responsible for mapping _logical_ timestamps to _real-time_ ones.
 #
@@ -35,6 +49,10 @@ clock:
     epoch_length: 1
     epoch_time_unit: "SECONDS"
 
+drop_schema: false
+create_schema: true
+truncate_table: true
+
 # System under test: a Cassandra node or cluster. Default implementation is in_jvm (in-jvm DTest cluster).
 # Harry also supports external clusters.
 system_under_test:
@@ -43,12 +61,6 @@ system_under_test:
     port: 9042
     username: null
     password: null
-
-# Model is responsible for tracking logical timestamps that
-# model:
-#  exhaustive_checker:
-#    max_seen_lts: 19
-#    max_complete_lts: 16
 
 # Partition descriptor selector controls how partitions is selected based on the current logical
 # timestamp. Default implementation is a sliding window of partition descriptors that will visit
@@ -67,7 +79,7 @@ clustering_descriptor_selector:
   default:
     modifications_per_lts:
       type: "constant"
-      constant: 4
+      constant: 2
     rows_per_modification:
       type: "constant"
       constant: 2
@@ -114,3 +126,8 @@ runner:
 
 metric_reporter:
   no_op: {}
+
+data_tracker:
+  locking:
+    max_seen_lts: -1
+    max_complete_lts: -1

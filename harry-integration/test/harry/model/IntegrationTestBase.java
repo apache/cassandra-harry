@@ -28,8 +28,10 @@ import harry.core.Configuration;
 import harry.ddl.SchemaGenerators;
 import harry.ddl.SchemaSpec;
 import harry.model.clock.OffsetClock;
-import harry.model.sut.InJvmSut;
+import harry.model.sut.injvm.InJvmSut;
+import harry.model.sut.injvm.InJvmSutBase;
 import org.apache.cassandra.distributed.Cluster;
+import org.apache.cassandra.distributed.test.TestBaseImpl;
 
 public class IntegrationTestBase extends TestBaseImpl
 {
@@ -41,8 +43,9 @@ public class IntegrationTestBase extends TestBaseImpl
     {
         cluster = init(Cluster.build()
                               .withNodes(1)
+                              .withConfig(InJvmSutBase.defaultConfig())
                               .start());
-        sut = new InJvmSut(cluster, 1);
+        sut = new InJvmSut(cluster, 20);
     }
 
     @AfterClass
@@ -97,7 +100,7 @@ public class IntegrationTestBase extends TestBaseImpl
                                                        .setDropSchema(true)
                                                        .setSchemaProvider((seed1, sut) -> schema)
                                                        .setClusteringDescriptorSelector(sharedCDSelectorConfiguration().build())
-                                                       .setPartitionDescriptorSelector(new Configuration.DefaultPDSelectorConfiguration(1, 200))
+                                                       .setPartitionDescriptorSelector(new Configuration.DefaultPDSelectorConfiguration(2, 200))
                                                        .setSUT(() -> sut);
     }
 }

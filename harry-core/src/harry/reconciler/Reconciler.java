@@ -37,8 +37,10 @@ import harry.ddl.SchemaSpec;
 import harry.model.OpSelectors;
 import harry.operations.Query;
 import harry.operations.QueryGenerator;
+import harry.runner.DataTracker;
 import harry.util.BitSet;
 import harry.util.Ranges;
+import harry.util.StringUtils;
 import harry.visitors.GeneratingVisitor;
 import harry.visitors.LtsVisitor;
 import harry.visitors.ReplayingVisitor;
@@ -75,8 +77,7 @@ public class Reconciler
              (processor) -> new GeneratingVisitor(run, processor));
     }
 
-    public Reconciler(Run run,
-                      Function<VisitExecutor, LtsVisitor> ltsVisitorFactory)
+    public Reconciler(Run run, Function<VisitExecutor, LtsVisitor> ltsVisitorFactory)
     {
         this.descriptorSelector = run.descriptorSelector;
         this.pdSelector = run.pdSelector;
@@ -85,11 +86,11 @@ public class Reconciler
         this.visitorFactory = ltsVisitorFactory;
     }
 
-    private final long debugCd = Long.getLong("harry.reconciler.debug_cd", -1L);
+    private final long debugCd = Long.getLong("debug_cd", -1L);
 
-    public PartitionState inflatePartitionState(final long pd, long maxLts, Query query)
+    public PartitionState inflatePartitionState(final long pd, DataTracker tracker, Query query)
     {
-        PartitionState partitionState = new PartitionState();
+        PartitionState partitionState = new PartitionState(pd);
 
         class Processor extends VisitExecutor
         {
@@ -260,10 +261,12 @@ public class Reconciler
         LtsVisitor visitor = visitorFactory.apply(new Processor());
 
         long currentLts = pdSelector.minLtsFor(pd);
-
-        while (currentLts <= maxLts && currentLts >= 0)
+        long maxStarted = tracker.maxStarted();
+        while (currentLts <= maxStarted && currentLts >= 0)
         {
-            visitor.visit(currentLts);
+            if (tracker.isFinished(currentLts))
+                visitor.visit(currentLts);
+
             currentLts = pdSelector.nextLts(currentLts);
         }
 
@@ -272,15 +275,18 @@ public class Reconciler
 
     public class PartitionState implements Iterable<RowState>
     {
+        private final long pd;
         private final NavigableMap<Long, RowState> rows;
         private RowState staticRow;
 
-        private PartitionState()
+        private PartitionState(long pd)
         {
+            this.pd = pd;
             rows = new TreeMap<>();
             if (!schema.staticColumns.isEmpty())
             {
-                staticRow = new RowState(STATIC_CLUSTERING,
+                staticRow = new RowState(this,
+                                         STATIC_CLUSTERING,
                                          arr(schema.staticColumns.size(), NIL_DESCR),
                                          arr(schema.staticColumns.size(), NO_TIMESTAMP));
             }
@@ -308,9 +314,9 @@ public class Reconciler
                 return;
 
             Iterator<Map.Entry<Long, RowState>> iter = rows.subMap(range.minBound, range.minInclusive,
-                                                                   range.maxBound, range.maxInclusive)
-                                                           .entrySet()
-                                                           .iterator();
+                                                                              range.maxBound, range.maxInclusive)
+                                                                      .entrySet()
+                                                                      .iterator();
             while (iter.hasNext())
             {
                 Map.Entry<Long, RowState> e = iter.next();
@@ -357,7 +363,7 @@ public class Reconciler
                     }
                 }
 
-                currentState = new RowState(cd, vdsCopy, ltss);
+                currentState = new RowState(this, cd, vdsCopy, ltss);
             }
             else
             {
@@ -489,14 +495,17 @@ public class Reconciler
     public static class RowState
     {
         public boolean hasPrimaryKeyLivenessInfo = false;
+        public final PartitionState partitionState;
         public final long cd;
         public final long[] vds;
         public final long[] lts;
 
-        public RowState(long cd,
+        public RowState(PartitionState partitionState,
+                        long cd,
                         long[] vds,
                         long[] lts)
         {
+            this.partitionState = partitionState;
             this.cd = cd;
             this.vds = vds;
             this.lts = lts;
@@ -504,22 +513,21 @@ public class Reconciler
 
         public String toString()
         {
-            return "RowState{" +
-                   "cd=" + (cd == STATIC_CLUSTERING ? "static" : cd) +
-                   ", vds=" + Arrays.toString(vds) +
-                   ", lts=" + Arrays.toString(lts) +
-                   '}';
+            return toString((SchemaSpec) null);
         }
 
         public String toString(SchemaSpec schema)
         {
-            return "RowState{" +
-                   "cd=" + (cd == STATIC_CLUSTERING ? "static" : cd) +
-                   ", vds=" + Arrays.toString(vds) +
-                   ", lts=" + Arrays.toString(lts) +
-                   ", clustering=" + (cd == STATIC_CLUSTERING ? "static" : Arrays.toString(schema.inflateClusteringKey(cd))) +
-                   ", values=" + Arrays.toString(cd == STATIC_CLUSTERING ? schema.inflateStaticColumns(vds) : schema.inflateRegularColumns(vds)) +
-                   '}';
+            return " rowStateRow("
+                   + partitionState.pd +
+                   "L, " + cd +
+                   (partitionState.staticRow == null ? "" : ", values(" + StringUtils.toString(partitionState.staticRow.vds) + ")") +
+                   (partitionState.staticRow == null ? "" : ", lts(" + StringUtils.toString(partitionState.staticRow.lts) + ")") +
+                   ", values(" + StringUtils.toString(vds) + ")" +
+                   ", lts(" + StringUtils.toString(lts) + ")" +
+                   (schema == null ? "" : ", clustering=" + (cd == STATIC_CLUSTERING ? "static" : Arrays.toString(schema.inflateClusteringKey(cd)))) +
+                   (schema == null ? "" : ", values=" + Arrays.toString(cd == STATIC_CLUSTERING ? schema.inflateStaticColumns(vds) : schema.inflateRegularColumns(vds))) +
+                   ")";
         }
     }
 }

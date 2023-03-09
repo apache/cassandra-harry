@@ -25,21 +25,24 @@ import com.fasterxml.jackson.annotation.JsonTypeName;
 import com.google.common.util.concurrent.FutureCallback;
 import com.google.common.util.concurrent.Futures;
 import harry.core.Configuration;
+import harry.ddl.SchemaSpec;
 import harry.model.sut.SystemUnderTest;
+import harry.model.sut.TokenPlacementModel;
+import harry.util.ByteUtils;
 
+import java.net.InetAddress;
+import java.nio.ByteBuffer;
+import java.util.ArrayList;
 import java.util.List;
+import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
+import java.util.function.Predicate;
 
 public class ExternalClusterSut implements SystemUnderTest
 {
-    public static void registerSubtypes()
-    {
-        Configuration.registerSubtypes(ExternalSutConfiguration.class);
-    }
-
     private final Session session;
     private final ExecutorService executor;
 
@@ -52,6 +55,11 @@ public class ExternalClusterSut implements SystemUnderTest
     {
         this.session = session;
         this.executor = Executors.newFixedThreadPool(threads);
+    }
+
+    public Session session()
+    {
+        return session;
     }
 
     public static ExternalClusterSut create(ExternalSutConfiguration config)
@@ -74,10 +82,10 @@ public class ExternalClusterSut implements SystemUnderTest
     public void shutdown()
     {
         session.close();
-        executor.shutdown();
+        executor.shutdownNow();
         try
         {
-            executor.awaitTermination(60, TimeUnit.SECONDS);
+            executor.awaitTermination(10, TimeUnit.SECONDS);
         }
         catch (InterruptedException e)
         {
@@ -107,8 +115,40 @@ public class ExternalClusterSut implements SystemUnderTest
         }
     }
 
+    public Object[][] executeNodeLocal(String statement, Predicate<Host> selector, Object... bindings)
+    {
+        int repeat = 10;
+        while (true)
+        {
+            try
+            {
+                Statement st = new SimpleStatement(statement, bindings);
+                boolean selected = false;
+                for (Host host : session.getCluster().getMetadata().getAllHosts())
+                {
+                    if (selector.test(host))
+                    {
+                        st.setHost(host);
+                        selected = true;
+                        break;
+                    }
+                }
+                assert selected;
+                return resultSetToObjectArray(session.execute(st));
+            }
+            catch (Throwable t)
+            {
+                if (repeat < 0)
+                    throw t;
 
-    private static Object[][] resultSetToObjectArray(ResultSet rs)
+                t.printStackTrace();
+                repeat--;
+                // retry unconditionally
+            }
+        }
+    }
+
+    public static Object[][] resultSetToObjectArray(ResultSet rs)
     {
         List<Row> rows = rs.all();
         if (rows.size() == 0)

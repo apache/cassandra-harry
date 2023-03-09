@@ -16,30 +16,14 @@
  *  limitations under the License.
  */
 
-package harry.runner.external;
+package com.datastax.driver.core;
 
-import harry.core.Configuration;
-import harry.model.sut.external.ExternalClusterSut;
-import harry.runner.HarryRunner;
-import harry.runner.Runner;
+import java.nio.ByteBuffer;
 
-import java.io.File;
-
-public class HarryRunnerExternal extends HarryRunner {
-
-    public static void main(String[] args) throws Throwable {
-        HarryRunner runner = new HarryRunnerExternal();
-        File configFile = runner.loadConfig(args);
-
-        Configuration configuration = Configuration.fromFile(configFile);
-        runner.run(configuration);
-    }
-
-    public void beforeRun(Runner runner)
+public class UtilsAccessor
+{
+    public static long token(ByteBuffer bb)
     {
-    }
-
-    public void afterRun(Runner runner, Object result)
-    {
+        return (long) com.datastax.driver.core.Token.getFactory("Murmur3Partitioner").hash(bb).getValue();
     }
 }
