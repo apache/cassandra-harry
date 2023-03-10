@@ -62,6 +62,11 @@ public class ExternalClusterSut implements SystemUnderTest
         return session;
     }
 
+    public Metadata metadata()
+    {
+        return this.session.getCluster().getMetadata();
+    }
+
     public static ExternalClusterSut create(ExternalSutConfiguration config)
     {
         // TODO: close Cluster and Session!
