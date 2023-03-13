@@ -32,8 +32,10 @@ import harry.core.Configuration;
 import harry.core.Run;
 import harry.generators.Surjections;
 import harry.model.Model;
+import harry.model.OpSelectors;
 import harry.operations.Query;
 import harry.operations.QueryGenerator;
+import harry.runner.DataTracker;
 
 public class ParallelRecentValidator extends ParallelValidator<ParallelRecentValidator.State>
 {
@@ -44,6 +46,8 @@ public class ParallelRecentValidator extends ParallelValidator<ParallelRecentVal
     private final QueryGenerator.TypedQueryGenerator querySelector;
     private final Model model;
     private final QueryLogger queryLogger;
+    private final OpSelectors.PdSelector pdSelector;
+    private final DataTracker tracker;
 
     public ParallelRecentValidator(int partitionCount, int concurrency, int queries,
                                    Run run,
@@ -51,6 +55,8 @@ public class ParallelRecentValidator extends ParallelValidator<ParallelRecentVal
                                    QueryLogger queryLogger)
     {
         super(concurrency, run);
+        this.pdSelector = run.pdSelector;
+        this.tracker = run.tracker;
         this.partitionCount = partitionCount;
         this.queries = Math.max(queries, 1);
         this.querySelector = new QueryGenerator.TypedQueryGenerator(run.rng,
@@ -85,7 +91,7 @@ public class ParallelRecentValidator extends ParallelValidator<ParallelRecentVal
 
     protected State initialState()
     {
-        return new State(run.pdSelector.maxPosition(run.tracker.maxStarted()));
+        return new State(pdSelector.maxPosition(tracker.maxStarted()));
     }
 
     public class State extends ParallelValidator.State

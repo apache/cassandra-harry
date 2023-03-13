@@ -50,8 +50,8 @@ public class Sampler implements Visitor
         this.sut = run.sut;
         this.pdSelector = run.pdSelector;
         this.clock = run.clock;
-        this.schema = run.schemaSpec;
         this.tracker = run.tracker;
+        this.schema = run.schemaSpec;
         this.samplePartitions = samplePartitions;
     }
 

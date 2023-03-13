@@ -119,9 +119,6 @@ public interface OpSelectors
         public abstract long minLtsAt(long position);
 
         public abstract long minLtsFor(long pd);
-
-        // TODO: right now, we can only calculate a position for 64-bit (in other words, full entropy) pds
-        public abstract long positionFor(long lts);
         public abstract long maxPosition(long maxLts);
     }
 
@@ -274,24 +271,26 @@ public interface OpSelectors
         private final long windowSize;
 
         private final long positionOffset;
+        private final long positionWindowSize;
 
         public DefaultPdSelector(OpSelectors.Rng rng, long windowSize, long slideAfterRepeats)
         {
-            this(rng, windowSize, slideAfterRepeats, 0L);
+            this(rng, windowSize, slideAfterRepeats, 0L, Long.MAX_VALUE);
         }
 
-        public DefaultPdSelector(OpSelectors.Rng rng, long windowSize, long slideAfterRepeats, long positionOffset)
+        public DefaultPdSelector(OpSelectors.Rng rng, long windowSize, long slideAfterRepeats, long positionOffset, long positionWindowSize)
         {
             this.rng = rng;
             this.slideAfterRepeats = slideAfterRepeats;
             this.windowSize = windowSize;
             this.switchAfter = windowSize * slideAfterRepeats;
             this.positionOffset = positionOffset;
+            this.positionWindowSize = positionWindowSize;
         }
 
         protected long pd(long lts)
         {
-            return rng.randomNumber(positionOffset + positionFor(lts), PARTITION_DESCRIPTOR_STREAM_ID);
+            return rng.randomNumber(adjustPosition(positionFor(lts)), PARTITION_DESCRIPTOR_STREAM_ID);
         }
 
         public long minLtsAt(long position)
@@ -313,10 +312,10 @@ public interface OpSelectors
         {
             long maxPosition = maxPosition(maxLts);
             if (maxPosition == 0)
-                return schema.adjustPdEntropy(rng.randomNumber(positionOffset, PARTITION_DESCRIPTOR_STREAM_ID));
+                return schema.adjustPdEntropy(rng.randomNumber(adjustPosition(0), PARTITION_DESCRIPTOR_STREAM_ID));
 
             int idx = RngUtils.asInt(rng.randomNumber(visitLts, maxPosition), 0, (int) (maxPosition - 1));
-            return schema.adjustPdEntropy(rng.randomNumber(positionOffset + idx, PARTITION_DESCRIPTOR_STREAM_ID));
+            return schema.adjustPdEntropy(rng.randomNumber(adjustPosition(idx), PARTITION_DESCRIPTOR_STREAM_ID));
         }
 
         public long maxPosition(long maxLts)
@@ -330,16 +329,40 @@ public interface OpSelectors
             return windowStart + maxLts % windowSize;
         }
 
-        // TODO: add maxPosition to make it easier/more accessible for the components like sampler, etc
-        public long positionFor(long lts)
+        protected long positionFor(long lts)
         {
             long windowStart = lts / switchAfter;
             return windowStart + lts % windowSize;
         }
 
+        /**
+         * We only adjust position right before we go to the PCG RNG to grab a partition id, since we want
+         * the fact that PCG is actually offset to be hidden from the user and even the rest of this class.
+         */
+        private long adjustPosition(long position)
+        {
+            if (position > positionWindowSize)
+                throw new IllegalStateException(String.format("Partition position has wrapped around, so can not be safely used. " +
+                                                              "This runner has been given %d partitions, and if we wrap back to " +
+                                                              "position 0, partition state is not going to be inflatable, since" +
+                                                              "nextLts will not jump to the lts that is about to be visited. " +
+                                                              "Increase rows per visit, batch size, or slideAfter repeats.",
+                                                              positionWindowSize));
+            return positionOffset + position;
+        }
+
+        /**
+         * When computing position from pd or lts, we need to translate the offset back to the original, since
+         * it is not aware (and should not be) of the fact that positions are offset.
+         */
+        private long unadjustPosition(long position)
+        {
+            return position - positionOffset;
+        }
+
         public long positionForPd(long pd)
         {
-            return rng.sequenceNumber(pd, PARTITION_DESCRIPTOR_STREAM_ID) - positionOffset;
+            return unadjustPosition(rng.sequenceNumber(pd, PARTITION_DESCRIPTOR_STREAM_ID));
         }
 
         public long nextLts(long lts)
@@ -379,7 +402,7 @@ public interface OpSelectors
 
         public long maxLtsFor(long pd)
         {
-            long position = rng.sequenceNumber(pd, PARTITION_DESCRIPTOR_STREAM_ID) - positionOffset;
+            long position = positionForPd(pd);
             return position * switchAfter + (slideAfterRepeats - 1) * windowSize;
         }
 

@@ -105,66 +105,69 @@ public class OpSelectorsTest
         OpSelectors.Rng rng = new OpSelectors.PCGFast(1);
         int cycles = 10000;
 
-        for (int repeats = 2; repeats <= 1000; repeats++)
+        for (long[] positions : new long[][]{ { 0, Long.MAX_VALUE }, { 100, Long.MAX_VALUE }, { 1000, Long.MAX_VALUE } })
         {
-            for (int windowSize = 2; windowSize <= 10; windowSize++)
+            for (int repeats = 2; repeats <= 1000; repeats++)
             {
-                OpSelectors.DefaultPdSelector pdSupplier = new OpSelectors.DefaultPdSelector(rng, windowSize, repeats);
-                long[] pds = new long[cycles];
-                for (int i = 0; i < cycles; i++)
+                for (int windowSize = 2; windowSize <= 10; windowSize++)
                 {
-                    long pd = pdSupplier.pd(i);
-                    pds[i] = pd;
-                    Assert.assertEquals(pdSupplier.positionFor(i), pdSupplier.positionForPd(pd));
-                }
+                    OpSelectors.DefaultPdSelector pdSupplier = new OpSelectors.DefaultPdSelector(rng, windowSize, repeats, positions[0], positions[1]);
+                    long[] pds = new long[cycles];
+                    for (int i = 0; i < cycles; i++)
+                    {
+                        long pd = pdSupplier.pd(i);
+                        pds[i] = pd;
+                        Assert.assertEquals(pdSupplier.positionFor(i), pdSupplier.positionForPd(pd));
+                    }
 
-                Set<Long> noNext = new HashSet<>();
-                for (int i = 0; i < cycles; i++)
-                {
-                    long nextLts = pdSupplier.nextLts(i);
-                    Assert.assertFalse(noNext.contains(pds[i]));
-                    if (nextLts == -1)
+                    Set<Long> noNext = new HashSet<>();
+                    for (int i = 0; i < cycles; i++)
                     {
-                        noNext.add(nextLts);
+                        long nextLts = pdSupplier.nextLts(i);
+                        Assert.assertFalse(noNext.contains(pds[i]));
+                        if (nextLts == -1)
+                        {
+                            noNext.add(nextLts);
+                        }
+                        else if (nextLts < cycles)
+                        {
+                            Assert.assertEquals(pds[(int) nextLts], pdSupplier.pd(i));
+                        }
                     }
-                    else if (nextLts < cycles)
-                    {
-                        Assert.assertEquals(pds[(int) nextLts], pdSupplier.pd(i));
-                    }
-                }
 
-                Set<Long> noPrev = new HashSet<>();
-                for (int i = cycles - 1; i >= 0; i--)
-                {
-                    long prevLts = pdSupplier.prevLts(i);
-                    Assert.assertFalse(noPrev.contains(pds[i]));
-                    if (prevLts == -1)
+                    Set<Long> noPrev = new HashSet<>();
+                    for (int i = cycles - 1; i >= 0; i--)
                     {
-                        noPrev.add(prevLts);
+                        long prevLts = pdSupplier.prevLts(i);
+                        Assert.assertFalse(noPrev.contains(pds[i]));
+                        if (prevLts == -1)
+                        {
+                            noPrev.add(prevLts);
+                        }
+                        else if (prevLts >= 0)
+                        {
+                            Assert.assertEquals(pds[(int) prevLts], pdSupplier.pd(i));
+                        }
                     }
-                    else if (prevLts >= 0)
-                    {
-                        Assert.assertEquals(pds[(int) prevLts], pdSupplier.pd(i));
-                    }
-                }
 
-                Set<Long> seen = new HashSet<>();
-                for (int i = 0; i < cycles; i++)
-                {
-                    long pd = pdSupplier.pd(i);
-                    if (!seen.contains(pd))
+                    Set<Long> seen = new HashSet<>();
+                    for (int i = 0; i < cycles; i++)
                     {
-                        Assert.assertEquals(i, pdSupplier.minLtsAt(pdSupplier.positionFor(i)));
-                        seen.add(pd);
+                        long pd = pdSupplier.pd(i);
+                        if (!seen.contains(pd))
+                        {
+                            Assert.assertEquals(i, pdSupplier.minLtsAt(pdSupplier.positionFor(i)));
+                            seen.add(pd);
+                        }
                     }
-                }
 
-                for (int i = 0; i < cycles; i++)
-                {
-                    long pd = pdSupplier.pd(i);
-                    long maxLts = pdSupplier.maxLtsFor(pd);
-                    Assert.assertEquals(-1, pdSupplier.nextLts(maxLts));
-                    Assert.assertEquals(pdSupplier.pd(i), pdSupplier.pd(maxLts));
+                    for (int i = 0; i < cycles; i++)
+                    {
+                        long pd = pdSupplier.pd(i);
+                        long maxLts = pdSupplier.maxLtsFor(pd);
+                        Assert.assertEquals(-1, pdSupplier.nextLts(maxLts));
+                        Assert.assertEquals(pdSupplier.pd(i), pdSupplier.pd(maxLts));
+                    }
                 }
             }
         }

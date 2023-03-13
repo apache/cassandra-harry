@@ -283,7 +283,7 @@ public class Configuration
         DataTrackerConfiguration data_tracker = new DefaultDataTrackerConfiguration();
         RunnerConfiguration runner;
         SutConfiguration system_under_test;
-        PDSelectorConfiguration partition_descriptor_selector = new Configuration.DefaultPDSelectorConfiguration(10, 100, 0);
+        PDSelectorConfiguration partition_descriptor_selector = new Configuration.DefaultPDSelectorConfiguration(10, 100);
         CDSelectorConfiguration clustering_descriptor_selector; // TODO: sensible default value
 
         public ConfigurationBuilder setSeed(long seed)
@@ -710,6 +710,7 @@ public class Configuration
         public final int window_size;
         public final int slide_after_repeats;
         public final long position_offset;
+        public final long position_window_size;
 
         @Deprecated
         public DefaultPDSelectorConfiguration(int window_size,
@@ -718,21 +719,27 @@ public class Configuration
             this.window_size = window_size;
             this.slide_after_repeats = slide_after_repeats;
             this.position_offset = 0L;
+            this.position_window_size = Long.MAX_VALUE;
         }
 
         @JsonCreator
         public DefaultPDSelectorConfiguration(@JsonProperty(value = "window_size", defaultValue = "10") int window_size,
                                               @JsonProperty(value = "slide_after_repeats", defaultValue = "100") int slide_after_repeats,
-                                              @JsonProperty(value = "position_offset", defaultValue = "0") long position_offset)
+                                              @JsonProperty(value = "position_offset") Long position_offset,
+                                              @JsonProperty(value = "position_window_size") Long position_window_size)
         {
             this.window_size = window_size;
             this.slide_after_repeats = slide_after_repeats;
-            this.position_offset = position_offset;
+            this.position_offset = position_offset == null ? 0 : position_offset;
+            if (position_window_size == null)
+                this.position_window_size = Long.MAX_VALUE - this.position_offset;
+            else
+                this.position_window_size = position_window_size;
         }
 
         public OpSelectors.PdSelector make(OpSelectors.Rng rng)
         {
-            return new OpSelectors.DefaultPdSelector(rng, window_size, slide_after_repeats, position_offset);
+            return new OpSelectors.DefaultPdSelector(rng, window_size, slide_after_repeats, position_offset, position_window_size);
         }
     }
 
