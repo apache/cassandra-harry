@@ -100,7 +100,7 @@ public class IntegrationTestBase extends TestBaseImpl
                                                        .setDropSchema(true)
                                                        .setSchemaProvider((seed1, sut) -> schema)
                                                        .setClusteringDescriptorSelector(sharedCDSelectorConfiguration().build())
-                                                       .setPartitionDescriptorSelector(new Configuration.DefaultPDSelectorConfiguration(2, 200, 0))
+                                                       .setPartitionDescriptorSelector(new Configuration.DefaultPDSelectorConfiguration(2, 200))
                                                        .setSUT(() -> sut);
     }
 }

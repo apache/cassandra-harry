@@ -63,12 +63,9 @@ public class CorruptingVisitor implements Visitor
         };
     }
 
-    private final AtomicLong maxPos = new AtomicLong(-1);
-
     public void visit()
     {
         long lts = run.clock.peek();
-        maxPos.updateAndGet(current -> Math.max(run.pdSelector.positionFor(lts), current));
 
         if (lts > triggerAfter)
             return;
@@ -77,7 +74,7 @@ public class CorruptingVisitor implements Visitor
         Random random = new Random(1);
 
         QueryResponseCorruptor corruptor = corruptors[random.nextInt(corruptors.length)];
-        long maxPos = this.maxPos.get();
+        long maxPos = run.pdSelector.maxPosition(run.tracker.maxStarted());
         long pd = run.pdSelector.pd(random.nextInt((int) maxPos), run.schemaSpec);
         try
         {
