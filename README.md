@@ -744,7 +744,7 @@ have to build it manually:
 make package
 mvn dependency:copy-dependencies
 java -cp harry-core/target/harry-core-0.0.2-SNAPSHOT.jar:$(find harrry-core/target/dependency/*.jar | tr -s '\n' ':'). harry.runner.HarryRunner
-
+```
 
 `4.2` is a version of Cassandra which you can find in `build.xml`, and
 `4.2-SNAPSHOT` is a version of dtest jar that'll be installed under
