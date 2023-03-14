@@ -37,6 +37,7 @@ import harry.runner.LockingDataTracker;
 import harry.runner.Runner;
 import harry.visitors.AllPartitionsValidator;
 import harry.visitors.MutatingVisitor;
+import harry.visitors.QueryLogger;
 import harry.visitors.Visitor;
 
 public class MiniStress
@@ -83,11 +84,11 @@ public class MiniStress
             }
             else if (arg.startsWith("--validate-all-local"))
             {
-                postRunValidation.add((r) -> new AllPartitionsValidator(r, 10, (lts) -> true, QuiescentLocalStateChecker::new));
+                postRunValidation.add((r) -> new AllPartitionsValidator(r, 10, QuiescentLocalStateChecker::new, QueryLogger.NO_OP));
             }
             else if (arg.startsWith("--validate-all"))
             {
-                postRunValidation.add((r) -> new AllPartitionsValidator(r, 10, (lts) -> true, QuiescentChecker::new));
+                postRunValidation.add((r) -> new AllPartitionsValidator(r, 10, QuiescentChecker::new, QueryLogger.NO_OP));
             }
         }
 

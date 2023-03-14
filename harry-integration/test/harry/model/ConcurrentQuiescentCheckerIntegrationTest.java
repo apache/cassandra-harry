@@ -29,6 +29,7 @@ import harry.ddl.SchemaSpec;
 import harry.runner.LockingDataTracker;
 import harry.runner.Runner;
 import harry.visitors.MutatingVisitor;
+import harry.visitors.QueryLogger;
 import harry.visitors.RandomPartitionValidator;
 
 import static harry.core.Configuration.VisitorPoolConfiguration.pool;
@@ -56,7 +57,7 @@ public class ConcurrentQuiescentCheckerIntegrationTest extends ModelTestBase
 
             Runner.concurrent(config,
                               asList(pool("Writer", writeThreads, MutatingVisitor::new),
-                                     pool("Reader", readThreads, RandomPartitionValidator::new)),
+                                     pool("Reader", readThreads, (run) -> new RandomPartitionValidator(run, modelConfiguration(), QueryLogger.NO_OP))),
                               2, TimeUnit.MINUTES)
                   .run();
         }

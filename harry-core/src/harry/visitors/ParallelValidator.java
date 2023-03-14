@@ -36,15 +36,11 @@ public abstract class ParallelValidator<T extends ParallelValidator.State> imple
 
     protected final Run run;
     protected final int parallelism;
-    protected final int triggerAfter;
     protected final ExecutorService executor;
-    protected final AtomicLong maxPos = new AtomicLong(-1);
 
     public ParallelValidator(int parallelism,
-                             int triggerAfter,
                              Run run)
     {
-        this.triggerAfter = triggerAfter;
         this.run = run;
         this.parallelism = parallelism;
         this.executor = Executors.newFixedThreadPool(parallelism);
@@ -88,21 +84,15 @@ public abstract class ParallelValidator<T extends ParallelValidator.State> imple
 
     public void visit()
     {
-        long lts = run.clock.peek();
-        maxPos.updateAndGet(current -> Math.max(run.pdSelector.positionFor(lts), current));
-
-        if (triggerAfter > 0 && lts % triggerAfter == 0)
+        try
         {
-            try
-            {
-                startThreads(executor, parallelism).get();
-            }
-            catch (Throwable e)
-            {
-                throw new RuntimeException(e);
-            }
-            logger.info("Finished validations");
+            startThreads(executor, parallelism).get();
         }
+        catch (Throwable e)
+        {
+            throw new RuntimeException(e);
+        }
+        logger.info("Finished validations");
     }
 
     @Override

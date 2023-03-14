@@ -41,6 +41,7 @@ import harry.corruptor.QueryResponseCorruptor.SimpleQueryResponseCorruptor;
 import harry.ddl.SchemaSpec;
 import harry.operations.Query;
 import harry.runner.StagedRunner.StagedRunnerConfig;
+import harry.visitors.QueryLogger;
 import harry.visitors.SingleValidator;
 
 public class QuiescentCheckerIntegrationTest extends ModelTestBase
@@ -77,8 +78,8 @@ public class QuiescentCheckerIntegrationTest extends ModelTestBase
                 
         SequentialRunnerConfig sequential = 
                 new SequentialRunnerConfig(Arrays.asList(new LoggingVisitorConfiguration(new Configuration.MutatingRowVisitorConfiguration()),
-                                                         new RecentPartitionsValidatorConfiguration(10, 10, factory::make),
-                                                         new AllPartitionsValidatorConfiguration(10, 10, factory::make)),
+                                                         new RecentPartitionsValidatorConfiguration(10, 10, factory::make, () -> QueryLogger.NO_OP),
+                                                         new AllPartitionsValidatorConfiguration(10, factory::make, () -> QueryLogger.NO_OP)),
                                            1, TimeUnit.MINUTES);
         negativeIntegrationTest(sequential);
     }
@@ -92,7 +93,7 @@ public class QuiescentCheckerIntegrationTest extends ModelTestBase
                 new ConcurrentRunnerConfig(Arrays.asList(new Configuration.VisitorPoolConfiguration("Writer", 4, new Configuration.MutatingVisitorConfiguation(new Configuration.MutatingRowVisitorConfiguration()))),
                                            30, TimeUnit.SECONDS);
         SingleVisitRunnerConfig sequential = 
-                new SingleVisitRunnerConfig(Collections.singletonList(new RecentPartitionsValidatorConfiguration(1024, 0, factory::make)));
+                new SingleVisitRunnerConfig(Collections.singletonList(new RecentPartitionsValidatorConfiguration(1024, 0, factory::make, () -> QueryLogger.NO_OP)));
         
         StagedRunnerConfig staged = new StagedRunnerConfig(Arrays.asList(concurrent, sequential), 2, TimeUnit.MINUTES);
 

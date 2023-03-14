@@ -34,7 +34,6 @@ import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Consumer;
-import java.util.stream.Collectors;
 
 import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonProperty;
@@ -53,17 +52,9 @@ import harry.model.QuiescentChecker;
 import harry.model.clock.ApproximateMonotonicClock;
 import harry.model.sut.SystemUnderTest;
 import harry.runner.LockingDataTracker;
-import harry.visitors.AllPartitionsValidator;
-import harry.visitors.CorruptingVisitor;
+import harry.visitors.*;
 import harry.runner.DataTracker;
 import harry.runner.DefaultDataTracker;
-import harry.visitors.LoggingVisitor;
-import harry.visitors.MutatingVisitor;
-import harry.visitors.MutatingRowVisitor;
-import harry.visitors.OperationExecutor;
-import harry.visitors.RecentValidator;
-import harry.visitors.Visitor;
-import harry.visitors.RandomValidator;
 import harry.runner.Runner;
 import harry.util.BitSet;
 import org.reflections.Reflections;
@@ -499,8 +490,6 @@ public class Configuration
             return tracker;
         }
     }
-
-
 
     @JsonTypeInfo(use = JsonTypeInfo.Id.NAME, include = JsonTypeInfo.As.WRAPPER_OBJECT)
     public interface ClockConfiguration extends OpSelectors.MonotonicClockFactory
@@ -1054,24 +1043,22 @@ public class Configuration
     public static class AllPartitionsValidatorConfiguration implements VisitorConfiguration
     {
         public final int concurrency;
-        public final int trigger_after;
-
-        @JsonProperty("model")
-        public final Configuration.ModelConfiguration modelConfiguration;
+        public final QueryLoggerConfiguration query_logger;
+        public final Configuration.ModelConfiguration model;
 
         @JsonCreator
         public AllPartitionsValidatorConfiguration(@JsonProperty("concurrency") int concurrency,
-                                                   @JsonProperty("trigger_after") int trigger_after,
-                                                   @JsonProperty("model") Configuration.ModelConfiguration model)
+                                                   @JsonProperty("model") Configuration.ModelConfiguration model,
+                                                   @JsonProperty("query_logger") QueryLoggerConfiguration query_logger)
         {
             this.concurrency = concurrency;
-            this.trigger_after = trigger_after;
-            this.modelConfiguration = model;
+            this.model = model;
+            this.query_logger = QueryLogger.thisOrDefault(query_logger);
         }
 
         public Visitor make(Run run)
         {
-            return new AllPartitionsValidator(run, concurrency, trigger_after, modelConfiguration);
+            return new AllPartitionsValidator(run, concurrency, model, query_logger.make());
         }
     }
 
@@ -1098,22 +1085,25 @@ public class Configuration
         public final int partition_count;
         public final int queries;
         public final Configuration.ModelConfiguration modelConfiguration;
+        public final QueryLoggerConfiguration query_logger;
 
         // TODO: make query selector configurable
         @JsonCreator
         public RecentPartitionsValidatorConfiguration(@JsonProperty("partition_count") int partition_count,
                                                       @JsonProperty("queries_per_partition") int queries,
-                                                      @JsonProperty("model") Configuration.ModelConfiguration model)
+                                                      @JsonProperty("model") Configuration.ModelConfiguration model,
+                                                      @JsonProperty("logger") QueryLoggerConfiguration query_logger)
         {
             this.partition_count = partition_count;
             this.queries = queries;
             this.modelConfiguration = model;
+            this.query_logger = QueryLogger.thisOrDefault(query_logger);
         }
 
         @Override
         public Visitor make(Run run)
         {
-            return new RecentValidator(partition_count, queries, run, modelConfiguration);
+            return new RecentValidator(partition_count, queries, run, modelConfiguration, query_logger.make());
         }
     }
 
@@ -1122,25 +1112,60 @@ public class Configuration
     {
         public final int partition_count;
         public final int queries;
-        public final Configuration.ModelConfiguration modelConfiguration;
+        public final Configuration.ModelConfiguration model_configuration;
+        public final QueryLoggerConfiguration query_logger;
 
         // TODO: make query selector configurable
         @JsonCreator
         public RandomPartitionValidatorConfiguration(@JsonProperty("partition_count") int partition_count,
                                                      @JsonProperty("queries_per_partition") int queries,
-                                                     @JsonProperty("model") Configuration.ModelConfiguration model)
+                                                     @JsonProperty("model") Configuration.ModelConfiguration model,
+                                                     @JsonProperty("logger") QueryLoggerConfiguration query_logger)
         {
             this.partition_count = partition_count;
             this.queries = queries;
-            this.modelConfiguration = model;
+            this.model_configuration = model;
+            this.query_logger = QueryLogger.thisOrDefault(query_logger);
         }
 
         @Override
         public Visitor make(Run run)
         {
-            return new RandomValidator(partition_count, queries, run, modelConfiguration);
+            return new RandomValidator(partition_count, queries, run, model_configuration, query_logger.make());
         }
     }
+
+    @JsonTypeInfo(use = JsonTypeInfo.Id.NAME, include = JsonTypeInfo.As.WRAPPER_OBJECT)
+    public interface QueryLoggerConfiguration extends QueryLogger.QueryLoggerFactory
+    {
+    }
+
+    @JsonTypeName("no_op")
+    public static class NoOpQueryLoggerConfiguration implements QueryLoggerConfiguration
+    {
+        public QueryLogger make()
+        {
+            return QueryLogger.NO_OP;
+        }
+    }
+
+    @JsonTypeName("file")
+    public static class FileQueryLoggerConfiguration implements QueryLoggerConfiguration
+    {
+        public final String filename;
+
+        @JsonCreator
+        public FileQueryLoggerConfiguration(@JsonProperty("filename") String filename)
+        {
+            this.filename = filename;
+        }
+
+        public QueryLogger make()
+        {
+            return new QueryLogger.FileQueryLogger(filename);
+        }
+    }
+
 
     @JsonTypeInfo(use = JsonTypeInfo.Id.NAME, include = JsonTypeInfo.As.WRAPPER_OBJECT)
     public interface RowVisitorConfiguration extends OperationExecutor.RowVisitorFactory

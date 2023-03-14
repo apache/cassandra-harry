@@ -18,20 +18,6 @@
 
 package harry.visitors;
 
-import java.io.BufferedWriter;
-import java.io.File;
-import java.io.FileNotFoundException;
-import java.io.FileOutputStream;
-import java.io.IOException;
-import java.io.OutputStreamWriter;
-import java.util.HashSet;
-import java.util.Set;
-import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.concurrent.atomic.AtomicLong;
-
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-
 import harry.core.MetricReporter;
 import harry.core.Run;
 import harry.generators.Surjections;
@@ -42,8 +28,7 @@ import harry.operations.QueryGenerator;
 
 public class RecentValidator implements Visitor
 {
-    private final BufferedWriter validationLog;
-    private static final Logger logger = LoggerFactory.getLogger(RecentValidator.class);
+    private final QueryLogger queryLogger;
     private final Model model;
 
     private final OpSelectors.PdSelector pdSelector;
@@ -57,7 +42,8 @@ public class RecentValidator implements Visitor
     public RecentValidator(int partitionCount,
                            int queries,
                            Run run,
-                           Model.ModelFactory modelFactory)
+                           Model.ModelFactory modelFactory,
+                           QueryLogger queryLogger)
     {
         this.partitionCount = partitionCount;
         this.queries = Math.max(queries, 1);
@@ -69,15 +55,7 @@ public class RecentValidator implements Visitor
                                                                     Surjections.enumValues(Query.QueryKind.class),
                                                                     run.rangeSelector);
         this.model = modelFactory.make(run);
-        File f = new File("validation.log");
-        try
-        {
-            validationLog = new BufferedWriter(new OutputStreamWriter(new FileOutputStream(f)));
-        }
-        catch (FileNotFoundException e)
-        {
-            throw new RuntimeException(e);
-        }
+        this.queryLogger = queryLogger;
     }
 
     // TODO: expose metric, how many times validated recent partitions
@@ -108,25 +86,11 @@ public class RecentValidator implements Visitor
     @Override
     public void visit()
     {
-        long lts = clock.peek();
-        logger.info("Validating (up to) {} recent partitions as of lts {}...", partitionCount, lts);
-        int count = validateRecentPartitions();
-        logger.info("...finished validating {} recent partitions as of lts {}.", count, lts);
+        validateRecentPartitions();
     }
 
     private void log(int modifier, Query query)
     {
-        try
-        {
-            validationLog.write(String.format("PD: %d. Modifier: %d.", query.pd, modifier));
-            validationLog.write("\t");
-            validationLog.write(query.toSelectStatement().toString());
-            validationLog.write("\n");
-            validationLog.flush();
-        }
-        catch (IOException e)
-        {
-            // ignore
-        }
+        queryLogger.println(String.format("PD: %d. Modifier: %d.\t%s", query.pd, modifier, query.toSelectStatement()));
     }
 }

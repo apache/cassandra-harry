@@ -32,19 +32,17 @@ public class RandomPartitionValidator implements Visitor
     protected final QueryGenerator.TypedQueryGenerator queryGenerator;
     protected final Run run;
     protected final AtomicLong modifier;
-
-    public RandomPartitionValidator(Run run)
-    {
-        this(run, new Configuration.QuiescentCheckerConfig());
-    }
+    protected final QueryLogger logger;
 
     public RandomPartitionValidator(Run run,
-                                    Model.ModelFactory modelFactory)
+                                    Model.ModelFactory modelFactory,
+                                    QueryLogger logger)
     {
         this.model = modelFactory.make(run);
         this.queryGenerator = new QueryGenerator.TypedQueryGenerator(run);
         this.run = run;
         this.modifier = new AtomicLong();
+        this.logger = logger;
     }
 
     public void visit()

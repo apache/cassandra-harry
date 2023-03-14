@@ -54,35 +54,32 @@ public class AllPartitionsValidator implements Visitor
 
     protected final Model model;
     protected final SchemaSpec schema;
-
+    protected final QueryLogger queryLogger;
     protected final OpSelectors.MonotonicClock clock;
     protected final OpSelectors.PdSelector pdSelector;
     protected final MetricReporter metricReporter;
     protected final SystemUnderTest sut;
     protected final DataTracker tracker;
 
-    protected final LongPredicate condition;
     protected final int concurrency;
 
-    public static Configuration.VisitorConfiguration factory(int concurrency,
-                                                             LongPredicate condition,
-                                                             Model.ModelFactory modelFactory)
+    public static Configuration.VisitorConfiguration factoryForTests(int concurrency,
+                                                                     Model.ModelFactory modelFactory)
     {
-        return (r) -> new AllPartitionsValidator(r, concurrency, condition, modelFactory);
+        return (r) -> new AllPartitionsValidator(r, concurrency, modelFactory, QueryLogger.NO_OP);
     }
 
     public AllPartitionsValidator(Run run,
                                   int concurrency,
-                                  long triggerAfter,
                                   Model.ModelFactory modelFactory)
     {
-        this(run, concurrency, (lts) -> (lts > 0 && lts % triggerAfter == 0), modelFactory);
+        this(run, concurrency, modelFactory, QueryLogger.NO_OP);
     }
 
     public AllPartitionsValidator(Run run,
                                   int concurrency,
-                                  LongPredicate condition,
-                                  Model.ModelFactory modelFactory)
+                                  Model.ModelFactory modelFactory,
+                                  QueryLogger logger)
     {
         this.metricReporter = run.metricReporter;
         this.model = modelFactory.make(run);
@@ -92,7 +89,7 @@ public class AllPartitionsValidator implements Visitor
         this.pdSelector = run.pdSelector;
         this.concurrency = concurrency;
         this.tracker = run.tracker;
-        this.condition = condition;
+        this.queryLogger = logger;
     }
 
     protected void validateAllPartitions() throws Throwable
@@ -115,7 +112,11 @@ public class AllPartitionsValidator implements Visitor
                                                                                                  if (pos < maxPosition)
                                                                                                  {
                                                                                                      for (boolean reverse : new boolean[]{ true, false })
-                                                                                                         model.validate(Query.selectPartition(schema, pdSelector.pd(pdSelector.minLtsAt(pos), schema), reverse));
+                                                                                                     {
+                                                                                                         Query query = Query.selectPartition(schema, pdSelector.pd(pdSelector.minLtsAt(pos), schema), reverse);
+                                                                                                         model.validate(query);
+                                                                                                         queryLogger.logSelectQuery((int)pos, query);
+                                                                                                     }
                                                                                                  }
                                                                                                  else
                                                                                                  {
@@ -135,20 +136,13 @@ public class AllPartitionsValidator implements Visitor
 
     public void visit()
     {
-        long lts = clock.peek();
-        if (condition.test(lts))
+        try
         {
-            logger.info("Starting validation of all partitions as of lts {}...", lts);
-            try
-            {
-                validateAllPartitions();
-            }
-            catch (Throwable e)
-            {
-                // TODO: Make a utility out of this.
-                throw e instanceof RuntimeException ? (RuntimeException) e : new RuntimeException(e);
-            }
-            logger.info("...finished validating all partitions as of lts {}.", lts);
+            validateAllPartitions();
+        }
+        catch (Throwable e)
+        {
+            throw new RuntimeException(e);
         }
     }
 
