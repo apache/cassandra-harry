@@ -18,37 +18,29 @@
 
 package harry.visitors;
 
-import java.io.BufferedWriter;
-import java.io.File;
-import java.io.FileNotFoundException;
-import java.io.FileOutputStream;
-import java.io.IOException;
-import java.io.OutputStreamWriter;
-import java.util.Random;
 import java.util.concurrent.atomic.AtomicLong;
-
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 import harry.core.MetricReporter;
 import harry.core.Run;
-import harry.generators.RngUtils;
+import harry.ddl.SchemaSpec;
 import harry.generators.Surjections;
 import harry.model.Model;
 import harry.model.OpSelectors;
 import harry.operations.Query;
 import harry.operations.QueryGenerator;
+import harry.runner.DataTracker;
 
 public class RandomValidator implements Visitor
 {
-    private final BufferedWriter validationLog;
-    private static final Logger logger = LoggerFactory.getLogger(RandomValidator.class);
+    private final QueryLogger logger;
     private final Model model;
 
-    private final OpSelectors.PdSelector pdSelector;
+    private final OpSelectors.DefaultPdSelector pdSelector;
     private final QueryGenerator.TypedQueryGenerator querySelector;
     private final MetricReporter metricReporter;
-    private final OpSelectors.MonotonicClock clock;
+    private final DataTracker tracker;
+    private final AtomicLong modifier;
+    private final SchemaSpec schemaSpec;
 
     private final int partitionCount;
     private final int queries;
@@ -56,46 +48,37 @@ public class RandomValidator implements Visitor
     public RandomValidator(int partitionCount,
                            int queries,
                            Run run,
-                           Model.ModelFactory modelFactory)
+                           Model.ModelFactory modelFactory,
+                           QueryLogger logger)
     {
         this.partitionCount = partitionCount;
         this.queries = Math.max(queries, 1);
         this.metricReporter = run.metricReporter;
-        this.pdSelector = run.pdSelector;
-        this.clock = run.clock;
+        this.pdSelector = (OpSelectors.DefaultPdSelector) run.pdSelector;
         this.querySelector = new QueryGenerator.TypedQueryGenerator(run.rng,
                                                                     Surjections.pick(Query.QueryKind.SINGLE_PARTITION),
                                                                     run.rangeSelector);
         this.model = modelFactory.make(run);
-        File f = new File("validation.log");
-        try
-        {
-            validationLog = new BufferedWriter(new OutputStreamWriter(new FileOutputStream(f)));
-        }
-        catch (FileNotFoundException e)
-        {
-            throw new RuntimeException(e);
-        }
+        this.logger = logger;
+        this.tracker = run.tracker;
+        this.schemaSpec = run.schemaSpec;
+
+        this.modifier = new AtomicLong();
     }
 
     // TODO: expose metric, how many times validated recent partitions
     private int validateRandomPartitions()
     {
-        Random rng = new Random();
-        long maxPos = pdSelector.maxPosition(clock.peek());
-
-        int cnt = 0;
         for (int i = 0; i < partitionCount && !Thread.currentThread().isInterrupted(); i++)
         {
             metricReporter.validateRandomQuery();
-            long pos = RngUtils.trim(rng.nextLong(), maxPos);
-            long visitLts = pdSelector.minLtsAt(pos);
+            long modifier = this.modifier.incrementAndGet();
+            long pd = pdSelector.randomVisitedPd(tracker.maxStarted(), modifier, schemaSpec);
             for (int j = 0; j < queries && !Thread.currentThread().isInterrupted(); j++)
             {
-                Query query = querySelector.inflate(visitLts, cnt);
-                log(j, query);
+                Query query = querySelector.inflate(pdSelector.maxLtsFor(pd), j);
+                logger.logSelectQuery(j, query);
                 model.validate(query);
-                cnt++;
             }
         }
 
@@ -106,21 +89,5 @@ public class RandomValidator implements Visitor
     public void visit()
     {
         validateRandomPartitions();
-    }
-
-    private void log(int modifier, Query query)
-    {
-        try
-        {
-            validationLog.write(String.format("PD: %d. Modifier: %d.", query.pd, modifier));
-            validationLog.write("\t");
-            validationLog.write(query.toSelectStatement().toString());
-            validationLog.write("\n");
-            validationLog.flush();
-        }
-        catch (IOException e)
-        {
-            // ignore
-        }
     }
 }

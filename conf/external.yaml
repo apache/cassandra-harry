@@ -109,18 +109,15 @@ runner:
           row_visitor:
             mutating: {}
       - sampler:
-          trigger_after: 1000
           sample_partitions: 10
       - parallel_validate_recent_partitions:
           partition_count: 100
           queries_per_partition: 2
           concurrency: 20
-          trigger_after: 10000
           model:
             quiescent_checker: {}
       - validate_all_partitions:
           concurrency: 20
-          trigger_after: 100000
           model:
             quiescent_checker: {}
 

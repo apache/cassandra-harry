@@ -18,12 +18,6 @@
 
 package harry.visitors;
 
-import java.io.BufferedWriter;
-import java.io.File;
-import java.io.FileNotFoundException;
-import java.io.FileOutputStream;
-import java.io.IOException;
-import java.io.OutputStreamWriter;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.atomic.AtomicLong;
@@ -49,13 +43,14 @@ public class ParallelRecentValidator extends ParallelValidator<ParallelRecentVal
     private final int queries;
     private final QueryGenerator.TypedQueryGenerator querySelector;
     private final Model model;
-    private final BufferedWriter validationLog;
+    private final QueryLogger queryLogger;
 
-    public ParallelRecentValidator(int partitionCount, int concurrency, int triggerAfter, int queries,
+    public ParallelRecentValidator(int partitionCount, int concurrency, int queries,
                                    Run run,
-                                   Model.ModelFactory modelFactory)
+                                   Model.ModelFactory modelFactory,
+                                   QueryLogger queryLogger)
     {
-        super(concurrency, triggerAfter, run);
+        super(concurrency, run);
         this.partitionCount = partitionCount;
         this.queries = Math.max(queries, 1);
         this.querySelector = new QueryGenerator.TypedQueryGenerator(run.rng,
@@ -63,15 +58,7 @@ public class ParallelRecentValidator extends ParallelValidator<ParallelRecentVal
                                                                     Surjections.enumValues(Query.QueryKind.class),
                                                                     run.rangeSelector);
         this.model = modelFactory.make(run);
-        File f = new File("validation.log");
-        try
-        {
-            validationLog = new BufferedWriter(new OutputStreamWriter(new FileOutputStream(f)));
-        }
-        catch (FileNotFoundException e)
-        {
-            throw new RuntimeException(e);
-        }
+        this.queryLogger = queryLogger;
     }
 
     protected void doOne(State state)
@@ -86,7 +73,7 @@ public class ParallelRecentValidator extends ParallelValidator<ParallelRecentVal
             run.metricReporter.validateRandomQuery();
             Query query = querySelector.inflate(visitLts, i);
             model.validate(query);
-            log(visitLts, i, query);
+            queryLogger.logSelectQuery(i, query);
         }
     }
 
@@ -98,7 +85,7 @@ public class ParallelRecentValidator extends ParallelValidator<ParallelRecentVal
 
     protected State initialState()
     {
-        return new State(maxPos.get());
+        return new State(run.pdSelector.maxPosition(run.tracker.maxStarted()));
     }
 
     public class State extends ParallelValidator.State
@@ -122,50 +109,34 @@ public class ParallelRecentValidator extends ParallelValidator<ParallelRecentVal
         }
     }
 
-    private void log(long lts, int modifier, Query query)
-    {
-        try
-        {
-            validationLog.write("LTS: " + lts + ". Modifier: " + modifier + ". PD: " + query.pd);
-            validationLog.write("\t");
-            validationLog.write(query.toSelectStatement().toString());
-            validationLog.write("\n");
-            validationLog.flush();
-        }
-        catch (IOException e)
-        {
-            // ignore
-        }
-    }
-
     @JsonTypeName("parallel_validate_recent_partitions")
     public static class ParallelRecentValidatorConfig implements Configuration.VisitorConfiguration
     {
         public final int partition_count;
-        public final int trigger_after;
         public final int queries;
         public final int concurrency;
         public final Configuration.ModelConfiguration modelConfiguration;
+        public final Configuration.QueryLoggerConfiguration query_logger;
 
         // TODO: make query selector configurable
         @JsonCreator
         public ParallelRecentValidatorConfig(@JsonProperty("partition_count") int partition_count,
                                              @JsonProperty("concurrency") int concurrency,
-                                             @JsonProperty("trigger_after") int trigger_after,
                                              @JsonProperty("queries_per_partition") int queries,
-                                             @JsonProperty("model") Configuration.ModelConfiguration model)
+                                             @JsonProperty("model") Configuration.ModelConfiguration model,
+                                             @JsonProperty("query_logger") Configuration.QueryLoggerConfiguration query_logger)
         {
             this.partition_count = partition_count;
             this.concurrency = concurrency;
             this.queries = Math.max(queries, 1);
-            this.trigger_after = trigger_after;
             this.modelConfiguration = model;
+            this.query_logger = QueryLogger.thisOrDefault(query_logger);
         }
 
         @Override
         public Visitor make(Run run)
         {
-            return new ParallelRecentValidator(partition_count, concurrency, trigger_after, queries, run, modelConfiguration);
+            return new ParallelRecentValidator(partition_count, concurrency, queries, run, modelConfiguration, query_logger.make());
         }
     }
 

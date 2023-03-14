@@ -65,7 +65,7 @@ public class QuiescentLocalStateCheckerIntegrationTest extends ModelTestBase
 
             Runner.chain(config,
                          Runner.sequential(MutatingVisitor::new, 2, TimeUnit.SECONDS),
-                         Runner.single(AllPartitionsValidator.factory(1, (p) -> true, QuiescentLocalStateChecker.factory(1))))
+                         Runner.single(AllPartitionsValidator.factoryForTests(1, QuiescentLocalStateChecker.factory(1))))
                   .run();
             break;
         }

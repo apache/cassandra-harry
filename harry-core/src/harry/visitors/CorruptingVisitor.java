@@ -70,9 +70,10 @@ public class CorruptingVisitor implements Visitor
         long lts = run.clock.peek();
         maxPos.updateAndGet(current -> Math.max(run.pdSelector.positionFor(lts), current));
 
-        if (lts == 0 || lts % triggerAfter != 0)
+        if (lts > triggerAfter)
             return;
 
+        // TODO: switch to a better entropy source
         Random random = new Random(1);
 
         QueryResponseCorruptor corruptor = corruptors[random.nextInt(corruptors.length)];

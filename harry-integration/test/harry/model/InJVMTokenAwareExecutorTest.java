@@ -77,7 +77,7 @@ public class InJVMTokenAwareExecutorTest extends IntegrationTestBase
                                                                                                             SystemUnderTest.ConsistencyLevel.NODE_LOCAL,
                                                                                                             3)),
                                                10_000, 2, TimeUnit.SECONDS),
-                         Runner.single(RepairingLocalStateValidator.factory(5, (v) -> true, QuiescentChecker::new)))
+                         Runner.single(RepairingLocalStateValidator.factoryForTests(5, QuiescentChecker::new)))
                   .run();
         }
     }

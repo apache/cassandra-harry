@@ -18,7 +18,8 @@
 
 package harry.model;
 
-import java.util.function.LongPredicate;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonProperty;
@@ -27,6 +28,7 @@ import harry.core.Configuration;
 import harry.core.Run;
 import harry.model.sut.injvm.InJvmSut;
 import harry.visitors.AllPartitionsValidator;
+import harry.visitors.QueryLogger;
 import harry.visitors.Visitor;
 
 /**
@@ -37,58 +39,55 @@ import harry.visitors.Visitor;
  */
 public class RepairingLocalStateValidator extends AllPartitionsValidator
 {
+    private static final Logger logger = LoggerFactory.getLogger(RepairingLocalStateValidator.class);
+
     private final InJvmSut inJvmSut;
-    private final OpSelectors.MonotonicClock clock;
 
-    public static Configuration.VisitorConfiguration factory(int concurrency, LongPredicate condition, Model.ModelFactory modelFactory)
+    public static Configuration.VisitorConfiguration factoryForTests(int concurrency, Model.ModelFactory modelFactory)
     {
-        return (r) -> new RepairingLocalStateValidator(r, concurrency, condition, modelFactory);
+        return (r) -> new RepairingLocalStateValidator(r, concurrency, modelFactory);
     }
 
-    public RepairingLocalStateValidator(Run run, int concurrency, long triggerAfter, Model.ModelFactory modelFactory)
+    public RepairingLocalStateValidator(Run run, int concurrency, Model.ModelFactory modelFactory)
     {
-        this(run, concurrency, (lts) -> lts > 0 && lts % triggerAfter == 0, modelFactory);
+        this(run, concurrency, modelFactory, QueryLogger.NO_OP);
     }
 
-    public RepairingLocalStateValidator(Run run, int concurrency, LongPredicate condition, Model.ModelFactory modelFactory)
+    public RepairingLocalStateValidator(Run run, int concurrency, Model.ModelFactory modelFactory, QueryLogger queryLogger)
     {
-        super(run, concurrency, condition, modelFactory);
+        super(run, concurrency, modelFactory, queryLogger);
         this.inJvmSut = (InJvmSut) run.sut;
-        this.clock = run.clock;
+        OpSelectors.MonotonicClock clock = run.clock;
     }
 
     public void visit()
     {
-        long lts = clock.peek();
-        if (condition.test(lts))
-        {
-            System.out.println("Starting repair...");
-            inJvmSut.cluster().stream().forEach((instance) -> instance.nodetool("repair", "--full"));
-            System.out.println("Validating partitions...");
-            super.visit();
-        }
+        logger.debug("Starting repair...");
+        inJvmSut.cluster().stream().forEach((instance) -> instance.nodetool("repair", "--full"));
+        logger.debug("Validating partitions...");
+        super.visit();
     }
 
     @JsonTypeName("repair_and_validate_local_states")
     public static class RepairingLocalStateValidatorConfiguration implements Configuration.VisitorConfiguration
     {
         private final int concurrency;
-        private final int trigger_after;
         private final Configuration.ModelConfiguration modelConfiguration;
+        private final Configuration.QueryLoggerConfiguration query_logger;
 
         @JsonCreator
         public RepairingLocalStateValidatorConfiguration(@JsonProperty("concurrency") int concurrency,
-                                                         @JsonProperty("trigger_after") int trigger_after,
-                                                         @JsonProperty("model") Configuration.ModelConfiguration model)
+                                                         @JsonProperty("model") Configuration.ModelConfiguration model,
+                                                         @JsonProperty("query_logger") Configuration.QueryLoggerConfiguration query_logger)
         {
             this.concurrency = concurrency;
-            this.trigger_after = trigger_after;
             this.modelConfiguration = model;
+            this.query_logger = QueryLogger.thisOrDefault(query_logger);
         }
 
         public Visitor make(Run run)
         {
-            return new RepairingLocalStateValidator(run, concurrency, trigger_after, modelConfiguration);
+            return new RepairingLocalStateValidator(run, concurrency, modelConfiguration, query_logger.make());
         }
     }
 }
