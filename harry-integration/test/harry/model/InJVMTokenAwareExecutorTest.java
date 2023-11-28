@@ -25,13 +25,18 @@ import org.junit.Before;
 import org.junit.BeforeClass;
 import org.junit.Test;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import harry.core.Configuration;
 import harry.core.Run;
 import harry.ddl.SchemaGenerators;
 import harry.ddl.SchemaSpec;
 import harry.model.sut.SystemUnderTest;
+import harry.model.sut.TokenPlacementModel;
 import harry.model.sut.injvm.InJVMTokenAwareVisitExecutor;
 import harry.model.sut.injvm.InJvmSut;
+import harry.model.sut.injvm.InJvmSutBase;
 import harry.runner.Runner;
 import harry.runner.UpToLtsRunner;
 import harry.visitors.MutatingVisitor;
@@ -40,14 +45,22 @@ import org.apache.cassandra.distributed.api.Feature;
 
 public class InJVMTokenAwareExecutorTest extends IntegrationTestBase
 {
+    private static final Logger logger = LoggerFactory.getLogger(InJVMTokenAwareExecutorTest.class);
+
     @BeforeClass
     public static void before() throws Throwable
     {
-        cluster = init(Cluster.build()
-                              .withNodes(5)
-                              .withConfig((cfg) -> cfg.with(Feature.GOSSIP, Feature.NETWORK))
-                              .start());
-        sut = new InJvmSut(cluster, 1);
+        cluster = Cluster.build()
+                         .withNodes(5)
+                         .withConfig((cfg) -> InJvmSutBase.defaultConfig().accept(cfg.with(Feature.GOSSIP, Feature.NETWORK)))
+                         .createWithoutStarting();
+        cluster.setUncaughtExceptionsFilter(t -> {
+            logger.error("Caught exception, reporting during shutdown. Ignoring.", t);
+            return true;
+        });
+        cluster.startup();
+        cluster = init(cluster);
+        sut = new InJvmSut(cluster, 20);
     }
 
     @Override
@@ -71,11 +84,10 @@ public class InJVMTokenAwareExecutorTest extends IntegrationTestBase
             Run run = configuration.createRun();
             run.sut.schemaChange(run.schemaSpec.compile().cql());
 
-
             Runner.chain(configuration,
                          UpToLtsRunner.factory(MutatingVisitor.factory(InJVMTokenAwareVisitExecutor.factory(new Configuration.MutatingRowVisitorConfiguration(),
                                                                                                             SystemUnderTest.ConsistencyLevel.NODE_LOCAL,
-                                                                                                            3)),
+                                                                                                            new TokenPlacementModel.SimpleReplicationFactor(3))),
                                                10_000, 2, TimeUnit.SECONDS),
                          Runner.single(RepairingLocalStateValidator.factoryForTests(5, QuiescentChecker::new)))
                   .run();

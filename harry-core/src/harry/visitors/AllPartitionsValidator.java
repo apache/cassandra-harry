@@ -100,6 +100,7 @@ public class AllPartitionsValidator implements Visitor
         List<Throwable> errors = new CopyOnWriteArrayList<>();
 
         final long maxPosition = pdSelector.maxPosition(tracker.maxStarted());
+
         AtomicLong currentPosition = new AtomicLong();
         for (int i = 0; i < concurrency; i++)
         {
@@ -131,7 +132,7 @@ public class AllPartitionsValidator implements Visitor
 
         Runner.shutdown(threads::stream);
         if (!errors.isEmpty())
-            throw Runner.merge(errors);
+            Runner.mergeAndThrow(errors);
     }
 
     public void visit()

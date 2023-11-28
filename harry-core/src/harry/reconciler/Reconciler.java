@@ -86,7 +86,7 @@ public class Reconciler
 
         class Processor extends VisitExecutor
         {
-            // Whether or not a partition deletion was encountered on this LTS.
+            // Whether a partition deletion was encountered on this LTS.
             private boolean hadPartitionDeletion = false;
             private final List<Ranges.Range> rangeDeletes = new ArrayList<>();
             private final List<ReplayingVisitor.Operation> writes = new ArrayList<>();
@@ -256,7 +256,14 @@ public class Reconciler
         while (currentLts <= maxStarted && currentLts >= 0)
         {
             if (tracker.isFinished(currentLts))
+            {
+                partitionState.visitedLts.add(currentLts);
                 visitor.visit(currentLts);
+            }
+            else
+            {
+                partitionState.skippedLts.add(currentLts);
+            }
 
             currentLts = pdSelector.nextLts(currentLts);
         }

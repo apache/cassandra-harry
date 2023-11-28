@@ -18,15 +18,7 @@
 
 package harry.model;
 
-import java.util.Arrays;
-import java.util.Collection;
-import java.util.Collections;
-import java.util.EnumMap;
-import java.util.HashMap;
-import java.util.HashSet;
-import java.util.Map;
-import java.util.Set;
-import java.util.TreeSet;
+import java.util.*;
 import java.util.function.BiConsumer;
 import java.util.function.Supplier;
 
@@ -94,6 +86,47 @@ public class OpSelectorsTest
                         long vd = descriptorSelector.vd(pd, cd, lts, m, col);
                         Assert.assertEquals(m, descriptorSelector.modificationId(pd, cd, lts, vd, col));
                     }
+                }
+            }
+        }
+    }
+
+    @Test
+    public void pdSelectorSymmetryTest()
+    {
+        OpSelectors.Rng rng = new OpSelectors.PCGFast(1);
+        Supplier<SchemaSpec> gen = SchemaGenerators.progression(SchemaGenerators.DEFAULT_SWITCH_AFTER);
+        SchemaSpec schema = gen.get();
+
+        for (long[] positions : new long[][]{ { 0, Long.MAX_VALUE }, { 100, Long.MAX_VALUE }, { 1000, Long.MAX_VALUE } })
+        {
+            for (int repeats = 2; repeats <= 1000; repeats++)
+            {
+                for (int windowSize = 2; windowSize <= 10; windowSize++)
+                {
+                    OpSelectors.DefaultPdSelector pdSelector = new OpSelectors.DefaultPdSelector(rng, windowSize, repeats, positions[0], positions[1]);
+
+                    Map<Long, List<Long>> m = new HashMap<>();
+                    final long maxLts = 10_000;
+                    for (long lts = 0; lts <= maxLts; lts++)
+                    {
+                         long pd = pdSelector.pd(lts, schema);
+                         m.computeIfAbsent(pd, (k) -> new ArrayList<>()).add(lts);
+                    }
+
+                    for (Long pd : m.keySet())
+                    {
+                        long currentLts =  pdSelector.minLtsFor(pd);
+                        List<Long> predicted = new ArrayList<>();
+                        while (currentLts <= maxLts && currentLts >= 0)
+                        {
+                            predicted.add(currentLts);
+                            currentLts = pdSelector.nextLts(currentLts);
+                        }
+                        Assert.assertEquals(m.get(pd), predicted);
+                    }
+
+
                 }
             }
         }

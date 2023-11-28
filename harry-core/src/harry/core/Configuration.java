@@ -52,11 +52,20 @@ import harry.model.QuiescentChecker;
 import harry.model.clock.ApproximateMonotonicClock;
 import harry.model.sut.SystemUnderTest;
 import harry.runner.LockingDataTracker;
-import harry.visitors.*;
 import harry.runner.DataTracker;
 import harry.runner.DefaultDataTracker;
 import harry.runner.Runner;
 import harry.util.BitSet;
+import harry.visitors.AllPartitionsValidator;
+import harry.visitors.CorruptingVisitor;
+import harry.visitors.LoggingVisitor;
+import harry.visitors.MutatingRowVisitor;
+import harry.visitors.MutatingVisitor;
+import harry.visitors.OperationExecutor;
+import harry.visitors.QueryLogger;
+import harry.visitors.RandomValidator;
+import harry.visitors.RecentValidator;
+import harry.visitors.Visitor;
 import org.reflections.Reflections;
 import org.reflections.scanners.Scanners;
 import org.reflections.util.NameHelper;
@@ -255,7 +264,8 @@ public class Configuration
         catch (Throwable t)
         {
             // Make sure to shut down all SUT threads if it has been started
-            if (sut != null) {
+            if (sut != null)
+            {
                 sut.shutdown();
             }
             throw t;
@@ -487,6 +497,17 @@ public class Configuration
         {
             LockingDataTracker tracker = new LockingDataTracker(pdSelector, schemaSpec);
             tracker.forceLts(max_seen_lts, max_complete_lts, reorder_buffer);
+            return tracker;
+        }
+    }
+
+    public static class DefaultLockingDataTrackerConfiguration implements DataTrackerConfiguration
+    {
+        @Override
+        public DataTracker make(OpSelectors.PdSelector pdSelector, SchemaSpec schemaSpec)
+        {
+            LockingDataTracker tracker = new LockingDataTracker(pdSelector, schemaSpec);
+            tracker.forceLts(-1, -1, null);
             return tracker;
         }
     }
@@ -725,16 +746,29 @@ public class Configuration
         @JsonCreator
         public DefaultPDSelectorConfiguration(@JsonProperty(value = "window_size", defaultValue = "10") int window_size,
                                               @JsonProperty(value = "slide_after_repeats", defaultValue = "100") int slide_after_repeats,
+                                              @JsonProperty(value = "runner_index") Long runner_index,
+                                              @JsonProperty(value = "total_runners") Long total_runners,
                                               @JsonProperty(value = "position_offset") Long position_offset,
                                               @JsonProperty(value = "position_window_size") Long position_window_size)
         {
             this.window_size = window_size;
             this.slide_after_repeats = slide_after_repeats;
-            this.position_offset = position_offset == null ? 0 : position_offset;
-            if (position_window_size == null)
-                this.position_window_size = Long.MAX_VALUE - this.position_offset;
+            if (runner_index != null || total_runners != null)
+            {
+                assert runner_index != null && total_runners != null : "Both runner_index and total_runners are required";
+                assert position_offset == null && position_window_size == null : "Please use either runner_index/total_runners or position_offset/position_window_size combinations.";
+                this.position_window_size = Long.MAX_VALUE / total_runners;
+                this.position_offset = this.position_window_size * runner_index;
+            }
             else
-                this.position_window_size = position_window_size;
+            {
+                assert runner_index == null && total_runners == null : "Please use either runner_index/total_runners or position_offset/position_window_size combinations.";
+                this.position_offset = position_offset == null ? 0 : position_offset;
+                if (position_window_size == null)
+                    this.position_window_size = Long.MAX_VALUE - this.position_offset;
+                else
+                    this.position_window_size = position_window_size;
+            }
         }
 
         public OpSelectors.PdSelector make(OpSelectors.Rng rng)

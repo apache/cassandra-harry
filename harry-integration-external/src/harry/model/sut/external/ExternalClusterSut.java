@@ -18,28 +18,22 @@
 
 package harry.model.sut.external;
 
-import com.datastax.driver.core.*;
-import com.fasterxml.jackson.annotation.JsonCreator;
-import com.fasterxml.jackson.annotation.JsonProperty;
-import com.fasterxml.jackson.annotation.JsonTypeName;
-import com.google.common.util.concurrent.FutureCallback;
-import com.google.common.util.concurrent.Futures;
-import harry.core.Configuration;
-import harry.ddl.SchemaSpec;
-import harry.model.sut.SystemUnderTest;
-import harry.model.sut.TokenPlacementModel;
-import harry.util.ByteUtils;
-
-import java.net.InetAddress;
-import java.nio.ByteBuffer;
-import java.util.ArrayList;
 import java.util.List;
-import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Predicate;
+
+import com.google.common.util.concurrent.FutureCallback;
+import com.google.common.util.concurrent.Futures;
+
+import com.datastax.driver.core.*;
+import com.fasterxml.jackson.annotation.JsonCreator;
+import com.fasterxml.jackson.annotation.JsonProperty;
+import com.fasterxml.jackson.annotation.JsonTypeName;
+import harry.core.Configuration;
+import harry.model.sut.SystemUnderTest;
 
 public class ExternalClusterSut implements SystemUnderTest
 {
@@ -71,7 +65,7 @@ public class ExternalClusterSut implements SystemUnderTest
     {
         // TODO: close Cluster and Session!
         return new ExternalClusterSut(Cluster.builder()
-                                             .withQueryOptions(new QueryOptions().setConsistencyLevel(toDriverCl(ConsistencyLevel.QUORUM)))
+                                             .withQueryOptions(new QueryOptions().setConsistencyLevel(toDriverCl(config.cl)))
                                              .addContactPoints(config.contactPoints)
                                              .withPort(config.port)
                                              .withCredentials(config.username, config.password)
@@ -203,17 +197,20 @@ public class ExternalClusterSut implements SystemUnderTest
         private final int port;
         private final String username;
         private final String password;
+        private final ConsistencyLevel cl;
 
         @JsonCreator
         public ExternalSutConfiguration(@JsonProperty(value = "contact_points") String contactPoints,
                                         @JsonProperty(value = "port") int port,
                                         @JsonProperty(value = "username") String username,
-                                        @JsonProperty(value = "password") String password)
+                                        @JsonProperty(value = "password") String password,
+                                        @JsonProperty(value = "consistency_level", defaultValue = "QUORUM") String cl)
         {
             this.contactPoints = contactPoints;
             this.port = port;
             this.username = username;
             this.password = password;
+            this.cl = ConsistencyLevel.valueOf(cl);
         }
 
         public SystemUnderTest make()
@@ -226,6 +223,8 @@ public class ExternalClusterSut implements SystemUnderTest
     {
         switch (cl)
         {
+            case ONE:
+                return com.datastax.driver.core.ConsistencyLevel.ONE;
             case ALL:
                 return com.datastax.driver.core.ConsistencyLevel.ALL;
             case QUORUM:

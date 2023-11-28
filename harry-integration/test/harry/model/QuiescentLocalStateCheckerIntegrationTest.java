@@ -27,6 +27,7 @@ import org.junit.Test;
 import harry.core.Configuration;
 import harry.ddl.SchemaGenerators;
 import harry.ddl.SchemaSpec;
+import harry.model.sut.TokenPlacementModel;
 import harry.model.sut.injvm.InJvmSut;
 import harry.model.sut.injvm.InJvmSutBase;
 import harry.model.sut.injvm.QuiescentLocalStateChecker;
@@ -65,7 +66,7 @@ public class QuiescentLocalStateCheckerIntegrationTest extends ModelTestBase
 
             Runner.chain(config,
                          Runner.sequential(MutatingVisitor::new, 2, TimeUnit.SECONDS),
-                         Runner.single(AllPartitionsValidator.factoryForTests(1, QuiescentLocalStateChecker.factory(1))))
+                         Runner.single(AllPartitionsValidator.factoryForTests(1, QuiescentLocalStateChecker.factory(new TokenPlacementModel.SimpleReplicationFactor(1)))))
                   .run();
             break;
         }

@@ -162,6 +162,7 @@ public class SimpleReconcilerTest extends IntegrationTestBase
                     query = Query.selectPartition(schema, pd, reverse);
 
                     QuiescentChecker.validate(schema,
+                                              run.tracker,
                                               subset,
                                               state.state.get(pd),
                                               SelectHelper.execute(sut, run.clock, query, subset),
@@ -169,6 +170,7 @@ public class SimpleReconcilerTest extends IntegrationTestBase
 
                     query = Query.singleClustering(schema, pd, cd1, false);
                     QuiescentChecker.validate(schema,
+                                              run.tracker,
                                               subset,
                                               state.state.get(pd).apply(query),
                                               SelectHelper.execute(sut, run.clock, query, subset),
@@ -188,6 +190,7 @@ public class SimpleReconcilerTest extends IntegrationTestBase
                             }
 
                             QuiescentChecker.validate(schema,
+                                                      run.tracker,
                                                       subset,
                                                       state.state.get(pd).apply(query),
                                                       SelectHelper.execute(sut, run.clock, query, subset),
@@ -208,6 +211,7 @@ public class SimpleReconcilerTest extends IntegrationTestBase
                                 continue;
                             }
                             QuiescentChecker.validate(schema,
+                                                      run.tracker,
                                                       subset,
                                                       state.state.get(pd).apply(query),
                                                       SelectHelper.execute(sut, run.clock, query, subset),

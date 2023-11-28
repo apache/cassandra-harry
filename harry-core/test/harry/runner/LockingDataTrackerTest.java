@@ -18,9 +18,7 @@
 
 package harry.runner;
 
-import java.util.ArrayList;
 import java.util.List;
-import java.util.Random;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -40,7 +38,7 @@ import harry.model.OpSelectors;
 import static harry.concurrent.InfiniteLoopExecutor.Daemon.NON_DAEMON;
 import static harry.concurrent.InfiniteLoopExecutor.Interrupts.UNSYNCHRONIZED;
 import static harry.concurrent.InfiniteLoopExecutor.SimulatorSafe.SAFE;
-import static harry.runner.Runner.merge;
+import static harry.runner.Runner.mergeAndThrow;
 
 public class LockingDataTrackerTest
 {
@@ -114,7 +112,7 @@ public class LockingDataTrackerTest
 
         interrupt.await(1, TimeUnit.MINUTES);
         if (!errors.isEmpty())
-            throw merge(errors);
+            Runner.mergeAndThrow(errors);
     }
     enum State { UNLOCKED, LOCKED_FOR_READ, LOCKED_FOR_WRITE }
 }

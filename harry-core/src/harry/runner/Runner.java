@@ -40,12 +40,14 @@ import java.util.stream.Stream;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import harry.concurrent.Clock;
 import harry.concurrent.ExecutorFactory;
 import harry.concurrent.Interruptible;
 import harry.concurrent.Shutdownable;
 import harry.concurrent.WaitQueue;
 import harry.core.Configuration;
 import harry.core.Run;
+import harry.model.sut.SystemUnderTest;
 import harry.visitors.Visitor;
 
 import static harry.concurrent.Clock.Global.nanoTime;
@@ -74,7 +76,14 @@ public abstract class Runner
     public void run() throws Throwable
     {
         init(config, run);
-        runInternal();
+        try
+        {
+            runInternal();
+        }
+        catch (EarlyExitException t)
+        {
+            logger.warn("Exiting early...", t);
+        }
         teardown();
     }
 
@@ -107,6 +116,16 @@ public abstract class Runner
         }
 
         run.sut.afterSchemaInit();
+
+        int res = run.sut.execute(String.format("SELECT * FROM %s.%s LIMIT 1", run.schemaSpec.keyspace, run.schemaSpec.table), SystemUnderTest.ConsistencyLevel.QUORUM).length;
+        if (res > 0)
+        {
+            System.out.println("========================================================================================================================");
+            System.out.println("|                                                                                                                      |");
+            System.out.println("|                                   WARNING: Starting a run with non-empty tables!                                     |");
+            System.out.println("|                                                                                                                      |");
+            System.out.println("========================================================================================================================");
+        }
     }
 
     public void teardown()
@@ -287,7 +306,7 @@ public abstract class Runner
             interrupt.await(runtime, runtimeUnit);
             shutdown(threads::stream);
             if (!errors.isEmpty())
-                throw merge(errors);
+                mergeAndThrow(errors);
         }
     }
 
@@ -330,10 +349,11 @@ public abstract class Runner
     public static void shutdown(Supplier<Stream<Interruptible>> threads)
     {
         threads.get().forEach(Shutdownable::shutdown);
+        long deadline = Clock.Global.nanoTime();
         threads.get().forEach((interruptible) -> {
             try
             {
-                if (!interruptible.awaitTermination(60, TimeUnit.SECONDS))
+                if (!interruptible.awaitTermination(Clock.Global.nanoTime() - deadline, TimeUnit.NANOSECONDS))
                     logger.info("Could not terminate before the timeout: " + threads.get().map(Shutdownable::isTerminated).collect(Collectors.toList()));
             }
             catch (InterruptedException e)
@@ -365,21 +385,29 @@ public abstract class Runner
         };
     }
 
-    public static Throwable merge(List<Throwable> existingFail)
+    public static void mergeAndThrow(List<Throwable> existingFail)
     {
-        if (existingFail.size() == 1)
-            return existingFail.get(0);
-
-        Throwable e = existingFail.get(0);
-        Throwable ret = e;
-        for (int i = 1; i < existingFail.size(); i++)
+        List<Throwable> skipped = existingFail.stream().filter(e -> e instanceof EarlyExitException).collect(Collectors.toList());
+        for (Throwable throwable : skipped)
         {
-            Throwable current = existingFail.get(i);
+            logger.warn("Skipping exit early exceptions", throwable);
+            return;
+        }
+
+        List<Throwable> errors = existingFail.stream().filter(e -> !(e instanceof EarlyExitException)).collect(Collectors.toList());
+        if (errors.size() == 1)
+            throw new RuntimeException("Interrupting run because of an exception", errors.get(0));
+
+        Throwable e = errors.get(0);
+        Throwable ret = e;
+        for (int i = 1; i < errors.size(); i++)
+        {
+            Throwable current = errors.get(i);
             e.addSuppressed(current);
             e = current;
         }
 
-        return ret;
+        throw new RuntimeException("Interrupting run because of an exception", ret);
     }
 
     private static void dumpExceptionToFile(BufferedWriter bw, Throwable throwable) throws IOException

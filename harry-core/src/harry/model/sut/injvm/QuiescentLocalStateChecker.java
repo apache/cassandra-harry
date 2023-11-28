@@ -20,7 +20,6 @@ package harry.model.sut.injvm;
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.NavigableMap;
 
 import harry.core.Run;
 import harry.model.QuiescentLocalStateCheckerBase;
@@ -37,25 +36,26 @@ public class QuiescentLocalStateChecker extends QuiescentLocalStateCheckerBase
         super(run);
     }
 
-    public static ModelFactory factory(int rf)
+    public static ModelFactory factory(TokenPlacementModel.ReplicationFactor rf)
     {
         return (run) -> new QuiescentLocalStateChecker(run, rf);
     }
 
-    public QuiescentLocalStateChecker(Run run, int rf)
+    public QuiescentLocalStateChecker(Run run, TokenPlacementModel.ReplicationFactor rf)
     {
         super(run, rf);
     }
 
     @Override
-    protected NavigableMap<TokenPlacementModel.Range, List<TokenPlacementModel.Node>> getRing()
+    protected TokenPlacementModel.ReplicatedRanges getRing()
     {
-        List<TokenPlacementModel.Node> other = TokenPlacementModel.peerStateToNodes(((InJvmSutBase<?, ?>) sut).cluster.coordinator(1).execute("select peer, tokens from system.peers", ConsistencyLevel.ONE));
-        List<TokenPlacementModel.Node> self = TokenPlacementModel.peerStateToNodes(((InJvmSutBase<?, ?>) sut).cluster.coordinator(1).execute("select broadcast_address, tokens from system.local", ConsistencyLevel.ONE));
+        List<TokenPlacementModel.Node> other = TokenPlacementModel.peerStateToNodes(((InJvmSutBase<?, ?>) sut).cluster.coordinator(1).execute("select peer, tokens, data_center, rack from system.peers", ConsistencyLevel.ONE));
+        List<TokenPlacementModel.Node> self = TokenPlacementModel.peerStateToNodes(((InJvmSutBase<?, ?>) sut).cluster.coordinator(1).execute("select broadcast_address, tokens, data_center, rack from system.local", ConsistencyLevel.ONE));
         List<TokenPlacementModel.Node> all = new ArrayList<>();
         all.addAll(self);
         all.addAll(other);
-        return TokenPlacementModel.replicate(all, rf);
+        all.sort(TokenPlacementModel.Node::compareTo);
+        return rf.replicate(all);
     }
 
     @Override

@@ -57,7 +57,6 @@ public class RepairingLocalStateValidator extends AllPartitionsValidator
     {
         super(run, concurrency, modelFactory, queryLogger);
         this.inJvmSut = (InJvmSut) run.sut;
-        OpSelectors.MonotonicClock clock = run.clock;
     }
 
     public void visit()

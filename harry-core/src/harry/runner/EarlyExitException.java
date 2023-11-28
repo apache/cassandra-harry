@@ -16,32 +16,12 @@
  *  limitations under the License.
  */
 
-package harry.model;
+package harry.runner;
 
-import harry.core.Run;
-import harry.operations.Query;
-
-public interface Model
+public class EarlyExitException extends RuntimeException
 {
-    long NO_TIMESTAMP = Long.MIN_VALUE;
-
-    void validate(Query query);
-
-    interface ModelFactory
+    public EarlyExitException(String e)
     {
-        Model make(Run run);
+        super(e);
     }
-
-    class ValidationException extends RuntimeException
-    {
-        public ValidationException(String trackerState, String partitionState, String observedState, String format, Object... objects)
-        {
-            super(String.format(format, objects) +
-                  "\nTracker state:\n" + trackerState +
-                  "\nPartition state:\n" + partitionState +
-                  "\nObserved state:\n" + observedState);
-        }
-    }
-
-
 }
