@@ -68,14 +68,14 @@ public class QuiescentChecker implements Model
     {
         List<ResultSetRow> actualRows = rowsSupplier.get();
         PartitionState partitionState = reconciler.inflatePartitionState(query.pd, tracker, query);
-        validate(schema, partitionState, actualRows, query);
+        validate(schema, tracker, partitionState, actualRows, query);
     }
 
-    public static void validate(SchemaSpec schema, PartitionState partitionState, List<ResultSetRow> actualRows, Query query)
+    public static void validate(SchemaSpec schema, DataTracker tracker, PartitionState partitionState, List<ResultSetRow> actualRows, Query query)
     {
         Set<ColumnSpec<?>> columns = new HashSet<>();
         columns.addAll(schema.allColumns);
-        validate(schema, columns, partitionState, actualRows, query);
+        validate(schema, tracker, columns, partitionState, actualRows, query);
     }
 
     public static Reconciler.RowState adjustForSelection(Reconciler.RowState row, SchemaSpec schema, Set<ColumnSpec<?>> selection, boolean isStatic)
@@ -97,9 +97,10 @@ public class QuiescentChecker implements Model
         return newRowState;
     }
 
-    public static void validate(SchemaSpec schema, Set<ColumnSpec<?>> selection, PartitionState partitionState, List<ResultSetRow> actualRows, Query query)
+    public static void validate(SchemaSpec schema, DataTracker tracker, Set<ColumnSpec<?>> selection, PartitionState partitionState, List<ResultSetRow> actualRows, Query query)
     {
         boolean isWildcardQuery = selection == null;
+        String trackerBefore = tracker.toString();
         if (isWildcardQuery)
             selection = new HashSet<>(schema.allColumns);
 
@@ -108,24 +109,30 @@ public class QuiescentChecker implements Model
 
         Iterator<Reconciler.RowState> expected = expectedRows.iterator();
 
+        String trackerState = String.format("Tracker before: %s, Tracker after: %s", trackerBefore, tracker);
         // It is possible that we only get a single row in response, and it is equal to static row
         if (partitionState.isEmpty() && partitionState.staticRow() != null && actual.hasNext())
         {
             ResultSetRow actualRowState = actual.next();
             if (actualRowState.cd != UNSET_DESCR && actualRowState.cd != partitionState.staticRow().cd)
-                throw new ValidationException(partitionState.toString(schema),
+            {
+                throw new ValidationException(trackerState,
+                                              partitionState.toString(schema),
                                               toString(actualRows),
                                               "Found a row while model predicts statics only:" +
                                               "\nExpected: %s" +
                                               "\nActual: %s" +
                                               "\nQuery: %s",
-                                              partitionState.staticRow().cd,
-                                              actualRowState, query.toSelectStatement());
+                                              partitionState.staticRow(),
+                                              actualRowState,
+                                              query.toSelectStatement());
+            }
 
             for (int i = 0; i < actualRowState.vds.length; i++)
             {
                 if (actualRowState.vds[i] != NIL_DESCR || actualRowState.lts[i] != NO_TIMESTAMP)
-                    throw new ValidationException(partitionState.toString(schema),
+                    throw new ValidationException(trackerState,
+                                                  partitionState.toString(schema),
                                                   toString(actualRows),
                                                   "Found a row while model predicts statics only:" +
                                                   "\nActual: %s" +
@@ -135,7 +142,7 @@ public class QuiescentChecker implements Model
 
             assertStaticRow(partitionState, actualRows,
                             adjustForSelection(partitionState.staticRow(), schema, selection, true),
-                            actualRowState, query, schema, isWildcardQuery);
+                            actualRowState, query, trackerState, schema, isWildcardQuery);
         }
 
         while (actual.hasNext() && expected.hasNext())
@@ -145,7 +152,8 @@ public class QuiescentChecker implements Model
             Reconciler.RowState expectedRowState = adjustForSelection(originalExpectedRowState, schema, selection, false);
             // TODO: this is not necessarily true. It can also be that ordering is incorrect.
             if (actualRowState.cd != UNSET_DESCR && actualRowState.cd != expectedRowState.cd)
-                throw new ValidationException(partitionState.toString(schema),
+                throw new ValidationException(trackerState,
+                                              partitionState.toString(schema),
                                               toString(actualRows),
                                               "Found a row in the model that is not present in the resultset:" +
                                               "\nExpected: %s" +
@@ -155,7 +163,8 @@ public class QuiescentChecker implements Model
                                               actualRowState, query.toSelectStatement());
 
             if (!Arrays.equals(actualRowState.vds, expectedRowState.vds))
-                throw new ValidationException(partitionState.toString(schema),
+                throw new ValidationException(trackerState,
+                                              partitionState.toString(schema),
                                               toString(actualRows),
                                               "Returned row state doesn't match the one predicted by the model:" +
                                               "\nExpected: %s (%s)" +
@@ -167,7 +176,8 @@ public class QuiescentChecker implements Model
 
             // Wildcard queries do not include timestamps
             if (!isWildcardQuery && !Arrays.equals(actualRowState.lts, expectedRowState.lts))
-                throw new ValidationException(partitionState.toString(schema),
+                throw new ValidationException(trackerState,
+                                              partitionState.toString(schema),
                                               toString(actualRows),
                                               "Timestamps in the row state don't match ones predicted by the model:" +
                                               "\nExpected: %s (%s)" +
@@ -181,13 +191,14 @@ public class QuiescentChecker implements Model
             if (partitionState.staticRow() != null || actualRowState.sds != null || actualRowState.slts != null)
             {
                 Reconciler.RowState expectedStaticRowState = adjustForSelection(partitionState.staticRow(), schema, selection, true);
-                assertStaticRow(partitionState, actualRows, expectedStaticRowState, actualRowState, query, schema, isWildcardQuery);
+                assertStaticRow(partitionState, actualRows, expectedStaticRowState, actualRowState, query, trackerState, schema, isWildcardQuery);
             }
         }
 
         if (actual.hasNext() || expected.hasNext())
         {
-            throw new ValidationException(partitionState.toString(schema),
+            throw new ValidationException(trackerState,
+                                          partitionState.toString(schema),
                                           toString(actualRows),
                                           "Expected results to have the same number of results, but %s result iterator has more results." +
                                           "\nExpected: %s" +
@@ -205,11 +216,13 @@ public class QuiescentChecker implements Model
                                        Reconciler.RowState staticRow,
                                        ResultSetRow actualRowState,
                                        Query query,
+                                       String trackerState,
                                        SchemaSpec schemaSpec,
                                        boolean isWildcardQuery)
     {
         if (!Arrays.equals(staticRow.vds, actualRowState.sds))
-            throw new ValidationException(partitionState.toString(schemaSpec),
+            throw new ValidationException(trackerState,
+                                          partitionState.toString(schemaSpec),
                                           toString(actualRows),
                                           "Returned static row state doesn't match the one predicted by the model:" +
                                           "\nExpected: %s (%s)" +
@@ -220,7 +233,8 @@ public class QuiescentChecker implements Model
                                           query.toSelectStatement());
 
         if (!isWildcardQuery && !Arrays.equals(staticRow.lts, actualRowState.slts))
-            throw new ValidationException(partitionState.toString(schemaSpec),
+            throw new ValidationException(trackerState,
+                                          partitionState.toString(schemaSpec),
                                           toString(actualRows),
                                           "Timestamps in the static row state don't match ones predicted by the model:" +
                                           "\nExpected: %s (%s)" +

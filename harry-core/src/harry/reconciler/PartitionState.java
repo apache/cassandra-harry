@@ -40,6 +40,8 @@ public class PartitionState implements Iterable<Reconciler.RowState>
     final long pd;
     final long debugCd;
     final SchemaSpec schema;
+    final List<Long> visitedLts = new ArrayList<>();
+    final List<Long> skippedLts = new ArrayList<>();
 
     // Collected state
     Reconciler.RowState staticRow;
@@ -254,6 +256,9 @@ public class PartitionState implements Iterable<Reconciler.RowState>
     public String toString(SchemaSpec schema)
     {
         StringBuilder sb = new StringBuilder();
+
+        sb.append("Visited LTS: " + visitedLts).append("\n");
+        sb.append("Skipped LTS: " + skippedLts).append("\n");
 
         if (staticRow != null)
             sb.append("Static row: " + staticRow.toString(schema)).append("\n");

@@ -20,7 +20,6 @@ package harry.model.sut.external;
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.NavigableMap;
 
 import com.datastax.driver.core.Host;
 import com.datastax.driver.core.Session;
@@ -37,30 +36,31 @@ public class QuiescentLocalStateChecker extends QuiescentLocalStateCheckerBase
 {
     public QuiescentLocalStateChecker(Run run)
     {
-        this(run, 3);
+        this(run, new TokenPlacementModel.SimpleReplicationFactor(3));
     }
 
-    public QuiescentLocalStateChecker(Run run, int rf)
+    public QuiescentLocalStateChecker(Run run, TokenPlacementModel.ReplicationFactor rf)
     {
         super(run, rf);
     }
 
     @Override
-    protected NavigableMap<TokenPlacementModel.Range, List<TokenPlacementModel.Node>> getRing()
+    protected TokenPlacementModel.ReplicatedRanges getRing()
     {
         Session session = ((ExternalClusterSut) sut).session();
         Host control = session.getState().getConnectedHosts().stream().findFirst().get();
-        SimpleStatement peers = new SimpleStatement("select peer, tokens from system.peers");
+        SimpleStatement peers = new SimpleStatement("select peer, tokens, data_center, rack from system.peers");
         peers.setHost(control);
         List<TokenPlacementModel.Node> other = TokenPlacementModel.peerStateToNodes(ExternalClusterSut.resultSetToObjectArray(session.execute(peers)));
-        SimpleStatement local = new SimpleStatement("select broadcast_address, tokens from system.local");
+        SimpleStatement local = new SimpleStatement("select broadcast_address, tokens, data_center, rack from system.local");
         local.setHost(control);
 
         List<TokenPlacementModel.Node> self = TokenPlacementModel.peerStateToNodes(ExternalClusterSut.resultSetToObjectArray(session.execute(local)));
         List<TokenPlacementModel.Node> all = new ArrayList<>();
         all.addAll(self);
         all.addAll(other);
-        return TokenPlacementModel.replicate(all, rf);
+        all.sort(TokenPlacementModel.Node::compareTo);
+        return rf.replicate(all);
     }
 
     @Override

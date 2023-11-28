@@ -19,8 +19,11 @@
 package harry.model;
 
 import java.util.EnumMap;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
+import java.util.function.Consumer;
+import java.util.function.Predicate;
 
 import harry.core.Configuration;
 import harry.core.VisibleForTesting;
@@ -31,6 +34,7 @@ import harry.generators.PCGFastPure;
 import harry.generators.RngUtils;
 import harry.generators.Surjections;
 import harry.generators.distribution.Distribution;
+import harry.runner.EarlyExitException;
 import harry.util.BitSet;
 
 import static harry.generators.DataGenerators.NIL_DESCR;
@@ -288,6 +292,27 @@ public interface OpSelectors
             this.positionWindowSize = positionWindowSize;
         }
 
+        public Iterator<Long> allPds(long maxLts)
+        {
+            final long maxPosition = maxPosition(maxLts);
+            return new Iterator<Long>()
+            {
+                private long position = 0;
+
+                public boolean hasNext()
+                {
+                    return position <= maxPosition;
+                }
+
+                public Long next()
+                {
+                    long pd = rng.randomNumber(adjustPosition(position), PARTITION_DESCRIPTOR_STREAM_ID);
+                    position++;
+                    return pd;
+                }
+            };
+        }
+
         protected long pd(long lts)
         {
             return rng.randomNumber(adjustPosition(positionFor(lts)), PARTITION_DESCRIPTOR_STREAM_ID);
@@ -342,12 +367,12 @@ public interface OpSelectors
         private long adjustPosition(long position)
         {
             if (position > positionWindowSize)
-                throw new IllegalStateException(String.format("Partition position has wrapped around, so can not be safely used. " +
-                                                              "This runner has been given %d partitions, and if we wrap back to " +
-                                                              "position 0, partition state is not going to be inflatable, since" +
-                                                              "nextLts will not jump to the lts that is about to be visited. " +
-                                                              "Increase rows per visit, batch size, or slideAfter repeats.",
-                                                              positionWindowSize));
+                throw new EarlyExitException(String.format("Partition position has wrapped around, so can not be safely used. " +
+                                                           "This runner has been given %d partitions, and if we wrap back to " +
+                                                           "position 0, partition state is not going to be inflatable, since" +
+                                                           "nextLts will not jump to the lts that is about to be visited. " +
+                                                           "Increase rows per visit, batch size, or slideAfter repeats.",
+                                                           positionWindowSize));
             return positionOffset + position;
         }
 

@@ -32,7 +32,7 @@
     </rollingPolicy>
 
     <triggeringPolicy class="ch.qos.logback.core.rolling.SizeBasedTriggeringPolicy">
-      <maxFileSize>200MB</maxFileSize>
+      <maxFileSize>20MB</maxFileSize>
     </triggeringPolicy>
 
     <encoder>
@@ -68,7 +68,7 @@
 
   <logger name="org.apache.hadoop" level="WARN"/>
 
-  <root level="INFO">
+  <root level="DEBUG">
     <appender-ref ref="INSTANCEASYNCFILE" />
     <appender-ref ref="INSTANCESTDERR" />
     <appender-ref ref="INSTANCESTDOUT" />

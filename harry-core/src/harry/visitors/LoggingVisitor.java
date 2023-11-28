@@ -66,10 +66,8 @@ public class LoggingVisitor extends GeneratingVisitor
         protected CompiledStatement operationInternal(long lts, long pd, long cd, long m, long opId, OpSelectors.OperationKind opType)
         {
             CompiledStatement statement = super.operationInternal(lts, pd, cd, m, opId, opType);
-
             log(String.format("LTS: %d. Pd %d. Cd %d. M %d. OpId: %d Statement %s\n",
                               lts, pd, cd, m, opId, statement));
-
             return statement;
         }
 

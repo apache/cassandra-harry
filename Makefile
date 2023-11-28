@@ -13,36 +13,40 @@
 #   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 #   See the License for the specific language governing permissions and
 #   limitations under the License.
+CLONE_REPO=$(if $(CASSANDRA_REPO),$(CASSANDRA_REPO),'git@github.com:apache/cassandra.git')
 
-CASSANDRA_SHA = 39ded1844f
-DOCKER_REPO   = org.apache.cassandra/harry/harry-runner
+cassandra-submodule:
+	git clone -b patched-trunk ${CLONE_REPO} cassandra
 
-cassandra:
-	git clone https://github.com/apache/cassandra.git
+update-conf:
+	cp cassandra/conf/cassandra.yaml harry-integration/test/conf/cassandra.yaml
+	cp cassandra/conf/cassandra.yaml test/conf/cassandra.yaml
 
-cassandra-jar: cassandra
-	cp bin/build-shaded-dtest-for-harry.sh ./cassandra/
-	cp bin/relocate-dependencies-harry.pom ./cassandra/
-	cd cassandra; \
-		git checkout ${CASSANDRA_SHA}; \
-		./build-shaded-dtest-for-harry.sh
+package: cassandra-submodule
+	# Build Cassandra
+	./bin/build-cassandra-submodule.sh
+	# Build Harry
+	mvn clean package -DskipTests
 
-package: cassandra-jar
-	rm -fr shared/*
-	mvn clean && mvn package -DskipTests
-
-img: package
-	docker build -t ${DOCKER_REPO}:latest-local ./ -f docker/Dockerfile.local
-
-run: img
-	docker run -v `pwd`/shared:/shared -it ${DOCKER_REPO}:latest-local
-
-run-last:
-	docker run -v `pwd`/shared:/shared -it ${DOCKER_REPO}:latest-local
-
-standalone:
-	rm -fr shared/*
-	mvn clean && mvn package -DskipTests -P standalone
+run-cassandra: package
+	./cassandra/bin/cassandra -f
 
 stress: package
-	@java -cp $(shell pwd)/harry-core/target/lib/*:$(shell pwd)/harry-integration/target/lib/*:$(shell pwd)/harry-integration-external/target/lib/*:$(shell pwd)/harry-core/target/*:$(shell pwd)/harry-integration/target/*:$(shell pwd)/harry-integration-external/target/* -ea harry.runner.external.MiniStress $(ARGS) 
+	@java \
+		--add-exports java.base/jdk.internal.misc=ALL-UNNAMED \
+		--add-exports java.base/jdk.internal.ref=ALL-UNNAMED \
+		--add-exports java.base/sun.nio.ch=ALL-UNNAMED \
+		--add-exports java.management.rmi/com.sun.jmx.remote.internal.rmi=ALL-UNNAMED \
+		--add-exports java.rmi/sun.rmi.registry=ALL-UNNAMED \
+		--add-exports java.rmi/sun.rmi.server=ALL-UNNAMED \
+		--add-exports java.sql/java.sql=ALL-UNNAMED \
+		--add-opens java.base/java.lang.module=ALL-UNNAMED \
+		--add-opens java.base/jdk.internal.loader=ALL-UNNAMED \
+		--add-opens java.base/jdk.internal.ref=ALL-UNNAMED \
+		--add-opens java.base/jdk.internal.reflect=ALL-UNNAMED \
+		--add-opens java.base/jdk.internal.math=ALL-UNNAMED \
+		--add-opens java.base/jdk.internal.module=ALL-UNNAMED \
+		--add-opens java.base/jdk.internal.util.jar=ALL-UNNAMED \
+		--add-opens jdk.management/com.sun.management.internal=ALL-UNNAMED \
+		-cp $(shell pwd)/harry-core/target/lib/*:$(shell pwd)/harry-integration/target/lib/*:$(shell pwd)/harry-integration-external/target/lib/*:$(shell pwd)/harry-core/target/*:$(shell pwd)/harry-integration/target/*:$(shell pwd)/harry-integration-external/target/* \
+		-ea harry.runner.external.MiniStress $(ARGS)

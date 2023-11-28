@@ -32,7 +32,7 @@ import harry.concurrent.WaitQueue;
 
 public class DefaultDataTracker implements DataTracker
 {
-     protected final AtomicLong maxSeenLts;
+    protected final AtomicLong maxSeenLts;
     protected final AtomicLong maxCompleteLts;
     protected final PriorityBlockingQueue<Long> reorderBuffer;
     protected final DrainReorderQueueTask reorderTask;
@@ -132,8 +132,6 @@ public class DefaultDataTracker implements DataTracker
         public void runOnce()
         {
             long maxAchievedConsecutive = maxCompleteLts.get();
-            if (reorderBuffer.isEmpty())
-                return;
 
             Long smallest = reorderBuffer.peek();
             while (smallest != null && smallest == maxAchievedConsecutive + 1)
@@ -161,7 +159,10 @@ public class DefaultDataTracker implements DataTracker
 
     public boolean isFinished(long lts)
     {
-        return lts <= maxConsecutiveFinished() || reorderBuffer.contains(lts);
+        // Since we _first_ add the item to maxConsecutive, and only then yank it from reorderBuffer,
+        // it may happen that we have checked for lts against maxConsecutive while it was still in reorderBuffer
+        // but then, by the time we check for it in the reorderBuffer, it is already removed;
+        return reorderBuffer.contains(lts) || lts <= maxConsecutiveFinished();
     }
 
     public Configuration.DataTrackerConfiguration toConfig()

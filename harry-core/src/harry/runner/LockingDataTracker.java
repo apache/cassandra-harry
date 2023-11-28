@@ -20,7 +20,9 @@ package harry.runner;
 
 import java.util.ArrayList;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentSkipListSet;
 import java.util.concurrent.atomic.AtomicLongFieldUpdater;
 
 import harry.concurrent.WaitQueue;
@@ -44,9 +46,13 @@ public class LockingDataTracker extends DefaultDataTracker
 {
     private final Map<Long, ReadersWritersLock> locked = new ConcurrentHashMap<>();
 
-    private final WaitQueue waitQueue = WaitQueue.newWaitQueue();
+    private final WaitQueue readersQueue = WaitQueue.newWaitQueue();
+    private final WaitQueue writersQueue = WaitQueue.newWaitQueue();
     private final OpSelectors.PdSelector pdSelector;
     private final SchemaSpec schemaSpec;
+
+    private static Set<Long> readingFrom = new ConcurrentSkipListSet<>();
+    private static Set<Long> writingTo = new ConcurrentSkipListSet<>();
 
     public LockingDataTracker(OpSelectors.PdSelector pdSelector, SchemaSpec schemaSpec)
     {
@@ -59,6 +65,8 @@ public class LockingDataTracker extends DefaultDataTracker
     {
         ReadersWritersLock partitionLock = getLockForLts(lts);
         partitionLock.lockForWrite();
+        assert !readingFrom.contains(partitionLock.descriptor) : String.format("Reading from should not have contained %%d%d", partitionLock.descriptor);
+        writingTo.add(partitionLock.descriptor);
         super.beginModification(lts);
     }
 
@@ -66,7 +74,10 @@ public class LockingDataTracker extends DefaultDataTracker
     public void endModification(long lts)
     {
         super.endModification(lts);
-        getLockForLts(lts).unlockAfterWrite();
+        ReadersWritersLock partitionLock = getLockForLts(lts);
+        assert !readingFrom.contains(partitionLock.descriptor) : String.format("Reading from should not have contained %%d%d", partitionLock.descriptor);
+        writingTo.remove(partitionLock.descriptor);
+        partitionLock.unlockAfterWrite();
     }
 
     @Override
@@ -74,6 +85,8 @@ public class LockingDataTracker extends DefaultDataTracker
     {
         ReadersWritersLock partitionLock = getLock(pd);
         partitionLock.lockForRead();
+        assert !writingTo.contains(pd) : String.format("Writing to should not have contained %d", pd);
+        readingFrom.add(pd);
         super.beginValidation(pd);
     }
 
@@ -81,7 +94,10 @@ public class LockingDataTracker extends DefaultDataTracker
     public void endValidation(long pd)
     {
         super.endValidation(pd);
-        getLock(pd).unlockAfterRead();
+        ReadersWritersLock partitionLock = getLock(pd);
+        assert !writingTo.contains(pd) : String.format("Writing to should not have contained %d", pd);
+        readingFrom.remove(partitionLock.descriptor);
+        partitionLock.unlockAfterRead();
     }
 
     public void validate(long pd, Runnable runnable)
@@ -100,7 +116,7 @@ public class LockingDataTracker extends DefaultDataTracker
 
     private ReadersWritersLock getLock(long pd)
     {
-        return locked.computeIfAbsent(pd, (pd_) -> new ReadersWritersLock(waitQueue, pd));
+        return locked.computeIfAbsent(pd, (pd_) -> new ReadersWritersLock(readersQueue, writersQueue, pd));
     }
 
     /**
@@ -113,11 +129,13 @@ public class LockingDataTracker extends DefaultDataTracker
         private volatile long lock;
 
         final long descriptor;
-        final WaitQueue waitQueue;
+        final WaitQueue readersQueue;
+        final WaitQueue writersQueue;
 
-        public ReadersWritersLock(WaitQueue waitQueue, long descriptor)
+        public ReadersWritersLock(WaitQueue readersQueue, WaitQueue writersQueue, long descriptor)
         {
-            this.waitQueue = waitQueue;
+            this.readersQueue = readersQueue;
+            this.writersQueue = writersQueue;
             this.lock = 0L;
             this.descriptor = descriptor;
         }
@@ -137,7 +155,7 @@ public class LockingDataTracker extends DefaultDataTracker
         {
             while (true)
             {
-                WaitQueue.Signal signal = waitQueue.register();
+                WaitQueue.Signal signal = writersQueue.register();
                 long v = lock;
                 if (getReaders(v) == 0)
                 {
@@ -158,7 +176,8 @@ public class LockingDataTracker extends DefaultDataTracker
                 long v = lock;
                 if (fieldUpdater.compareAndSet(this, v, decWriters(v)))
                 {
-                    waitQueue.signalAll();
+                    readersQueue.signalAll();
+                    writersQueue.signalAll();
                     return;
                 }
             }
@@ -168,7 +187,7 @@ public class LockingDataTracker extends DefaultDataTracker
         {
             while (true)
             {
-                WaitQueue.Signal signal = waitQueue.register();
+                WaitQueue.Signal signal = readersQueue.register();
                 long v = lock;
                 if (getWriters(v) == 0)
                 {
@@ -198,7 +217,8 @@ public class LockingDataTracker extends DefaultDataTracker
                 long v = lock;
                 if (fieldUpdater.compareAndSet(this, v, decReaders(v)))
                 {
-                    waitQueue.signalAll();
+                    writersQueue.signalAll();
+                    readersQueue.signalAll();
                     return;
                 }
             }
@@ -207,21 +227,24 @@ public class LockingDataTracker extends DefaultDataTracker
         private long incReaders(long v)
         {
             long readers = getReaders(v);
-            v &= ~0xffffffffL; // erase all readers
+            assert getWriters(v) == 0;
+            v &= ~0x00000000ffffffffL; // erase all readers
             return v | (readers + 1L);
         }
 
         private long decReaders(long v)
         {
             long readers = getReaders(v);
+            assert getWriters(v) == 0;
             assert readers >= 1;
-            v &= ~0xffffffffL; // erase all readers
+            v &= ~0x00000000ffffffffL; // erase all readers
             return v | (readers - 1L);
         }
 
         private long incWriters(long v)
         {
             long writers = getWriters(v);
+            assert getReaders(v) == 0;
             v &= ~0xffffffff00000000L; // erase all writers
             return v | ((writers + 1L) << 32);
         }
@@ -229,6 +252,7 @@ public class LockingDataTracker extends DefaultDataTracker
         private long decWriters(long v)
         {
             long writers = getWriters(v);
+            assert getReaders(v) == 0;
             assert writers >= 1 : "Writers left " + writers;
             v &= ~0xffffffff00000000L; // erase all writers
             return v | ((writers - 1L) << 32);
@@ -254,4 +278,9 @@ public class LockingDataTracker extends DefaultDataTracker
         return new Configuration.LockingDataTrackerConfiguration(maxSeenLts.get(), maxCompleteLts.get(), new ArrayList<>(reorderBuffer));
     }
 
+    @Override
+    public String toString()
+    {
+        return "Locking" + super.toString();
+    }
 }

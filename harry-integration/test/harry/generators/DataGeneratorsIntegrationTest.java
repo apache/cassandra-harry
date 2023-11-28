@@ -78,6 +78,14 @@ public class DataGeneratorsIntegrationTest extends CQLTester
 
         TestRunner.test(gen,
                         (schema) -> {
+                            try
+                            {
+                                schema.validate();
+                            }
+                            catch (AssertionError e)
+                            {
+                                return;
+                            }
                             createTable(schema.compile().cql());
 
                             Configuration.ConfigurationBuilder builder = Configuration.fromFile(getClass().getClassLoader().getResource("single_partition_test.yml").getFile())
@@ -123,7 +131,6 @@ public class DataGeneratorsIntegrationTest extends CQLTester
 
         public void shutdown()
         {
-            cleanup();
         }
 
         public void schemaChange(String statement)

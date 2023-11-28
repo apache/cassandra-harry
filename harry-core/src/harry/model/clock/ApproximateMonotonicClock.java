@@ -18,6 +18,7 @@
 
 package harry.model.clock;
 
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
@@ -58,7 +59,7 @@ public class ApproximateMonotonicClock implements OpSelectors.MonotonicClock
     // The simples fix would be to find the smallest matching epoch.
     private final ScheduledExecutorService executor;
     private final int historySize;
-    private final AtomicLongArray ltsHistory;
+    private final CopyOnWriteArrayList<Long> ltsHistory;
     private final long startTimeMicros;
     private volatile int idx;
     private final AtomicLong lts;
@@ -76,13 +77,13 @@ public class ApproximateMonotonicClock implements OpSelectors.MonotonicClock
     public ApproximateMonotonicClock(int historySize, long epoch, TimeUnit epochTimeUnit)
     {
         this(TimeUnit.MILLISECONDS.toMicros(System.currentTimeMillis()),
-             historySize, new AtomicLongArray(historySize), START_VALUE, 0, epoch, epochTimeUnit);
+             historySize, new CopyOnWriteArrayList<>(), START_VALUE, 0, epoch, epochTimeUnit);
         rebase();
     }
 
     ApproximateMonotonicClock(long startTimeMicros,
                               int historySize,
-                              AtomicLongArray history,
+                              CopyOnWriteArrayList<Long> history,
                               long lts,
                               int idx,
                               long epoch,
@@ -108,7 +109,7 @@ public class ApproximateMonotonicClock implements OpSelectors.MonotonicClock
     @VisibleForTesting
     public static ApproximateMonotonicClock forDebug(long startTimeMicros, int historySize, long lts, int idx, long period, TimeUnit timeUnit, long... values)
     {
-        AtomicLongArray history = new AtomicLongArray(historySize);
+        CopyOnWriteArrayList<Long> history = new CopyOnWriteArrayList<>();
         for (int i = 0; i < values.length; i++)
             history.set(i, values[i]);
 
@@ -131,7 +132,7 @@ public class ApproximateMonotonicClock implements OpSelectors.MonotonicClock
         while (!lts.compareAndSet(rebaseLts, REBASE_IN_PROGRESS))
             rebaseLts = lts.get();
 
-        ltsHistory.set(arrayIdx, rebaseLts == START_VALUE ? START_VALUE : (rebaseLts + 1));
+        ltsHistory.add(arrayIdx, rebaseLts == START_VALUE ? START_VALUE : (rebaseLts + 1));
 
         // If we happen to exhaust counter, we just need to make operations "wider".
         // It is unsafe to proceed, so we defunct the clock.
@@ -206,7 +207,7 @@ public class ApproximateMonotonicClock implements OpSelectors.MonotonicClock
         for (int i = 0; i < history.length; i++)
             history[i] = ltsHistory.get(i);
         return new Configuration.DebugApproximateMonotonicClockConfiguration(startTimeMicros,
-                                                                             ltsHistory.length(),
+                                                                             ltsHistory.size(),
                                                                              history,
                                                                              lts.get(),
                                                                              idx,

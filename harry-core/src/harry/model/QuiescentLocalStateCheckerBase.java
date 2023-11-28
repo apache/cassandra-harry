@@ -20,7 +20,6 @@ package harry.model;
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.NavigableMap;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -28,28 +27,27 @@ import org.slf4j.LoggerFactory;
 import harry.core.Run;
 import harry.data.ResultSetRow;
 import harry.model.sut.SystemUnderTest;
+import harry.model.sut.TokenPlacementModel;
 import harry.operations.CompiledStatement;
 import harry.operations.Query;
 
 import static harry.model.SelectHelper.resultSetToRow;
 import static harry.model.sut.TokenPlacementModel.Node;
-import static harry.model.sut.TokenPlacementModel.Range;
-import static harry.model.sut.TokenPlacementModel.getReplicas;
 
 public abstract class QuiescentLocalStateCheckerBase extends QuiescentChecker
 {
     private static final Logger logger = LoggerFactory.getLogger(QuiescentLocalStateCheckerBase.class);
 
     public final SystemUnderTest sut;
-    public final int rf;
+    public final TokenPlacementModel.ReplicationFactor rf;
     private final OpSelectors.PdSelector pdSelector;
 
     public QuiescentLocalStateCheckerBase(Run run)
     {
-        this(run, 3);
+        this(run, new TokenPlacementModel.SimpleReplicationFactor(3));
     }
 
-    public QuiescentLocalStateCheckerBase(Run run, int rf)
+    public QuiescentLocalStateCheckerBase(Run run, TokenPlacementModel.ReplicationFactor rf)
     {
         super(run);
         this.sut = run.sut;
@@ -60,7 +58,7 @@ public abstract class QuiescentLocalStateCheckerBase extends QuiescentChecker
     @SuppressWarnings("unused")
     public void validateAll()
     {
-        NavigableMap<Range, List<Node>> ring = getRing();
+        TokenPlacementModel.ReplicatedRanges ring = getRing();
 
         for (int lts = 0; lts < clock.peek(); lts++)
             validate(Query.selectPartition(schema, pdSelector.pd(lts, schema), false), ring);
@@ -69,16 +67,16 @@ public abstract class QuiescentLocalStateCheckerBase extends QuiescentChecker
     @Override
     public void validate(Query query)
     {
-        NavigableMap<Range, List<Node>> ring = getRing();
+        TokenPlacementModel.ReplicatedRanges ring = getRing();
         tracker.beginValidation(query.pd);
         validate(query, ring);
         tracker.endValidation(query.pd);
     }
 
-    protected void validate(Query query, NavigableMap<Range, List<Node>> ring)
+    protected void validate(Query query, TokenPlacementModel.ReplicatedRanges ring)
     {
         CompiledStatement compiled = query.toSelectStatement();
-        List<Node> replicas = getReplicas(ring, token(query.pd));
+        List<Node> replicas = ring.replicasFor(token(query.pd));
 
         logger.trace("Predicted {} as replicas for {}. Ring: {}", replicas, query.pd, ring);
         for (Node node : replicas)
@@ -104,7 +102,7 @@ public abstract class QuiescentLocalStateCheckerBase extends QuiescentChecker
         }
     }
 
-    protected abstract NavigableMap<Range, List<Node>> getRing();
+    protected abstract TokenPlacementModel.ReplicatedRanges getRing();
     protected abstract long token(long pd);
     protected abstract Object[][] executeNodeLocal(String statement, Node node, Object... bindings);
 }

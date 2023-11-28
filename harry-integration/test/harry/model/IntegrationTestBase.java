@@ -24,6 +24,9 @@ import org.junit.AfterClass;
 import org.junit.Before;
 import org.junit.BeforeClass;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import harry.core.Configuration;
 import harry.ddl.SchemaGenerators;
 import harry.ddl.SchemaSpec;
@@ -35,16 +38,23 @@ import org.apache.cassandra.distributed.test.TestBaseImpl;
 
 public class IntegrationTestBase extends TestBaseImpl
 {
+    private static final Logger logger = LoggerFactory.getLogger(IntegrationTestBase.class);
     protected static Cluster cluster;
     protected static InJvmSut sut;
 
     @BeforeClass
     public static void before() throws Throwable
     {
-        cluster = init(Cluster.build()
-                              .withNodes(1)
-                              .withConfig(InJvmSutBase.defaultConfig())
-                              .start());
+        cluster = Cluster.build()
+                         .withNodes(1)
+                         .withConfig(InJvmSutBase.defaultConfig())
+                         .createWithoutStarting();
+        cluster.setUncaughtExceptionsFilter(t -> {
+            logger.error("Caught exception, reporting during shutdown. Ignoring.", t);
+            return true;
+        });
+        cluster.startup();
+        cluster = init(cluster);
         sut = new InJvmSut(cluster, 20);
     }
 
