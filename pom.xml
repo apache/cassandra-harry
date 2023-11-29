@@ -38,7 +38,7 @@
 
     <groupId>org.apache.cassandra</groupId>
     <artifactId>harry-parent</artifactId>
-    <version>0.0.2</version>
+    <version>0.0.3-SNAPSHOT</version>
 
     <name>Harry</name>
     <profiles>
@@ -272,6 +272,6 @@
         <connection>scm:git:https://gitbox.apache.org/repos/asf/cassandra-harry.git</connection>
         <developerConnection>scm:git:https://gitbox.apache.org/repos/asf/cassandra-harry.git</developerConnection>
         <url>https://gitbox.apache.org/repos/asf/cassandra-harry.git</url>
-        <tag>0.0.2</tag>
+        <tag>0.0.1</tag>
     </scm>
 </project>

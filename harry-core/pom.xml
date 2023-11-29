@@ -25,7 +25,7 @@
     <parent>
         <groupId>org.apache.cassandra</groupId>
         <artifactId>harry-parent</artifactId>
-        <version>0.0.2</version>
+        <version>0.0.3-SNAPSHOT</version>
     </parent>
 
     <artifactId>harry-core</artifactId>
