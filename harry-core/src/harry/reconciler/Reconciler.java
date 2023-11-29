@@ -32,7 +32,6 @@ import harry.model.OpSelectors;
 import harry.operations.Query;
 import harry.operations.QueryGenerator;
 import harry.runner.DataTracker;
-import harry.util.BitSet;
 import harry.util.Ranges;
 import harry.util.StringUtils;
 import harry.visitors.GeneratingVisitor;
@@ -93,7 +92,7 @@ public class Reconciler
             private final List<ReplayingVisitor.Operation> columnDeletes = new ArrayList<>();
 
             @Override
-            protected void operation(long lts, long pd, long cd, long m, long opId, OpSelectors.OperationKind opType)
+            protected void operation(long lts, long pd, long cd, long opId, OpSelectors.OperationKind opType)
             {
                 if (hadPartitionDeletion)
                     return;
@@ -240,12 +239,6 @@ public class Reconciler
             }
 
             @Override
-            protected void afterBatch(long lts, long pd, long m) {}
-
-            @Override
-            protected void beforeBatch(long lts, long pd, long m) {}
-
-            @Override
             public void shutdown() throws InterruptedException {}
         }
 
@@ -304,7 +297,7 @@ public class Reconciler
 
         public String toString()
         {
-            return toString((SchemaSpec) null);
+            return toString(null);
         }
 
         public String toString(SchemaSpec schema)

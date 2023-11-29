@@ -22,8 +22,6 @@ import java.util.EnumMap;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
-import java.util.function.Consumer;
-import java.util.function.Predicate;
 
 import harry.core.Configuration;
 import harry.core.VisibleForTesting;
@@ -144,9 +142,7 @@ public interface OpSelectors
      */
     public abstract class DescriptorSelector
     {
-        public abstract int numberOfModifications(long lts);
-
-        public abstract int opsPerModification(long lts);
+        public abstract int operationsPerLts(long lts);
 
         public abstract int maxPartitionSize();
 
@@ -192,8 +188,8 @@ public interface OpSelectors
 
         public long[] descriptors(long pd, long cd, long lts, long opId, List<ColumnSpec<?>> columns, BitSet mask, BitSet setColumns, int offset)
         {
-            assert opId < opsPerModification(lts) * numberOfModifications(lts) : String.format("Operation id %d exceeds the maximum expected number of operations %d (%d * %d)",
-                                                                                               opId, opsPerModification(lts) * numberOfModifications(lts), opsPerModification(lts), numberOfModifications(lts));
+            assert opId < operationsPerLts(lts) : String.format("Operation id %d exceeds the maximum expected number of operations per lts %d",
+                                                                opId, operationsPerLts(lts));
             long[] descriptors = new long[columns.size()];
 
             for (int i = 0; i < descriptors.length; i++)
@@ -220,10 +216,8 @@ public interface OpSelectors
 
         public abstract BitSet columnMask(long pd, long lts, long opId, OperationKind opType);
 
-        // TODO: why is this one unused?
-        public abstract long rowId(long pd, long lts, long cd);
+        public abstract long opId(long pd, long lts, long cd);
 
-        public abstract long modificationId(long pd, long cd, long lts, long vd, int col);
     }
 
     public static class PCGFast implements OpSelectors.Rng
@@ -587,15 +581,13 @@ public interface OpSelectors
                                               int[] fractions,
                                               ColumnSelector columnSelector,
                                               OperationSelector operationSelector,
-                                              Distribution modificationsPerLtsDistribution,
-                                              Distribution rowsPerModificationsDistribution,
+                                              Distribution operationsPerLtsDistribution,
                                               int maxPartitionSize)
         {
             super(rng,
                   columnSelector,
                   operationSelector,
-                  modificationsPerLtsDistribution,
-                  rowsPerModificationsDistribution,
+                  operationsPerLtsDistribution,
                   maxPartitionSize);
             this.fractions = fractions;
         }
@@ -644,8 +636,7 @@ public interface OpSelectors
     public static class DefaultDescriptorSelector extends DescriptorSelector
     {
         protected final static long ROW_ID_STREAM = 0x726F4772069640AL;
-        protected final static long NUMBER_OF_MODIFICATIONS_STREAM = 0xf490c5272baL;
-        protected final static long ROWS_PER_OPERATION_STREAM = 0x5e03812e293L;
+        protected final static long OPERATIONS_PER_LTS_STREAM = 0x5e03812e293L;
         protected final static long BITSET_IDX_STREAM = 0x92eb607bef1L;
 
         public static OperationSelector DEFAULT_OP_SELECTOR = OperationSelector.weighted(Surjections.weights(45, 45, 3, 2, 2, 1, 1, 1),
@@ -661,35 +652,26 @@ public interface OpSelectors
         protected final OpSelectors.Rng rng;
         protected final OperationSelector operationSelector;
         protected final ColumnSelector columnSelector;
-        protected final Distribution modificationsPerLtsDistribution;
-        protected final Distribution rowsPerModificationsDistribution;
+        protected final Distribution operationsPerLtsDistribution;
         protected final int maxPartitionSize;
 
         public DefaultDescriptorSelector(OpSelectors.Rng rng,
                                          ColumnSelector columnMaskSelector,
                                          OperationSelector operationSelector,
-                                         Distribution modificationsPerLtsDistribution,
-                                         Distribution rowsPerModificationsDistribution,
+                                         Distribution operationsPerLtsDistribution,
                                          int maxPartitionSize)
         {
             this.rng = rng;
 
             this.operationSelector = operationSelector;
             this.columnSelector = columnMaskSelector;
-
-            this.modificationsPerLtsDistribution = modificationsPerLtsDistribution;
-            this.rowsPerModificationsDistribution = rowsPerModificationsDistribution;
+            this.operationsPerLtsDistribution = operationsPerLtsDistribution;
             this.maxPartitionSize = maxPartitionSize;
         }
 
-        public int numberOfModifications(long lts)
+        public int operationsPerLts(long lts)
         {
-            return (int) modificationsPerLtsDistribution.skew(rng.randomNumber(lts, NUMBER_OF_MODIFICATIONS_STREAM));
-        }
-
-        public int opsPerModification(long lts)
-        {
-            return (int) rowsPerModificationsDistribution.skew(rng.randomNumber(lts, ROWS_PER_OPERATION_STREAM));
+            return (int) operationsPerLtsDistribution.skew(rng.randomNumber(lts, OPERATIONS_PER_LTS_STREAM));
         }
 
         // TODO: this is not the best way to calculate a clustering offset; potentially we'd like to use
@@ -707,7 +689,7 @@ public interface OpSelectors
         // TODO: this won't work for entropy-adjusted CDs, at least the way they're implemented now
         public boolean isCdVisitedBy(long pd, long lts, long cd)
         {
-            return rowId(pd, lts, cd) < (numberOfModifications(lts) * opsPerModification(lts));
+            return opId(pd, lts, cd) < operationsPerLts(lts);
         }
 
         public long randomCd(long pd, long entropy)
@@ -730,7 +712,7 @@ public interface OpSelectors
             return rng.prev(positionInPartition, pd);
         }
 
-        public long rowId(long pd, long lts, long cd)
+        public long opId(long pd, long lts, long cd)
         {
             int partitionSize = maxPartitionSize();
             int clusteringOffset = clusteringOffset(lts);
@@ -757,13 +739,11 @@ public interface OpSelectors
         // TODO: create this bitset once per lts
         public BitSet partitionLevelOperationsMask(long pd, long lts)
         {
-            int totalOps = opsPerModification(lts) * numberOfModifications(lts);
+            int totalOps = operationsPerLts(lts);
             if (totalOps > 64)
             {
                 throw new IllegalArgumentException("RngUtils#randomBits currently supports only up to 64 bits of entropy, so we can not " +
-                                                   "split partition and row level operations for more than 64 operations at the moment." +
-                                                   "Set modifications_per_lts to a number that is lower than 64 and use rows_per_modification" +
-                                                   "to have more operations per LTS instead");
+                                                   "split partition and row level operations for more than 64 operations at the moment.");
             }
 
             long seed = rng.randomNumber(pd, lts);
@@ -798,11 +778,6 @@ public interface OpSelectors
         public long vd(long pd, long cd, long lts, long opId, int col)
         {
             return rng.randomNumber(opId + 1, pd ^ cd ^ lts ^ col);
-        }
-
-        public long modificationId(long pd, long cd, long lts, long vd, int col)
-        {
-            return rng.sequenceNumber(vd, pd ^ cd ^ lts ^ col) - 1;
         }
     }
 

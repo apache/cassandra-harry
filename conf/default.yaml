@@ -58,10 +58,7 @@ partition_descriptor_selector:
 # each kind of operation is going to occur.
 clustering_descriptor_selector:
   default:
-    modifications_per_lts:
-      type: "constant"
-      constant: 4
-    rows_per_modification:
+    operations_per_lts:
       type: "constant"
       constant: 2
     operation_kind_weights:

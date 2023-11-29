@@ -21,15 +21,13 @@ package harry.visitors;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.Executors;
-import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Function;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import harry.concurrent.Uninterruptibles;
 import harry.core.Configuration;
 import harry.core.Run;
 import harry.model.OpSelectors;
@@ -73,10 +71,6 @@ public class MutatingVisitor extends GeneratingVisitor
         private final List<String> statements = new ArrayList<>();
         private final List<Object> bindings = new ArrayList<>();
 
-        private final List<CompletableFuture<?>> futures = new ArrayList<>();
-
-        protected final ScheduledExecutorService executor = Executors.newScheduledThreadPool(2);
-
         protected final OpSelectors.DescriptorSelector descriptorSelector;
         protected final DataTracker tracker;
         protected final SystemUnderTest sut;
@@ -107,50 +101,6 @@ public class MutatingVisitor extends GeneratingVisitor
         @Override
         public void afterLts(long lts, long pd)
         {
-            // TODO: switch to Cassandra futures!
-            for (CompletableFuture<?> future : futures)
-            {
-                try
-                {
-                    future.get(10, TimeUnit.SECONDS);
-                }
-                catch (Throwable t)
-                {
-                    int complete = 0;
-                    for (CompletableFuture<?> f : futures)
-                        if (f.isDone()) complete++;
-
-                    throw new IllegalStateException(String.format("Couldn't repeat operations within timeout bounds. %d out of %d futures complete", complete, futures.size()), t);
-                }
-            }
-            futures.clear();
-            tracker.endModification(lts);
-        }
-
-        @Override
-        public void beforeBatch(long lts, long pd, long m)
-        {
-            statements.clear();
-            bindings.clear();
-        }
-
-        @Override
-        public void operation(long lts, long pd, long cd, long m, long opId, OpSelectors.OperationKind opType)
-        {
-            CompiledStatement statement = operationInternal(lts, pd, cd, m, opId, opType);
-
-            statements.add(statement.cql());
-            Collections.addAll(bindings, statement.bindings());
-        }
-
-        protected CompiledStatement operationInternal(long lts, long pd, long cd, long m, long opId, OpSelectors.OperationKind opType)
-        {
-            return rowVisitor.perform(opType, lts, pd, cd, opId);
-        }
-
-        @Override
-        public void afterBatch(long lts, long pd, long m)
-        {
             if (statements.isEmpty())
             {
                 logger.warn("Encountered an empty batch on {}", lts);
@@ -158,52 +108,57 @@ public class MutatingVisitor extends GeneratingVisitor
             }
 
             String query = String.join(" ", statements);
-
             if (statements.size() > 1)
                 query = String.format("BEGIN UNLOGGED BATCH\n%s\nAPPLY BATCH;", query);
 
             Object[] bindingsArray = new Object[bindings.size()];
             bindings.toArray(bindingsArray);
-
-            CompletableFuture<Object[][]> future = new CompletableFuture<>();
-            executeAsyncWithRetries(lts, pd, future, new CompiledStatement(query, bindingsArray));
-            futures.add(future);
-
             statements.clear();
             bindings.clear();
+
+            executeWithRetries(lts, pd, new CompiledStatement(query, bindingsArray));
+            tracker.endModification(lts);
         }
 
-        protected void executeAsyncWithRetries(long lts, long pd, CompletableFuture<Object[][]> future, CompiledStatement statement)
+        @Override
+        public void operation(long lts, long pd, long cd, long opId, OpSelectors.OperationKind opType)
         {
-            executeAsyncWithRetries(future, statement, 0);
+            CompiledStatement statement = operationInternal(lts, pd, cd, opId, opType);
+            statements.add(statement.cql());
+            Collections.addAll(bindings, statement.bindings());
         }
 
-        private void executeAsyncWithRetries(CompletableFuture<Object[][]> future, CompiledStatement statement, int retries)
+        protected CompiledStatement operationInternal(long lts, long pd, long cd, long opId, OpSelectors.OperationKind opType)
+        {
+            return rowVisitor.perform(opType, lts, pd, cd, opId);
+        }
+
+        protected Object[][] executeWithRetries(long lts, long pd, CompiledStatement statement)
         {
             if (sut.isShutdown())
                 throw new IllegalStateException("System under test is shut down");
 
-            if (retries > this.maxRetries)
-                throw new IllegalStateException(String.format("Can not execute statement %s after %d retries", statement, retries));
+            int retries = 0;
 
-            sut.executeAsync(statement.cql(), consistencyLevel, statement.bindings())
-               .whenComplete((res, t) -> {
-                   if (t != null)
-                   {
-                       logger.error("Caught message while trying to execute " +  statement, t);
-                       int delaySecs = 1;
-                       executor.schedule(() -> executeAsyncWithRetries(future, statement, retries + 1), delaySecs, TimeUnit.SECONDS);
-                       logger.info("Scheduled retry to happen with delay {} seconds", delaySecs);
-                   }
-                   else
-                       future.complete(res);
-               });
+            while (retries++ < maxRetries)
+            {
+                try
+                {
+                    return sut.execute(statement.cql(), consistencyLevel, statement.bindings());
+                }
+                catch (Throwable t)
+                {
+                    int delaySecs = 1;
+                    logger.error(String.format("Caught message while trying to execute: %s. Scheduled to retry in %s seconds", statement, delaySecs), t);
+                    Uninterruptibles.sleepUninterruptibly(delaySecs, TimeUnit.SECONDS);
+                }
+            }
+
+            throw new IllegalStateException(String.format("Can not execute statement %s after %d retries", statement, retries));
         }
 
         public void shutdown() throws InterruptedException
         {
-            executor.shutdown();
-            executor.awaitTermination(30, TimeUnit.SECONDS);
         }
     }
 }

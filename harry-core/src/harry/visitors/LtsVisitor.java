@@ -71,21 +71,9 @@ public abstract class LtsVisitor extends VisitExecutor implements Visitor
     }
 
     @Override
-    protected void beforeBatch(long lts, long pd, long m)
+    protected void operation(long lts, long pd, long cd, long opId, OpSelectors.OperationKind opType)
     {
-        delegate.beforeBatch(lts, pd, m);
-    }
-
-    @Override
-    protected void operation(long lts, long pd, long cd, long m, long opId, OpSelectors.OperationKind opType)
-    {
-        delegate.operation(lts, pd, cd, m, opId, opType);
-    }
-
-    @Override
-    protected void afterBatch(long lts, long pd, long m)
-    {
-        delegate.afterBatch(lts, pd, m);
+        delegate.operation(lts, pd, cd, opId, opType);
     }
 
     @Override

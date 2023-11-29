@@ -18,20 +18,10 @@
 
 package harry.dsl;
 
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.HashMap;
-import java.util.HashSet;
-import java.util.Iterator;
-import java.util.List;
-import java.util.Map;
-import java.util.NavigableSet;
-import java.util.Set;
-import java.util.TreeSet;
+import java.util.*;
 import java.util.function.Consumer;
 import java.util.function.LongSupplier;
 
-import harry.core.Configuration;
 import harry.core.Run;
 import harry.model.OpSelectors;
 import harry.visitors.MutatingRowVisitor;
@@ -124,7 +114,7 @@ public class HistoryBuilder implements Iterable<ReplayingVisitor.Visit>
 
     private static abstract class Step
     {
-        public abstract ReplayingVisitor.Batch toBatch(long pd, long lts, long m, LongSupplier opIdSupplier);
+        public abstract List<ReplayingVisitor.Operation> build(long pd, long lts, LongSupplier opIdSupplier);
     }
 
     private class BatchStep extends Step
@@ -136,7 +126,7 @@ public class HistoryBuilder implements Iterable<ReplayingVisitor.Visit>
             this.steps = steps;
         }
 
-        public ReplayingVisitor.Batch toBatch(long pd, long lts, long m, LongSupplier opIdSupplier)
+        public List<ReplayingVisitor.Operation> build(long pd, long lts, LongSupplier opIdSupplier)
         {
             ReplayingVisitor.Operation[] ops = new ReplayingVisitor.Operation[steps.size()];
             for (int i = 0; i < ops.length; i++)
@@ -147,7 +137,7 @@ public class HistoryBuilder implements Iterable<ReplayingVisitor.Visit>
                 ops[i] = op(cd, opId, opStep.opType);
             }
 
-            return HistoryBuilder.batch(m, ops);
+            return Arrays.asList(ops);
         }
     }
 
@@ -160,12 +150,11 @@ public class HistoryBuilder implements Iterable<ReplayingVisitor.Visit>
             this.opType = opType;
         }
 
-        public ReplayingVisitor.Batch toBatch(long pd, long lts, long m, LongSupplier opIdSupplier)
+        public List<ReplayingVisitor.Operation> build(long pd, long lts, LongSupplier opIdSupplier)
         {
             long opId = opIdSupplier.getAsLong();
             long cd = HistoryBuilder.this.cd(pd, lts, opId);
-            return HistoryBuilder.batch(m,
-                                        HistoryBuilder.op(cd, opIdSupplier.getAsLong(), opType));
+            return Arrays.asList(HistoryBuilder.op(cd, opIdSupplier.getAsLong(), opType));
         }
     }
 
@@ -215,7 +204,7 @@ public class HistoryBuilder implements Iterable<ReplayingVisitor.Visit>
         }
 
         /**
-         * Execute operations listed by users of this PartitionBuilder with same logical timestamp.
+         * Execute operations listed by users of this PartitionBuilder with same logical timestamp. Namely, as a bach.
          */
         public PartitionBuilder simultaneously()
         {
@@ -361,32 +350,22 @@ public class HistoryBuilder implements Iterable<ReplayingVisitor.Visit>
 
         void addSteps(List<Step> steps)
         {
-            List<ReplayingVisitor.Batch> batches = new ArrayList<>();
-            Counter m = new Counter();
+            List<ReplayingVisitor.Operation> operations = new ArrayList<>();
             Counter opId = new Counter();
             for (Step step : steps)
             {
-                batches.add(step.toBatch(pd, lts, m.get(), opId::getAndIncrement));
+                operations.addAll(step.build(pd, lts, opId::getAndIncrement));
 
-                if (sequentially)
-                {
-                    assert lts == log.size();
-                    addToLog(pd, batches);
-                    m.reset();
-                }
-                else
-                {
-                    m.increment();
-                }
-
+                assert lts == log.size();
+                addToLog(pd, operations);
                 opId.reset();
             }
 
             // If we were generating steps for the partition with same LTS, add remaining steps
-            if (!batches.isEmpty())
+            if (!operations.isEmpty())
             {
                 assert !sequentially;
-                addToLog(pd, batches);
+                addToLog(pd, operations);
             }
         }
 
@@ -397,7 +376,7 @@ public class HistoryBuilder implements Iterable<ReplayingVisitor.Visit>
         }
     }
 
-    private void addToLog(long pd, List<ReplayingVisitor.Batch> batches)
+    private void addToLog(long pd, List<ReplayingVisitor.Operation> operations)
     {
         pdToLtsMap.compute(pd, (ignore, ltss) -> {
             if (null == ltss)
@@ -406,8 +385,8 @@ public class HistoryBuilder implements Iterable<ReplayingVisitor.Visit>
             return ltss;
         });
 
-        log.add(visit(lts++, pd, batches.toArray(new ReplayingVisitor.Batch[0])));
-        batches.clear();
+        log.add(visit(lts++, pd, operations.toArray(new ReplayingVisitor.Operation[0])));
+        operations.clear();
     }
 
     private static class Counter
@@ -591,14 +570,9 @@ public class HistoryBuilder implements Iterable<ReplayingVisitor.Visit>
         PartitionBuilder partitionBuilder();
     }
 
-    public static ReplayingVisitor.Visit visit(long lts, long pd, ReplayingVisitor.Batch... ops)
+    public static ReplayingVisitor.Visit visit(long lts, long pd, ReplayingVisitor.Operation... ops)
     {
         return new ReplayingVisitor.Visit(lts, pd, ops);
-    }
-
-    public static ReplayingVisitor.Batch batch(long m, ReplayingVisitor.Operation... ops)
-    {
-        return new ReplayingVisitor.Batch(m, ops);
     }
 
     public static ReplayingVisitor.Operation op(long cd, long opId, OpSelectors.OperationKind opType)
