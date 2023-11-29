@@ -19,7 +19,7 @@
 <project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/maven-v4_0_0.xsd">
     <parent>
         <groupId>org.apache.cassandra</groupId>
-        <version>0.0.2-SNAPSHOT</version>
+        <version>0.0.2</version>
         <artifactId>harry-parent</artifactId>
     </parent>
 
@@ -29,30 +29,30 @@
         <dependency>
             <groupId>org.apache.cassandra</groupId>
             <artifactId>harry-core</artifactId>
-            <version>0.0.2-SNAPSHOT</version>
+            <version>0.0.2</version>
             <scope>compile</scope>
         </dependency>
         <dependency>
             <groupId>org.apache.cassandra</groupId>
             <artifactId>harry-integration-external</artifactId>
-            <version>0.0.2-SNAPSHOT</version>
+            <version>0.0.2</version>
             <scope>compile</scope>
         </dependency>
         <dependency>
             <groupId>org.apache.cassandra</groupId>
             <artifactId>harry-integration</artifactId>
-            <version>0.0.2-SNAPSHOT</version>
+            <version>0.0.2</version>
             <scope>compile</scope>
         </dependency>
     </dependencies>
     <name>Harry Examples</name>
     <artifactId>harry-examples</artifactId>
-    <version>0.0.2-SNAPSHOT</version>
+    <version>0.0.2</version>
 
     <scm>
         <connection>scm:git:https://gitbox.apache.org/repos/asf/cassandra-harry.git</connection>
         <developerConnection>scm:git:https://gitbox.apache.org/repos/asf/cassandra-harry.git</developerConnection>
         <url>https://gitbox.apache.org/repos/asf/cassandra-harry.git</url>
-        <tag>0.0.1</tag>
+        <tag>0.0.2</tag>
     </scm>
 </project>
