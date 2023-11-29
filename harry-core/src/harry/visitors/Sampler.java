@@ -40,7 +40,7 @@ public class Sampler implements Visitor
 
     private final SystemUnderTest sut;
     private final OpSelectors.PdSelector pdSelector;
-    private final OpSelectors.MonotonicClock clock;
+    private final OpSelectors.Clock clock;
     private final DataTracker tracker;
     private final SchemaSpec schema;
     private final int samplePartitions;

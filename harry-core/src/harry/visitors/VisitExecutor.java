@@ -19,6 +19,8 @@
 package harry.visitors;
 
 import harry.model.OpSelectors;
+import harry.operations.Query;
+import harry.util.BitSet;
 
 public abstract class VisitExecutor
 {
@@ -26,7 +28,95 @@ public abstract class VisitExecutor
 
     protected abstract void afterLts(long lts, long pd);
 
-    protected abstract void operation(long lts, long pd, long cd, long opId, OpSelectors.OperationKind kind);
+    protected abstract void operation(Operation operation);
 
     public abstract void shutdown() throws InterruptedException;
+
+    public interface WriteOp extends Operation
+    {
+        long cd();
+        long[] vds();
+    }
+
+    public interface WriteStaticOp extends WriteOp
+    {
+        long[] sds();
+    }
+
+    public interface DeleteRowOp extends Operation
+    {
+        long cd();
+    }
+
+    public interface DeleteOp extends Operation
+    {
+        Query relations();
+    }
+
+    public interface DeleteColumnsOp extends Operation
+    {
+        long cd();
+        BitSet columns();
+    }
+
+    public interface Operation
+    {
+        long pd();
+        long lts();
+        long opId();
+        OpSelectors.OperationKind kind();
+    }
+
+    public static abstract class BaseOperation implements Operation
+    {
+        public final long lts;
+        public final long opId;
+        public final long pd;
+        public final OpSelectors.OperationKind kind;
+
+        public BaseOperation(long lts, long pd, long opId, OpSelectors.OperationKind kind)
+        {
+            assert opId >= 0;
+            this.pd = pd;
+            this.lts = lts;
+            this.opId = opId;
+            this.kind = kind;
+        }
+
+        @Override
+        public final long pd()
+        {
+            return pd;
+
+        }
+
+        @Override
+        public final long lts()
+        {
+            return lts;
+        }
+
+        @Override
+        public final long opId()
+        {
+            return opId;
+        }
+
+        @Override
+        public final OpSelectors.OperationKind kind()
+        {
+            return kind;
+
+        }
+
+        public String toString()
+        {
+            return "Operation{" +
+                   "  lts=" + lts +
+                   "  pd=" + pd +
+                   "  opId=" + opId +
+                   ", kind=" + kind +
+                   '}';
+        }
+    }
 }

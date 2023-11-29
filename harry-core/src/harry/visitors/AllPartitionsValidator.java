@@ -22,7 +22,6 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.atomic.AtomicLong;
-import java.util.function.LongPredicate;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -55,7 +54,7 @@ public class AllPartitionsValidator implements Visitor
     protected final Model model;
     protected final SchemaSpec schema;
     protected final QueryLogger queryLogger;
-    protected final OpSelectors.MonotonicClock clock;
+    protected final OpSelectors.Clock clock;
     protected final OpSelectors.PdSelector pdSelector;
     protected final MetricReporter metricReporter;
     protected final SystemUnderTest sut;

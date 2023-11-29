@@ -64,6 +64,7 @@ public class ColumnSpec<T>
                              kind == Kind.STATIC ? " static" : "");
     }
 
+    @Override
     public boolean equals(Object o)
     {
         if (this == o) return true;
@@ -74,6 +75,7 @@ public class ColumnSpec<T>
                kind == that.kind;
     }
 
+    @Override
     public int hashCode()
     {
         return Objects.hash(name, type, kind);
@@ -185,6 +187,19 @@ public class ColumnSpec<T>
         public String nameForParser()
         {
             return cqlName;
+        }
+
+        public boolean equals(Object o)
+        {
+            if (this == o) return true;
+            if (o == null || getClass() != o.getClass()) return false;
+            DataType<?> dataType = (DataType<?>) o;
+            return Objects.equals(cqlName, dataType.cqlName);
+        }
+
+        public int hashCode()
+        {
+            return Objects.hash(cqlName);
         }
     }
 

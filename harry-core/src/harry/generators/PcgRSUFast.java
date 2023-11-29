@@ -18,7 +18,7 @@
 
 package harry.generators;
 
-public class PcgRSUFast implements RandomGenerator
+public class PcgRSUFast implements EntropySource
 {
     private long state;
     private long step;
@@ -34,6 +34,7 @@ public class PcgRSUFast implements RandomGenerator
         seed(seed);
     }
 
+    @Override
     public void seed(long seed)
     {
         state = RngUtils.xorshift64star(seed) + stream;
@@ -56,10 +57,59 @@ public class PcgRSUFast implements RandomGenerator
         advance(step - this.step);
     }
 
+    @Override
+    public EntropySource derive()
+    {
+        return new PcgRSUFast(PCGFastPure.nextState(state, stream), stream);
+    }
+
+    @Override
     public long next()
     {
         nextStep();
         return PCGFastPure.shuffle(state);
+    }
+
+    public long nextAt(long step)
+    {
+        seek(step);
+        return next();
+    }
+
+    @Override
+    public int nextInt()
+    {
+        return RngUtils.asInt(next());
+    }
+
+    @Override
+    public int nextInt(int max)
+    {
+        return RngUtils.asInt(next(), max);
+    }
+
+    @Override
+    public int nextInt(int min, int max)
+    {
+        return RngUtils.asInt(next(), min, max);
+    }
+
+    @Override
+    public long nextLong(long min, long max)
+    {
+        return RngUtils.trim(next(), min, max);
+    }
+
+    @Override
+    public float nextFloat()
+    {
+        return RngUtils.asFloat(next());
+    }
+
+    @Override
+    public boolean nextBoolean()
+    {
+        return RngUtils.asBoolean(next());
     }
 
     public long distance(long generated)

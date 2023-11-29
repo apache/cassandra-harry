@@ -250,6 +250,7 @@ public class InJvmSutBase<NODE extends IInstance, CLUSTER extends ICluster<NODE>
             cfg.set("row_cache_size", "256MiB")
                .set("index_summary_capacity", "256MiB")
                .set("counter_cache_size", "256MiB")
+               .set("column_index_size", "1KiB")
                .set("key_cache_size", "256MiB")
                .set("file_cache_size", "256MiB")
                .set("memtable_heap_space", "512MiB")

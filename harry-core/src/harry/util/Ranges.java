@@ -84,12 +84,6 @@ public class Ranges
 
         public Range(long minBound, long maxBound, boolean minInclusive, boolean maxInclusive, long timestamp)
         {
-            // (minBound < maxBound) ||
-            assert ((minBound != maxBound) || (minInclusive && maxInclusive)) :
-            String.format("Min bound should be less than max bound, or both bounds have to be inclusive, but was: %s%d,%d%s",
-                          minInclusive ? "[" : "(",
-                          minBound, maxBound,
-                          maxInclusive ? "]" : ")");
             this.minBound = minBound;
             this.maxBound = maxBound;
             this.minInclusive = minInclusive;
@@ -111,13 +105,6 @@ public class Ranges
 
             assert (minInclusive && !maxInclusive);
             return descriptor >= minBound && descriptor < maxBound;
-
-//            if ((minInclusive && descriptor == minBound) && descriptor < maxBound)
-//                return true;
-//            if ((maxInclusive && descriptor == maxBound) && descriptor > minBound)
-//                return true;
-//
-//            return (descriptor > minBound) && (descriptor < maxBound);
         }
 
         public boolean contains(long descriptor, long ts)

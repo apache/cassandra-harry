@@ -26,7 +26,7 @@ import com.fasterxml.jackson.annotation.JsonTypeName;
 import harry.core.Configuration;
 import harry.model.OpSelectors;
 
-public class OffsetClock implements OpSelectors.MonotonicClock
+public class OffsetClock implements OpSelectors.Clock
 {
     final AtomicLong lts;
 
@@ -34,7 +34,7 @@ public class OffsetClock implements OpSelectors.MonotonicClock
 
     public OffsetClock(long base)
     {
-        this(ApproximateMonotonicClock.START_VALUE, base);
+        this(ApproximateClock.START_VALUE, base);
     }
 
     public OffsetClock(long startValue, long base)
@@ -82,7 +82,7 @@ public class OffsetClock implements OpSelectors.MonotonicClock
             this.base = base;
         }
 
-        public OpSelectors.MonotonicClock make()
+        public OpSelectors.Clock make()
         {
             return new OffsetClock(base, offset);
         }

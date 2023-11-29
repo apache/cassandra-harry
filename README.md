@@ -193,7 +193,7 @@ And more.
 
 ## Clock
 
-* `approximate_monotonic/ApproxomateMonotonicClock` - a timestamp supplier implementation that tries to keep as close to
+* `approximate_monotonic/ApproximateMonotonicClock` - a timestamp supplier implementation that tries to keep as close to
   real time as possible, while preserving mapping from real-time to logical timestamps.
 * `offset/OffsetClock` - a (monotonic) clock that supplies timestamps that do not have any relation to real time.
 
@@ -319,12 +319,12 @@ and [Exhaustive Checker](https://github.com/apache/cassandra-harry/blob/master/h
 
 * Pagination is currently implemented but hard-coded to a page size of 1
 * RNG should be able to yield less than 64 bits of entropy per step
-* State tracking should be done in a compact off-heap data stucture
+* State tracking should be done in a compact off-heap data structure
 * Inflated partition state and per-row operation log should be done in a compact
   off-heap data structure
 * Decision-making about _when_ we visit partitions and/or rows should be improved
 
-While thislist of improvements is incomplete, t should give the reader a rough idea about the state of the project.
+While this list of improvements is incomplete, t should give the reader a rough idea about the state of the project.
 The original goal of the project was to drive to stability after the significant storage engine rewrite in
 CASSANDRA-8099 and help remove data loss bugs from the codebase before they got out into the wild. Next steps are to
 integrate it into both CI and into regular daily dev workflows.

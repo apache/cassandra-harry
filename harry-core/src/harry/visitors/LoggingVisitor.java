@@ -26,7 +26,6 @@ import java.io.IOException;
 import java.io.OutputStreamWriter;
 
 import harry.core.Run;
-import harry.model.OpSelectors;
 import harry.operations.CompiledStatement;
 
 public class LoggingVisitor extends GeneratingVisitor
@@ -63,12 +62,11 @@ public class LoggingVisitor extends GeneratingVisitor
         }
 
         @Override
-        protected CompiledStatement operationInternal(long lts, long pd, long cd, long opId, OpSelectors.OperationKind opType)
+        protected void operationInternal(Operation operation, CompiledStatement statement)
         {
-            CompiledStatement statement = super.operationInternal(lts, pd, cd, opId, opType);
-            log(String.format("LTS: %d. Pd %d. Cd %d. OpId: %d Statement %s\n",
-                              lts, pd, cd, opId, statement));
-            return statement;
+            super.operationInternal(operation, statement);
+            log(String.format("LTS: %d. Pd %d. Operation: %s Statement %s\n",
+                              operation.lts(), operation.pd(), operation, statement));
         }
 
         private void log(String format, Object... objects)

@@ -43,10 +43,10 @@ public interface QueryResponseCorruptor
     {
         private final RowCorruptor rowCorruptor;
         private final SchemaSpec schema;
-        private final OpSelectors.MonotonicClock clock;
+        private final OpSelectors.Clock clock;
 
         public SimpleQueryResponseCorruptor(SchemaSpec schema,
-                                            OpSelectors.MonotonicClock clock,
+                                            OpSelectors.Clock clock,
                                             RowCorruptor.RowCorruptorFactory factory)
         {
             this.rowCorruptor = factory.create(schema, clock);

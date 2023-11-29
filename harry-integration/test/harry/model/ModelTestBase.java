@@ -57,8 +57,8 @@ public abstract class ModelTestBase extends IntegrationTestBase
             SchemaSpec schema = supplier.get();
             Configuration.ConfigurationBuilder builder = configuration(i, schema);
 
-            builder.setClock(new Configuration.ApproximateMonotonicClockConfiguration((int) TimeUnit.MINUTES.toMillis(10),
-                                                                                      1, TimeUnit.SECONDS))
+            builder.setClock(new Configuration.ApproximateClockConfiguration((int) TimeUnit.MINUTES.toMillis(10),
+                                                                             1, TimeUnit.SECONDS))
                    .setCreateSchema(false)
                    .setDropSchema(false)
                    .setRunner(runnerConfig);

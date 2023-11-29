@@ -29,7 +29,7 @@ public class ExtensionsTest
     @Test
     public void testPick()
     {
-        Supplier<Integer> gen = Generators.pick(101, 102, 103, 104, 105).bind(RandomGenerator.forTests());
+        Supplier<Integer> gen = Generators.pick(101, 102, 103, 104, 105).bind(EntropySource.forTests());
 
         int[] counts = new int[5];
         for (int i = 0; i < 1000; i++)

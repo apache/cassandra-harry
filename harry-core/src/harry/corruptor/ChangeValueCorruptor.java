@@ -24,7 +24,7 @@ import harry.data.ResultSetRow;
 import harry.ddl.SchemaSpec;
 import harry.generators.DataGenerators;
 import harry.generators.PcgRSUFast;
-import harry.generators.RandomGenerator;
+import harry.generators.EntropySource;
 import harry.model.Model;
 import harry.model.OpSelectors;
 import harry.operations.CompiledStatement;
@@ -37,11 +37,11 @@ import harry.operations.WriteHelper;
 public class ChangeValueCorruptor implements RowCorruptor
 {
     private final SchemaSpec schema;
-    private final OpSelectors.MonotonicClock clock;
-    private final RandomGenerator rng;
+    private final OpSelectors.Clock clock;
+    private final EntropySource rng;
 
     public ChangeValueCorruptor(SchemaSpec schemaSpec,
-                                OpSelectors.MonotonicClock clock)
+                                OpSelectors.Clock clock)
     {
         this.schema = schemaSpec;
         this.clock = clock;

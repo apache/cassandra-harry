@@ -20,7 +20,6 @@ package harry.op;
 
 import java.util.function.Supplier;
 
-import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
 
@@ -28,14 +27,15 @@ import harry.core.MetricReporter;
 import harry.core.Run;
 import harry.ddl.SchemaGenerators;
 import harry.ddl.SchemaSpec;
-import harry.generators.RandomGenerator;
+import harry.generators.EntropySource;
 import harry.generators.distribution.Distribution;
 import harry.model.OpSelectors;
 import harry.model.clock.OffsetClock;
 import harry.model.sut.SystemUnderTest;
-import harry.operations.CompiledStatement;
 import harry.runner.DataTracker;
+import harry.visitors.GeneratingVisitor;
 import harry.visitors.MutatingRowVisitor;
+import harry.visitors.MutatingVisitor;
 import org.apache.cassandra.cql3.CQLTester;
 
 import static harry.model.OpSelectors.DefaultDescriptorSelector.DEFAULT_OP_SELECTOR;
@@ -52,9 +52,9 @@ public class RowVisitorTest extends CQLTester
     public void rowWriteGeneratorTest()
     {
         Supplier<SchemaSpec> specGenerator = SchemaGenerators.progression(SchemaGenerators.DEFAULT_SWITCH_AFTER);
-        RandomGenerator rand = RandomGenerator.forTests(6371747244598697093L);
+        EntropySource rand = EntropySource.forTests(6371747244598697093L);
 
-        OpSelectors.Rng rng = new OpSelectors.PCGFast(1);
+        OpSelectors.PureRng rng = new OpSelectors.PCGFast(1);
 
         OpSelectors.PdSelector pdSelector = new OpSelectors.DefaultPdSelector(rng, 10, 10);
 
@@ -79,28 +79,12 @@ public class RowVisitorTest extends CQLTester
                               SystemUnderTest.NO_OP,
                               MetricReporter.NO_OP);
 
-            MutatingRowVisitor visitor = new MutatingRowVisitor(run);
-            long[] descriptors = rand.next(4);
+            long[] descriptors = new long[4];
+            for (int j = 0; j < descriptors.length; j++)
+                descriptors[j] = rand.next();
 
-            execute(visitor.insert(Math.abs(descriptors[0]),
-                                   descriptors[1],
-                                   descriptors[2],
-                                   descriptors[3]));
-        }
-    }
-
-    public void execute(CompiledStatement statement)
-    {
-        try
-        {
-            execute(statement.cql(),
-                    statement.bindings());
-        }
-        catch (Throwable throwable)
-        {
-            Assert.fail(String.format("Failed to execute %s. Error: %s",
-                                      statement,
-                                      throwable.getMessage()));
+            // some improvement wont hurt here
+            new GeneratingVisitor(run, new MutatingVisitor(run, MutatingRowVisitor::new)).visit();
         }
     }
 }

@@ -119,7 +119,12 @@ public class Surjections
 
     public static <T extends Enum<T>> Surjection<T> enumValues(Class<T> e)
     {
-        return pick(Arrays.asList(e.getEnumConstants()));
+        return enumValues(e, e.getEnumConstants());
+    }
+
+    public static <T extends Enum<T>> Surjection<T> enumValues(Class<T> klass, T... e)
+    {
+        return pick(Arrays.asList(e));
     }
 
     public interface Surjection<T>
@@ -146,7 +151,7 @@ public class Surjections
         {
             return new Generator<T>()
             {
-                public T generate(RandomGenerator rng)
+                public T generate(EntropySource rng)
                 {
                     return inflate(rng.next());
                 }
@@ -156,7 +161,7 @@ public class Surjections
         @VisibleForTesting
         default Supplier<T> toSupplier()
         {
-            RandomGenerator rng = new PcgRSUFast(0, 0);
+            EntropySource rng = new PcgRSUFast(0, 0);
             return () -> inflate(rng.next());
         }
     }

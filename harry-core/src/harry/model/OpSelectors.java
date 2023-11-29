@@ -51,7 +51,7 @@ import static harry.generators.DataGenerators.UNSET_DESCR;
  */
 public interface OpSelectors
 {
-    public static interface Rng
+    public static interface PureRng
     {
         long randomNumber(long i, long stream);
 
@@ -78,7 +78,7 @@ public interface OpSelectors
      * be taken to map a real-time timestamp from the value retrieved from the database in order
      * to map it back to the logical timestamp of the operation that wrote this value.
      */
-    public interface MonotonicClock
+    public interface Clock
     {
         long rts(long lts);
         long lts(long rts);
@@ -89,12 +89,10 @@ public interface OpSelectors
         Configuration.ClockConfiguration toConfig();
     }
 
-    public static interface MonotonicClockFactory
+    public static interface ClockFactory
     {
-        public MonotonicClock make();
+        public Clock make();
     }
-
-    // TODO: move to DescriptorSelector, makes no sense to split them
 
     /**
      * *Partition descriptor selector* controls how partitions is selected based on the current logical
@@ -126,12 +124,12 @@ public interface OpSelectors
 
     public static interface PdSelectorFactory
     {
-        public PdSelector make(Rng rng);
+        public PdSelector make(PureRng rng);
     }
 
     public static interface DescriptorSelectorFactory
     {
-        public DescriptorSelector make(OpSelectors.Rng rng, SchemaSpec schemaSpec);
+        public DescriptorSelector make(PureRng rng, SchemaSpec schemaSpec);
     }
 
     /**
@@ -220,7 +218,7 @@ public interface OpSelectors
 
     }
 
-    public static class PCGFast implements OpSelectors.Rng
+    public static class PCGFast implements PureRng
     {
         private final long seed;
 
@@ -263,7 +261,8 @@ public interface OpSelectors
     {
         public final static long PARTITION_DESCRIPTOR_STREAM_ID = 0x706b;
 
-        private final OpSelectors.Rng rng;
+        private final PureRng rng;
+
         private final long slideAfterRepeats;
         private final long switchAfter;
         private final long windowSize;
@@ -271,12 +270,12 @@ public interface OpSelectors
         private final long positionOffset;
         private final long positionWindowSize;
 
-        public DefaultPdSelector(OpSelectors.Rng rng, long windowSize, long slideAfterRepeats)
+        public DefaultPdSelector(PureRng rng, long windowSize, long slideAfterRepeats)
         {
             this(rng, windowSize, slideAfterRepeats, 0L, Long.MAX_VALUE);
         }
 
-        public DefaultPdSelector(OpSelectors.Rng rng, long windowSize, long slideAfterRepeats, long positionOffset, long positionWindowSize)
+        public DefaultPdSelector(PureRng rng, long windowSize, long slideAfterRepeats, long positionOffset, long positionWindowSize)
         {
             this.rng = rng;
             this.slideAfterRepeats = slideAfterRepeats;
@@ -331,10 +330,10 @@ public interface OpSelectors
         {
             long maxPosition = maxPosition(maxLts);
             if (maxPosition == 0)
-                return schema.adjustPdEntropy(rng.randomNumber(adjustPosition(0), PARTITION_DESCRIPTOR_STREAM_ID));
+                return pdAtPosition(0, schema);
 
             int idx = RngUtils.asInt(rng.randomNumber(visitLts, maxPosition), 0, (int) (maxPosition - 1));
-            return schema.adjustPdEntropy(rng.randomNumber(adjustPosition(idx), PARTITION_DESCRIPTOR_STREAM_ID));
+            return pdAtPosition(idx, schema);
         }
 
         public long maxPosition(long maxLts)
@@ -382,6 +381,11 @@ public interface OpSelectors
         public long positionForPd(long pd)
         {
             return unadjustPosition(rng.sequenceNumber(pd, PARTITION_DESCRIPTOR_STREAM_ID));
+        }
+
+        public long pdAtPosition(long position, SchemaSpec schemaSpec)
+        {
+            return schemaSpec.adjustCdEntropy(rng.randomNumber(adjustPosition(position), PARTITION_DESCRIPTOR_STREAM_ID));
         }
 
         public long nextLts(long lts)
@@ -576,7 +580,7 @@ public interface OpSelectors
     {
         private final int[] fractions;
 
-        public HierarchicalDescriptorSelector(Rng rng,
+        public HierarchicalDescriptorSelector(PureRng rng,
                                               // how many parts (at most) each subsequent "level" should contain
                                               int[] fractions,
                                               ColumnSelector columnSelector,
@@ -614,7 +618,7 @@ public interface OpSelectors
         }
 
         @VisibleForTesting
-        public static long cd(int positionInPartition, int[] fractions, SchemaSpec schema, Rng rng, long pd)
+        public static long cd(int positionInPartition, int[] fractions, SchemaSpec schema, PureRng rng, long pd)
         {
             long[] slices = new long[schema.clusteringKeys.size()];
             for (int i = 0; i < slices.length; i++)
@@ -649,13 +653,13 @@ public interface OpSelectors
                                                                                          OperationKind.DELETE_RANGE,
                                                                                          OperationKind.DELETE_SLICE);
 
-        protected final OpSelectors.Rng rng;
+        protected final PureRng rng;
         protected final OperationSelector operationSelector;
         protected final ColumnSelector columnSelector;
         protected final Distribution operationsPerLtsDistribution;
         protected final int maxPartitionSize;
 
-        public DefaultDescriptorSelector(OpSelectors.Rng rng,
+        public DefaultDescriptorSelector(PureRng rng,
                                          ColumnSelector columnMaskSelector,
                                          OperationSelector operationSelector,
                                          Distribution operationsPerLtsDistribution,
@@ -706,8 +710,7 @@ public interface OpSelectors
                 return rng.prev(opId, pd);
 
             // TODO: partition size can't be larger than cardinality of the value.
-            // So if we have 10 modifications per lts and 10 rows per modification,
-            // we'll visit the same row twice per lts.
+            // So if we have 100 operations per lts, we'll visit the same row twice per lts.
             int positionInPartition = (int) ((clusteringOffset + opId) % partitionSize);
             return rng.prev(positionInPartition, pd);
         }
@@ -799,6 +802,16 @@ public interface OpSelectors
         OperationKind(boolean partitionLevel)
         {
             this.partititonLevel = partitionLevel;
+        }
+
+        /**
+         * All operations apart from partiton delition, including partition hist are visible since if there is a
+         * partition liveness marker, partition's static column is going to survive. We use this method to match
+         * computed LTS with tracked ones.
+         */
+        public boolean hasVisibleVisit()
+        {
+            return this != OpSelectors.OperationKind.DELETE_PARTITION;
         }
     }
 

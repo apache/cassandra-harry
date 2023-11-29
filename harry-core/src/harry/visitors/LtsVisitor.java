@@ -23,8 +23,6 @@ import java.util.function.LongSupplier;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import harry.model.OpSelectors;
-
 /**
  * Common class for all visitors that support visits at a specific logical timestamp.
  *
@@ -71,9 +69,9 @@ public abstract class LtsVisitor extends VisitExecutor implements Visitor
     }
 
     @Override
-    protected void operation(long lts, long pd, long cd, long opId, OpSelectors.OperationKind opType)
+    protected void operation(Operation operation)
     {
-        delegate.operation(lts, pd, cd, opId, opType);
+        delegate.operation(operation);
     }
 
     @Override

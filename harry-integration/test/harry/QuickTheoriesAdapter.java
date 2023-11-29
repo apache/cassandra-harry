@@ -19,7 +19,8 @@
 package harry;
 
 import harry.generators.Generator;
-import harry.generators.RandomGenerator;
+import harry.generators.EntropySource;
+import harry.generators.RngUtils;
 import org.quicktheories.core.Gen;
 import org.quicktheories.core.RandomnessSource;
 import org.quicktheories.impl.Constraint;
@@ -39,7 +40,7 @@ public class QuickTheoriesAdapter
         };
     }
 
-    public static class RandomnessSourceAdapter<T> implements RandomGenerator
+    public static class RandomnessSourceAdapter<T> implements EntropySource
     {
         private RandomnessSource rnd;
 
@@ -53,9 +54,39 @@ public class QuickTheoriesAdapter
             throw new RuntimeException("Seed is not settable");
         }
 
-        public void seek(long step)
+        public EntropySource derive()
         {
-            throw new RuntimeException("Seed is not settable");
+            return new RandomnessSourceAdapter<>();
+        }
+
+        public int nextInt()
+        {
+            return RngUtils.asInt(next());
+        }
+
+        public int nextInt(int max)
+        {
+            return RngUtils.asInt(next(), max);
+        }
+
+        public int nextInt(int min, int max)
+        {
+            return RngUtils.asInt(next(), min, max);
+        }
+
+        public long nextLong(long min, long max)
+        {
+            return RngUtils.trim(next(), min, max);
+        }
+
+        public float nextFloat()
+        {
+            return RngUtils.asFloat(next());
+        }
+
+        public boolean nextBoolean()
+        {
+            return RngUtils.asBoolean(next());
         }
 
         public T generate(RandomnessSource rnd, Generator<T> generate)

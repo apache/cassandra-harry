@@ -23,7 +23,6 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
-import java.util.concurrent.atomic.AtomicLongArray;
 import java.util.concurrent.locks.LockSupport;
 
 import harry.core.Configuration;
@@ -47,7 +46,7 @@ import harry.model.OpSelectors;
  * uniquely mapped relative to some timestamp, with the order matching the LTS order.
  */
 // TODO: shut down
-public class ApproximateMonotonicClock implements OpSelectors.MonotonicClock
+public class ApproximateClock implements OpSelectors.Clock
 {
     public static final long START_VALUE = 0;
     public static final long DEFUNCT = Long.MIN_VALUE;
@@ -69,25 +68,25 @@ public class ApproximateMonotonicClock implements OpSelectors.MonotonicClock
     private final long epoch;
     private final TimeUnit epochTimeUnit;
 
-    public ApproximateMonotonicClock(long period, TimeUnit timeUnit)
+    public ApproximateClock(long period, TimeUnit timeUnit)
     {
         this(10000, period, timeUnit);
     }
 
-    public ApproximateMonotonicClock(int historySize, long epoch, TimeUnit epochTimeUnit)
+    public ApproximateClock(int historySize, long epoch, TimeUnit epochTimeUnit)
     {
         this(TimeUnit.MILLISECONDS.toMicros(System.currentTimeMillis()),
              historySize, new CopyOnWriteArrayList<>(), START_VALUE, 0, epoch, epochTimeUnit);
         rebase();
     }
 
-    ApproximateMonotonicClock(long startTimeMicros,
-                              int historySize,
-                              CopyOnWriteArrayList<Long> history,
-                              long lts,
-                              int idx,
-                              long epoch,
-                              TimeUnit epochTimeUnit)
+    ApproximateClock(long startTimeMicros,
+                     int historySize,
+                     CopyOnWriteArrayList<Long> history,
+                     long lts,
+                     int idx,
+                     long epoch,
+                     TimeUnit epochTimeUnit)
     {
         this.startTimeMicros = startTimeMicros;
         this.historySize = historySize;
@@ -107,14 +106,14 @@ public class ApproximateMonotonicClock implements OpSelectors.MonotonicClock
     }
 
     @VisibleForTesting
-    public static ApproximateMonotonicClock forDebug(long startTimeMicros, int historySize, long lts, int idx, long period, TimeUnit timeUnit, long... values)
+    public static ApproximateClock forDebug(long startTimeMicros, int historySize, long lts, int idx, long period, TimeUnit timeUnit, long... values)
     {
         CopyOnWriteArrayList<Long> history = new CopyOnWriteArrayList<>();
         for (int i = 0; i < values.length; i++)
             history.set(i, values[i]);
 
         assert values.length == idx; // sanity check
-        return new ApproximateMonotonicClock(startTimeMicros, historySize, history, lts, idx, period, timeUnit);
+        return new ApproximateClock(startTimeMicros, historySize, history, lts, idx, period, timeUnit);
     }
 
     public long get(long idx)
@@ -206,13 +205,13 @@ public class ApproximateMonotonicClock implements OpSelectors.MonotonicClock
         long[] history = new long[Math.min(idx, historySize)];
         for (int i = 0; i < history.length; i++)
             history[i] = ltsHistory.get(i);
-        return new Configuration.DebugApproximateMonotonicClockConfiguration(startTimeMicros,
-                                                                             ltsHistory.size(),
-                                                                             history,
-                                                                             lts.get(),
-                                                                             idx,
-                                                                             epoch,
-                                                                             epochTimeUnit);
+        return new Configuration.DebugApproximateClockConfiguration(startTimeMicros,
+                                                                    ltsHistory.size(),
+                                                                    history,
+                                                                    lts.get(),
+                                                                    idx,
+                                                                    epoch,
+                                                                    epochTimeUnit);
     }
 
     public long lts(final long rts)

@@ -19,7 +19,6 @@
 package harry.visitors;
 
 import harry.core.Run;
-import harry.model.OpSelectors;
 import harry.operations.CompiledStatement;
 
 public interface OperationExecutor
@@ -29,54 +28,51 @@ public interface OperationExecutor
         OperationExecutor make(Run run);
     }
 
-    default CompiledStatement perform(OpSelectors.OperationKind op, long lts, long pd, long cd, long opId)
+    default CompiledStatement perform(VisitExecutor.Operation operation)
     {
-        switch (op)
+        switch (operation.kind())
         {
             // TODO: switch to EnumMap
             // TODO: pluggable capabilities; OperationKind can/should bear its own logic
             case INSERT:
-                return insert(lts, pd, cd, opId);
+                return insert((VisitExecutor.WriteOp) operation);
             case UPDATE:
-                return update(lts, pd, cd, opId);
+                return update((VisitExecutor.WriteOp) operation);
             case DELETE_ROW:
-                return deleteRow(lts, pd, cd, opId);
+                return deleteRow((VisitExecutor.DeleteRowOp) operation);
             case INSERT_WITH_STATICS:
-                return insertWithStatics(lts, pd, cd, opId);
+                return insertWithStatics((VisitExecutor.WriteStaticOp) operation);
             case UPDATE_WITH_STATICS:
-                return updateWithStatics(lts, pd, cd, opId);
+                return updateWithStatics((VisitExecutor.WriteStaticOp) operation);
             case DELETE_PARTITION:
-                return deletePartition(lts, pd, opId);
+                return deletePartition((VisitExecutor.DeleteOp) operation);
             case DELETE_COLUMN:
-                return deleteColumn(lts, pd, cd, opId);
+                return deleteColumn((VisitExecutor.DeleteColumnsOp) operation);
             case DELETE_COLUMN_WITH_STATICS:
-                return deleteColumnWithStatics(lts, pd, cd, opId);
+                return deleteColumnWithStatics((VisitExecutor.DeleteColumnsOp) operation);
             case DELETE_RANGE:
-                return deleteRange(lts, pd, opId);
+                return deleteRange((VisitExecutor.DeleteOp) operation);
             case DELETE_SLICE:
-                return deleteSlice(lts, pd, opId);
+                return deleteSlice((VisitExecutor.DeleteOp) operation);
             default:
                 throw new IllegalStateException();
         }
     }
 
-    CompiledStatement insert(long lts, long pd, long cd, long opId);
-    CompiledStatement update(long lts, long pd, long cd, long opId);
+    CompiledStatement insert(VisitExecutor.WriteOp operation);
+    CompiledStatement update(VisitExecutor.WriteOp operation);
 
-    CompiledStatement insertWithStatics(long lts, long pd, long cd, long opId);
-    CompiledStatement updateWithStatics(long lts, long pd, long cd, long opId);
+    CompiledStatement insertWithStatics(VisitExecutor.WriteStaticOp operation);
+    CompiledStatement updateWithStatics(VisitExecutor.WriteStaticOp operation);
 
-    CompiledStatement deleteColumn(long lts, long pd, long cd, long opId);
+    CompiledStatement deleteColumn(VisitExecutor.DeleteColumnsOp operation);
+    CompiledStatement deleteColumnWithStatics(VisitExecutor.DeleteColumnsOp operation);
 
-    CompiledStatement deleteColumnWithStatics(long lts, long pd, long cd, long opId);
+    CompiledStatement deleteRow(VisitExecutor.DeleteRowOp operation);
 
-    CompiledStatement deleteRow(long lts, long pd, long cd, long opId);
-
-    CompiledStatement deletePartition(long lts, long pd, long opId);
-
-    CompiledStatement deleteRange(long lts, long pd, long opId);
-
-    CompiledStatement deleteSlice(long lts, long pd, long opId);
+    CompiledStatement deletePartition(VisitExecutor.DeleteOp deleteOp);
+    CompiledStatement deleteRange(VisitExecutor.DeleteOp deleteOp);
+    CompiledStatement deleteSlice(VisitExecutor.DeleteOp deleteOp);
 
 
 }

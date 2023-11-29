@@ -34,10 +34,11 @@ import harry.model.OpSelectors;
 public class QueryGenerator
 {
     private static final Logger logger = LoggerFactory.getLogger(QueryGenerator.class);
+
     private static final long GT_STREAM = 0b1;
     private static final long E_STREAM = 0b10;
 
-    private final OpSelectors.Rng rng;
+    private final OpSelectors.PureRng rng;
     private final OpSelectors.PdSelector pdSelector;
     private final OpSelectors.DescriptorSelector descriptorSelector;
     private final SchemaSpec schema;
@@ -47,11 +48,10 @@ public class QueryGenerator
         this(run.schemaSpec, run.pdSelector, run.descriptorSelector, run.rng);
     }
 
-    // TODO: remove constructor
     public QueryGenerator(SchemaSpec schema,
                           OpSelectors.PdSelector pdSelector,
                           OpSelectors.DescriptorSelector descriptorSelector,
-                          OpSelectors.Rng rng)
+                          OpSelectors.PureRng rng)
     {
         this.pdSelector = pdSelector;
         this.descriptorSelector = descriptorSelector;
@@ -61,7 +61,7 @@ public class QueryGenerator
 
     public static class TypedQueryGenerator
     {
-        private final OpSelectors.Rng rng;
+        private final OpSelectors.PureRng rng;
         private final QueryGenerator queryGenerator;
         private final Surjections.Surjection<Query.QueryKind> queryKindGen;
 
@@ -70,13 +70,13 @@ public class QueryGenerator
             this(run.rng, new QueryGenerator(run));
         }
 
-        public TypedQueryGenerator(OpSelectors.Rng rng,
+        public TypedQueryGenerator(OpSelectors.PureRng rng,
                                    QueryGenerator queryGenerator)
         {
             this(rng, Surjections.enumValues(Query.QueryKind.class), queryGenerator);
         }
 
-        public TypedQueryGenerator(OpSelectors.Rng rng,
+        public TypedQueryGenerator(OpSelectors.PureRng rng,
                                    Surjections.Surjection<Query.QueryKind> queryKindGen,
                                    QueryGenerator queryGenerator)
         {
@@ -98,23 +98,23 @@ public class QueryGenerator
     public Query inflate(long lts, long modifier, Query.QueryKind queryKind)
     {
         long pd = pdSelector.pd(lts, schema);
-        long descriptor = rng.next(modifier, lts);
-        boolean reverse = descriptor % 2 == 0;
+        long queryDescriptor = rng.next(modifier, lts);
+        boolean reverse = queryDescriptor % 2 == 0;
         switch (queryKind)
         {
             case SINGLE_PARTITION:
                 return singlePartition(pd, reverse);
             case SINGLE_CLUSTERING:
             {
-                long cd = descriptorSelector.randomCd(pd, descriptor, schema);
+                long cd = descriptorSelector.randomCd(pd, queryDescriptor, schema);
                 return singleClustering(pd, cd, reverse);
             }
             case CLUSTERING_SLICE:
             {
-                long cd = descriptorSelector.randomCd(pd, descriptor, schema);
+                long cd = descriptorSelector.randomCd(pd, queryDescriptor, schema);
                 try
                 {
-                    return clusteringSliceQuery(pd, cd, descriptor, reverse);
+                    return clusteringSliceQuery(pd, cd, queryDescriptor, reverse);
                 }
                 catch (IllegalArgumentException retry)
                 {
@@ -125,9 +125,9 @@ public class QueryGenerator
             {
                 try
                 {
-                    long cd1 = descriptorSelector.randomCd(pd, descriptor, schema);
-                    long cd2 = descriptorSelector.randomCd(pd, rng.next(descriptor, lts), schema);
-                    return clusteringRangeQuery(pd, cd1, cd2, descriptor, reverse);
+                    long cd1 = descriptorSelector.randomCd(pd, queryDescriptor, schema);
+                    long cd2 = descriptorSelector.randomCd(pd, rng.next(queryDescriptor, lts), schema);
+                    return clusteringRangeQuery(pd, cd1, cd2, queryDescriptor, reverse);
                 }
                 catch (IllegalArgumentException retry)
                 {

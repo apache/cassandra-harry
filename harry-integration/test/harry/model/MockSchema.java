@@ -83,8 +83,8 @@ public class MockSchema
                                         Arrays.asList(ColumnSpec.ck("ck1", ColumnSpec.asciiType, true),
                                                       ColumnSpec.ck("ck2", ColumnSpec.int64Type, false)),
                                         Arrays.asList(ColumnSpec.regularColumn("v1", ColumnSpec.asciiType)),
-                                        Arrays.asList(ColumnSpec.staticColumn("static1", ColumnSpec.asciiType)),
-                                        true);
+                                        Arrays.asList(ColumnSpec.staticColumn("static1", ColumnSpec.asciiType)))
+                         .withCompactStorage();
     }
 
     public static SchemaSpec randomSchema(String keyspace, String table, long seed)
