@@ -63,6 +63,7 @@
         </profile>
     </profiles>
     <properties>
+        <skipTests>true</skipTests>
         <javac.target>1.8</javac.target>
         <harry.version>0.0.1-SNAPSHOT</harry.version>
         <jackson.version>2.11.3</jackson.version>

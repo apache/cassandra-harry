@@ -25,7 +25,7 @@ package harry.generators;
  * https://github.com/imneme/pcg-c
  * https://github.com/imneme/pcg-cpp
  * <p>
- * Original library developed by Melissa O'Neill <oneill@pcg-random.org>
+ * Original library developed by Melissa O'Neill (oneill@pcg-random.org)
  */
 public class PCGFastPure
 {
