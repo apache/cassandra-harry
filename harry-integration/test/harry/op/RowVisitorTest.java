@@ -67,8 +67,7 @@ public class RowVisitorTest extends CQLTester
                                                                                                           new OpSelectors.ColumnSelectorBuilder().forAll(schema)
                                                                                                                                                  .build(),
                                                                                                           DEFAULT_OP_SELECTOR,
-                                                                                                          new Distribution.ScaledDistribution(1, 3),
-                                                                                                          new Distribution.ScaledDistribution(2, 30),
+                                                                                                          new Distribution.ScaledDistribution(1, 30),
                                                                                                           100);
 
             Run run = new Run(rng,

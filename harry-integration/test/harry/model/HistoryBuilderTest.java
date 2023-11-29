@@ -41,8 +41,7 @@ public class HistoryBuilderTest
 
         Configuration config = IntegrationTestBase.sharedConfiguration(1, schema)
                                                   .setPartitionDescriptorSelector((ignore) -> new HistoryBuilder.PdSelector())
-                                                  .setClusteringDescriptorSelector((builder) -> builder.setNumberOfModificationsDistribution(new Configuration.ConstantDistributionConfig(100_000))
-                                                                                                       .setRowsPerModificationDistribution(new Configuration.ConstantDistributionConfig(100_000)))
+                                                  .setClusteringDescriptorSelector((builder) -> builder.setOperationsPerLtsDistribution(new Configuration.ConstantDistributionConfig(100_000)))
                                                   .build();
 
         Run run = config.createRun();
@@ -95,7 +94,7 @@ public class HistoryBuilderTest
                                     }
                                 }
 
-                                public void operation(long lts, long pd, long cd, long m, long opId, OpSelectors.OperationKind kind)
+                                public void operation(long lts, long pd, long cd, long opId, OpSelectors.OperationKind kind)
                                 {
                                     switch (kind)
                                     {
@@ -127,8 +126,6 @@ public class HistoryBuilderTest
                                 }
 
                                 public void afterLts(long lts, long pd){}
-                                public void beforeBatch(long lts, long pd, long m){}
-                                public void afterBatch(long lts, long pd, long m){}
                                 public void shutdown() {}
                             });
                             visitor.replayAll();

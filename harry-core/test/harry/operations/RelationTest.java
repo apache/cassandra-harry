@@ -110,11 +110,6 @@ public class RelationTest
                                                                           throw new RuntimeException("not implemented");
                                                                       }
 
-                                                                      public long maxLts(long lts)
-                                                                      {
-                                                                          throw new RuntimeException("not implemented");
-                                                                      }
-
                                                                       public long minLtsAt(long position)
                                                                       {
                                                                           throw new RuntimeException("not implemented");
@@ -126,11 +121,6 @@ public class RelationTest
                                                                           throw new RuntimeException("not implemented");
                                                                       }
 
-                                                                      public long positionFor(long lts)
-                                                                      {
-                                                                          throw new RuntimeException("not implemented");
-                                                                      }
-
                                                                       public long maxPosition(long maxLts)
                                                                       {
                                                                           throw new RuntimeException("not implemented");
@@ -138,12 +128,7 @@ public class RelationTest
                                                                   },
                                                                   new OpSelectors.DescriptorSelector()
                                                                   {
-                                                                      public int numberOfModifications(long lts)
-                                                                      {
-                                                                          throw new RuntimeException("not implemented");
-                                                                      }
-
-                                                                      public int opsPerModification(long lts)
+                                                                      public int operationsPerLts(long lts)
                                                                       {
                                                                           throw new RuntimeException("not implemented");
                                                                       }
@@ -183,12 +168,7 @@ public class RelationTest
                                                                           throw new RuntimeException("not implemented");
                                                                       }
 
-                                                                      public long rowId(long pd, long lts, long cd)
-                                                                      {
-                                                                          return 0;
-                                                                      }
-
-                                                                      public long modificationId(long pd, long cd, long lts, long vd, int col)
+                                                                      public long opId(long pd, long lts, long cd)
                                                                       {
                                                                           return 0;
                                                                       }

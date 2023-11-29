@@ -38,7 +38,7 @@ import org.apache.cassandra.distributed.test.TestBaseImpl;
 
 public class IntegrationTestBase extends TestBaseImpl
 {
-    private static final Logger logger = LoggerFactory.getLogger(IntegrationTestBase.class);
+    protected static final Logger logger = LoggerFactory.getLogger(IntegrationTestBase.class);
     protected static Cluster cluster;
     protected static InJvmSut sut;
 
@@ -84,8 +84,7 @@ public class IntegrationTestBase extends TestBaseImpl
     public static Configuration.CDSelectorConfigurationBuilder sharedCDSelectorConfiguration()
     {
         return new Configuration.CDSelectorConfigurationBuilder()
-               .setNumberOfModificationsDistribution(new Configuration.ConstantDistributionConfig(2))
-               .setRowsPerModificationDistribution(new Configuration.ConstantDistributionConfig(2))
+               .setOperationsPerLtsDistribution(new Configuration.ConstantDistributionConfig(2))
                .setMaxPartitionSize(100)
                .setOperationKindWeights(new Configuration.OperationKindSelectorBuilder()
                                         .addWeight(OpSelectors.OperationKind.DELETE_ROW, 1)

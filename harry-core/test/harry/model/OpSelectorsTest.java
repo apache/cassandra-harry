@@ -62,7 +62,6 @@ public class OpSelectorsTest
                                                                                                              new OpSelectors.ColumnSelectorBuilder().forAll(schema)
                                                                                                                                                     .build(),
                                                                                                              OpSelectors.DefaultDescriptorSelector.DEFAULT_OP_SELECTOR,
-                                                                                                             new Distribution.ScaledDistribution(1, 3),
                                                                                                              new Distribution.ScaledDistribution(2, 10),
                                                                                                              50);
 
@@ -73,19 +72,16 @@ public class OpSelectorsTest
         for (int lts = 0; lts < RUNS; lts++)
         {
             long pd = pdSupplier.pd(lts);
-            for (int m = 0; m < descriptorSelector.numberOfModifications(lts); m++)
+
+            int opsPerLts = descriptorSelector.operationsPerLts(lts);
+            for (int opId = 0; opId < opsPerLts; opId++)
             {
-                int opsPerMod = descriptorSelector.opsPerModification(lts);
-                for (int rowId = 0; rowId < opsPerMod; rowId++)
+                long cd = descriptorSelector.cd(pd, lts, opId);
+                Assert.assertEquals(opId, descriptorSelector.opId(pd, lts, cd));
+                Assert.assertTrue(descriptorSelector.isCdVisitedBy(pd, lts, cd));
+                for (int col = 0; col < 10; col++)
                 {
-                    long cd = descriptorSelector.cd(pd, lts, rowId);
-                    Assert.assertEquals(rowId, descriptorSelector.rowId(pd, lts, cd));
-                    Assert.assertTrue(descriptorSelector.isCdVisitedBy(pd, lts, cd));
-                    for (int col = 0; col < 10; col++)
-                    {
-                        long vd = descriptorSelector.vd(pd, cd, lts, m, col);
-                        Assert.assertEquals(m, descriptorSelector.modificationId(pd, cd, lts, vd, col));
-                    }
+                    long vd = descriptorSelector.vd(pd, cd, lts, opId, col);
                 }
             }
         }
@@ -225,8 +221,7 @@ public class OpSelectorsTest
                                                                                                                                      OpSelectors.OperationKind.DELETE_COLUMN,
                                                                                                                                      OpSelectors.OperationKind.INSERT,
                                                                                                                                      OpSelectors.OperationKind.UPDATE),
-                                                                                              new Distribution.ConstantDistribution(2),
-                                                                                              new Distribution.ConstantDistribution(5),
+                                                                                              new Distribution.ConstantDistribution(10),
                                                                                               10);
 
         Map<Long, Set<Long>> partitionMap = new HashMap<>();
@@ -340,8 +335,7 @@ public class OpSelectorsTest
                                                                                                                                           OpSelectors.OperationKind.DELETE_COLUMN,
                                                                                                                                           OpSelectors.OperationKind.INSERT,
                                                                                                                                           OpSelectors.OperationKind.UPDATE),
-                                                                                                   new Distribution.ConstantDistribution(2),
-                                                                                                   new Distribution.ConstantDistribution(5),
+                                                                                                   new Distribution.ConstantDistribution(10),
                                                                                                    100);
 
         Set<Long> ck1 = new TreeSet<>();
@@ -385,14 +379,13 @@ public class OpSelectorsTest
         OpSelectors.DescriptorSelector descriptorSelector = new OpSelectors.DefaultDescriptorSelector(rng,
                                                                                                       null,
                                                                                                       selector,
-                                                                                                      new Distribution.ConstantDistribution(2),
-                                                                                                      new Distribution.ConstantDistribution(2),
+                                                                                                      new Distribution.ConstantDistribution(10),
                                                                                                       100);
 
         EnumMap<OpSelectors.OperationKind, Integer> m = new EnumMap<OpSelectors.OperationKind, Integer>(OpSelectors.OperationKind.class);
         for (int lts = 0; lts < 1000000; lts++)
         {
-            int total = descriptorSelector.numberOfModifications(lts) * descriptorSelector.numberOfModifications(lts);
+            int total = descriptorSelector.operationsPerLts(lts);
             long pd = pdSelector.pd(lts);
             for (int opId = 0; opId < total; opId++)
             {

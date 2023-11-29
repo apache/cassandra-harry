@@ -102,8 +102,7 @@ public class QuerySelectorNegativeTest extends IntegrationTestBase
             beforeEach();
             Configuration config = gen.get()
                                       .setClusteringDescriptorSelector(sharedCDSelectorConfiguration()
-                                                                       .setNumberOfModificationsDistribution(new Configuration.ConstantDistributionConfig(2))
-                                                                       .setRowsPerModificationDistribution(new Configuration.ConstantDistributionConfig(2))
+                                                                       .setOperationsPerLtsDistribution(new Configuration.ConstantDistributionConfig(2))
                                                                        .setMaxPartitionSize(2000)
                                                                        .build())
                                       .build();

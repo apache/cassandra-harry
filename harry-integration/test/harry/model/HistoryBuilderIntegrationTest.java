@@ -47,8 +47,7 @@ public class HistoryBuilderIntegrationTest extends ModelTestBase
         return super.configuration(seed, schema)
                     .setPartitionDescriptorSelector((ignore) -> new HistoryBuilder.PdSelector())
                     // TODO: ideally, we want a custom/tailored clustering descriptor selector
-                    .setClusteringDescriptorSelector((builder) -> builder.setNumberOfModificationsDistribution(new Configuration.ConstantDistributionConfig(100_000))
-                                                                         .setRowsPerModificationDistribution(new Configuration.ConstantDistributionConfig(100_000)));
+                    .setClusteringDescriptorSelector((builder) -> builder.setOperationsPerLtsDistribution(new Configuration.ConstantDistributionConfig(100_000)));
     }
 
     @Test

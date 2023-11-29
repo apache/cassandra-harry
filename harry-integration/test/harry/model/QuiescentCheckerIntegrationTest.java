@@ -216,8 +216,7 @@ public class QuiescentCheckerIntegrationTest extends ModelTestBase
     {
         return super.configuration(seed, schema)
                     .setClusteringDescriptorSelector(sharedCDSelectorConfiguration()
-                                                     .setNumberOfModificationsDistribution(new Configuration.ConstantDistributionConfig(2))
-                                                     .setRowsPerModificationDistribution(new Configuration.ConstantDistributionConfig(2))
+                                                     .setOperationsPerLtsDistribution(new Configuration.ConstantDistributionConfig(2))
                                                      .setMaxPartitionSize(100)
                                                      .build());
     }

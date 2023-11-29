@@ -26,11 +26,7 @@ public abstract class VisitExecutor
 
     protected abstract void afterLts(long lts, long pd);
 
-    protected abstract void beforeBatch(long lts, long pd, long m);
-
-    protected abstract void operation(long lts, long pd, long cd, long m, long opId, OpSelectors.OperationKind kind);
-
-    protected abstract void afterBatch(long lts, long pd, long m);
+    protected abstract void operation(long lts, long pd, long cd, long opId, OpSelectors.OperationKind kind);
 
     public abstract void shutdown() throws InterruptedException;
 }

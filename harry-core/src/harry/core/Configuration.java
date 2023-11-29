@@ -810,8 +810,7 @@ public class Configuration
     // TODO: configure fractions/fractional builder
     public static class CDSelectorConfigurationBuilder
     {
-        private DistributionConfig modifications_per_lts = new ConstantDistributionConfig(10);
-        private DistributionConfig rows_per_modification = new ConstantDistributionConfig(10);
+        private DistributionConfig operations_per_lts = new ConstantDistributionConfig(10);
         private int max_partition_size = 100;
         private Map<OpSelectors.OperationKind, Integer> operation_kind_weights = new OperationKindSelectorBuilder()
                                                                                  .addWeight(OpSelectors.OperationKind.DELETE_ROW, 1)
@@ -821,15 +820,9 @@ public class Configuration
         private Map<OpSelectors.OperationKind, long[]> column_mask_bitsets;
         private int[] fractions;
 
-        public CDSelectorConfigurationBuilder setNumberOfModificationsDistribution(DistributionConfig modifications_per_lts)
+        public CDSelectorConfigurationBuilder setOperationsPerLtsDistribution(DistributionConfig operations_per_lts)
         {
-            this.modifications_per_lts = modifications_per_lts;
-            return this;
-        }
-
-        public CDSelectorConfigurationBuilder setRowsPerModificationDistribution(DistributionConfig rows_per_modification)
-        {
-            this.rows_per_modification = rows_per_modification;
+            this.operations_per_lts = operations_per_lts;
             return this;
         }
 
@@ -863,16 +856,14 @@ public class Configuration
         {
             if (fractions == null)
             {
-                return new DefaultCDSelectorConfiguration(modifications_per_lts,
-                                                          rows_per_modification,
+                return new DefaultCDSelectorConfiguration(operations_per_lts,
                                                           max_partition_size,
                                                           operation_kind_weights,
                                                           column_mask_bitsets);
             }
             else
             {
-                return new HierarchicalCDSelectorConfiguration(modifications_per_lts,
-                                                               rows_per_modification,
+                return new HierarchicalCDSelectorConfiguration(operations_per_lts,
                                                                max_partition_size,
                                                                operation_kind_weights,
                                                                column_mask_bitsets,
@@ -884,21 +875,18 @@ public class Configuration
     @JsonTypeName("default")
     public static class DefaultCDSelectorConfiguration implements CDSelectorConfiguration
     {
-        public final DistributionConfig modifications_per_lts;
-        public final DistributionConfig rows_per_modification;
+        public final DistributionConfig operations_per_lts;
         public final int max_partition_size;
         public final Map<OpSelectors.OperationKind, Integer> operation_kind_weights;
         public final Map<OpSelectors.OperationKind, long[]> column_mask_bitsets;
 
         @JsonCreator
-        public DefaultCDSelectorConfiguration(@JsonProperty("modifications_per_lts") DistributionConfig modifications_per_lts,
-                                              @JsonProperty("rows_per_modification") DistributionConfig rows_per_modification,
+        public DefaultCDSelectorConfiguration(@JsonProperty("operations_per_lts") DistributionConfig operations_per_lts,
                                               @JsonProperty(value = "window_size", defaultValue = "100") int max_partition_size,
                                               @JsonProperty("operation_kind_weights") Map<OpSelectors.OperationKind, Integer> operation_kind_weights,
                                               @JsonProperty("column_mask_bitsets") Map<OpSelectors.OperationKind, long[]> column_mask_bitsets)
         {
-            this.modifications_per_lts = modifications_per_lts;
-            this.rows_per_modification = rows_per_modification;
+            this.operations_per_lts = operations_per_lts;
             this.max_partition_size = max_partition_size;
             this.operation_kind_weights = operation_kind_weights;
             this.column_mask_bitsets = column_mask_bitsets;
@@ -935,8 +923,7 @@ public class Configuration
             return new OpSelectors.DefaultDescriptorSelector(rng,
                                                              columnSelector(schemaSpec),
                                                              OpSelectors.OperationSelector.weighted(operation_kind_weights),
-                                                             modifications_per_lts.make(),
-                                                             rows_per_modification.make(),
+                                                             operations_per_lts.make(),
                                                              max_partition_size);
         }
     }
@@ -945,14 +932,13 @@ public class Configuration
     {
         private final int[] fractions;
 
-        public HierarchicalCDSelectorConfiguration(DistributionConfig modifications_per_lts,
-                                                   DistributionConfig rows_per_modification,
+        public HierarchicalCDSelectorConfiguration(DistributionConfig operations_per_lts,
                                                    int max_partition_size,
                                                    Map<OpSelectors.OperationKind, Integer> operation_kind_weights,
                                                    Map<OpSelectors.OperationKind, long[]> column_mask_bitsets,
                                                    int[] fractions)
         {
-            super(modifications_per_lts, rows_per_modification, max_partition_size, operation_kind_weights, column_mask_bitsets);
+            super(operations_per_lts, max_partition_size, operation_kind_weights, column_mask_bitsets);
             this.fractions = fractions;
         }
 
@@ -962,8 +948,7 @@ public class Configuration
                                                                   fractions,
                                                                   columnSelector(schemaSpec),
                                                                   OpSelectors.OperationSelector.weighted(operation_kind_weights),
-                                                                  modifications_per_lts.make(),
-                                                                  rows_per_modification.make(),
+                                                                  operations_per_lts.make(),
                                                                   max_partition_size);
         }
     }

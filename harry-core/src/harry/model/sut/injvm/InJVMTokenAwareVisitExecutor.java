@@ -24,9 +24,13 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Function;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.annotation.JsonTypeName;
+import harry.concurrent.Uninterruptibles;
 import harry.core.Run;
 import harry.ddl.SchemaSpec;
 import harry.model.sut.SystemUnderTest;
@@ -46,6 +50,8 @@ import static harry.model.sut.TokenPlacementModel.peerStateToNodes;
 
 public class InJVMTokenAwareVisitExecutor extends LoggingVisitor.LoggingVisitorExecutor
 {
+    private static final Logger logger = LoggerFactory.getLogger(InJVMTokenAwareVisitExecutor.class);
+
     private final InJvmSut sut;
     private final TokenPlacementModel.ReplicationFactor rf;
     private final SystemUnderTest.ConsistencyLevel cl;
@@ -72,44 +78,43 @@ public class InJVMTokenAwareVisitExecutor extends LoggingVisitor.LoggingVisitorE
     }
 
     @Override
-    protected void executeAsyncWithRetries(long lts, long pd, CompletableFuture<Object[][]> future, CompiledStatement statement)
-    {
-        executeAsyncWithRetries(lts, pd, future, statement, 0);
-    }
-
-    private void executeAsyncWithRetries(long lts, long pd, CompletableFuture<Object[][]> future, CompiledStatement statement, int retries)
+    protected Object[][] executeWithRetries(long lts, long pd, CompiledStatement statement)
     {
         if (sut.isShutdown())
             throw new IllegalStateException("System under test is shut down");
 
-        if (retries > this.MAX_RETRIES)
-            throw new IllegalStateException(String.format("Can not execute statement %s after %d retries", statement, retries));
+        int retries = 0;
 
-        Object[] pk =  schema.inflatePartitionKey(pd);
+        Object[] pk = schema.inflatePartitionKey(pd);
         List<TokenPlacementModel.Node> replicas = getRing().replicasFor(TokenUtil.token(ByteUtils.compose(ByteUtils.objectsToBytes(pk))));
-
-        TokenPlacementModel.Node replica = replicas.get((int) (lts % replicas.size()));
-        if (cl == SystemUnderTest.ConsistencyLevel.NODE_LOCAL)
+        while (retries++ < MAX_RETRIES)
         {
-            future.complete(executeNodeLocal(statement.cql(), replica, statement.bindings()));
+            try
+            {
+                TokenPlacementModel.Node replica = replicas.get((int) (lts % replicas.size()));
+                if (cl == SystemUnderTest.ConsistencyLevel.NODE_LOCAL)
+                {
+                    return executeNodeLocal(statement.cql(), replica, statement.bindings());
+                }
+                else
+                {
+                    return sut.cluster
+                           .stream()
+                           .filter((n) -> n.config().broadcastAddress().toString().contains(replica.id))
+                           .findFirst()
+                           .get()
+                           .coordinator()
+                           .execute(statement.cql(), InJvmSut.toApiCl(cl), statement.bindings());
+                }
+            }
+            catch (Throwable t)
+            {
+                int delaySecs = 1;
+                logger.error(String.format("Caught message while trying to execute: %s. Scheduled to retry in %s seconds", statement, delaySecs), t);
+                Uninterruptibles.sleepUninterruptibly(delaySecs, TimeUnit.SECONDS);
+            }
         }
-        else
-        {
-            CompletableFuture.supplyAsync(() ->  sut.cluster
-                                                 .stream()
-                                                 .filter((n) -> n.config().broadcastAddress().toString().contains(replica.id))
-                                                 .findFirst()
-                                                 .get()
-                                                 .coordinator()
-                                                 .execute(statement.cql(), InJvmSut.toApiCl(cl), statement.bindings()), executor)
-                             .whenComplete((res, t) ->
-                                           {
-                                               if (t != null)
-                                                   executor.schedule(() -> executeAsyncWithRetries(lts, pd, future, statement, retries + 1), 1, TimeUnit.SECONDS);
-                                               else
-                                                   future.complete(res);
-                                           });
-        }
+        throw new IllegalStateException(String.format("Can not execute statement %s after %d retries", statement, retries));
     }
 
     protected TokenPlacementModel.ReplicatedRanges getRing()

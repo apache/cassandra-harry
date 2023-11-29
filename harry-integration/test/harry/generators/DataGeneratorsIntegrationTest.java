@@ -101,7 +101,6 @@ public class DataGeneratorsIntegrationTest extends CQLTester
                                                                                                OpSelectors.columnSelectorBuilder().forAll(schema_).build(),
                                                                                                OpSelectors.OperationSelector.weighted(Surjections.weights(100), opKind),
                                                                                                new Distribution.ConstantDistribution(2),
-                                                                                               new Distribution.ConstantDistribution(2),
                                                                                                100);
                                           })
                                           .build()

@@ -47,23 +47,13 @@ public class GeneratingVisitor extends LtsVisitor
     private void generate(long lts, long pd)
     {
         beforeLts(lts, pd);
-
-        int modificationsCount = descriptorSelector.numberOfModifications(lts);
-        int opsPerModification = descriptorSelector.opsPerModification(lts);
-
-        for (long m = 0; m < modificationsCount; m++)
+        int opsPerLts = descriptorSelector.operationsPerLts(lts);
+        for (long opId = 0; opId < opsPerLts; opId++)
         {
-            beforeBatch(lts, pd, m);
-            for (long i = 0; i < opsPerModification; i++)
-            {
-                long opId = m * opsPerModification + i;
-                long cd = descriptorSelector.cd(pd, lts, opId, schema);
-                OpSelectors.OperationKind opType = descriptorSelector.operationType(pd, lts, opId);
-                operation(lts, pd, cd, m, opId, opType);
-            }
-            afterBatch(lts, pd, m);
+            long cd = descriptorSelector.cd(pd, lts, opId, schema);
+            OpSelectors.OperationKind opType = descriptorSelector.operationType(pd, lts, opId);
+            operation(lts, pd, cd, opId, opType);
         }
-
         afterLts(lts, pd);
     }
 }

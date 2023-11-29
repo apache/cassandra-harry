@@ -396,7 +396,7 @@ combo: visitor knows about internals of the cluster it is dealing with.
 
 Generally, visitor has to follow the rules specified by DescriptorSelector and PdSelector: (it can only visit issue
 mutations against the partition that PdSelector has picked for this LTS), and DescriptorSelector (it can visit exactly
-DescriptorSelector#numberOfModifications rows within this partition, operations have to have a type specified by
+DescriptorSelector#operationsPerLts rows within this partition, operations have to have a type specified by
 #operationKind, clustering and value descriptors have to be in accordance with DescriptorSelector#cd and
 DescriptorSelector#vds). The reason for these limitations is because model has to be able to reproduce the exact
 sequence of events that was applied to system under test.
@@ -436,7 +436,6 @@ by `-1` can be done in 64 steps.
 Let's introduce some definitions:
 
 * `lts` is a *logical timestamp*, an entity (number in our case), given by the clock, on which some action occurs
-* `m` is a *modification id*, a sequential number of the modification that occurs on `lts`
 * `rts` is an approximate real-time as of clock for this run
 * `pid` is a partition position, a number between `0` and N, for `N` unique generated partitions
 * `pd` is a partition descriptor, a unique descriptor identifying the partition
@@ -447,12 +446,11 @@ entities. Hierarchically, the generation process looks as follows:
 
 * `lts` is an entry point, from which the decision process starts
 * `pd` is picked from `lts`, and determines which partition is going to be visited
-* for `(pd, lts)` combination, `#mods` (the number of modification batches) and `#rows` (the number of rows per
-  modification batch) is determined. `m` is an index of the modification batch, and `i` is an index of the operation in
-  the modification batch.
-* `cd` is picked based on `(pd, lts)`, and `n`, a sequential number of the operation among all modification batches
+* for `(pd, lts)` combination, `#rows` (the number of rows per modification batch) is determined. There can be at most
+one modification batch per LTS.
+* `cd` is picked based on `(pd, lts)`, and `n`, a sequential number of the operation in the batch
 * operation type (whether we're going to perform a write, delete, range delete, etc), columns involved in this
-  operation, and values for the modification are picked depending on the `pd`, `lts`, `m`, and `i`
+  operation, and values for the modification are picked depending on the `pd`, `lts`, and `i`
 
 Most of this formalization is implemented in `OpSelectors`, and is relied upon in`PartitionVisitor` and any
 implementation of a `Model`.
@@ -561,8 +559,8 @@ void validatePartitionState(long validationLts, List<ResultSetRow> rows) {
              if (row.lts[col] != rowLts)
                continue;
 
-             long m = descriptorSelector.modificationId(pd, row.cd, rowLts, row.vds[col], col);
-             long vd = descriptorSelector.vd(pd, row.cd, rowLts, m, col);
+             long rid = descriptorSelector.rowId(pd, row.cd, rowLts, row.vds[col], col);
+             long vd = descriptorSelector.vd(pd, row.cd, rowLts, rid, col);
 
 	     // If the value model predicts doesn't match the one received from the database, throw an exception
              if (vd != row.vds[col])

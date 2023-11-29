@@ -18,6 +18,7 @@
 
 package harry.visitors;
 
+import java.awt.image.AffineTransformOp;
 import java.util.Arrays;
 import java.util.function.LongSupplier;
 
@@ -44,15 +45,8 @@ public abstract class ReplayingVisitor extends LtsVisitor
     private void replay(Visit visit)
     {
         beforeLts(visit.lts, visit.pd);
-
-        for (Batch batch : visit.operations)
-        {
-            beforeBatch(visit.lts, visit.pd, batch.m);
-            for (Operation operation : batch.operations)
-                operation(visit.lts, visit.pd, operation.cd, batch.m, operation.opId, operation.opType);
-            afterBatch(visit.lts, visit.pd, batch.m);
-        }
-
+        for (Operation operation : visit.operations)
+            operation(visit.lts, visit.pd, operation.cd, operation.opId, operation.opType);
         afterLts(visit.lts, visit.pd);
     }
 
@@ -60,9 +54,9 @@ public abstract class ReplayingVisitor extends LtsVisitor
     {
         public final long lts;
         public final long pd;
-        public final Batch[] operations;
+        public final Operation[] operations;
 
-        public Visit(long lts, long pd, Batch[] operations)
+        public Visit(long lts, long pd, Operation[] operations)
         {
             this.lts = lts;
             this.pd = pd;
@@ -76,26 +70,6 @@ public abstract class ReplayingVisitor extends LtsVisitor
                    ", pd=" + pd +
                    ", operations=[" + Arrays.toString(operations) +
                                             "]}";
-        }
-    }
-
-    public static class Batch
-    {
-        public final long m;
-        public final Operation[] operations;
-
-        public Batch(long m, Operation[] operations)
-        {
-            this.m = m;
-            this.operations = operations;
-        }
-
-        public String toString()
-        {
-            return "Batch{" +
-                   "m=" + m +
-                   ", operations=[" + Arrays.toString(operations) +
-                   "]}";
         }
     }
 
