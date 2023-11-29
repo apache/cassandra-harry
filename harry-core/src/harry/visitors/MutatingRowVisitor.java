@@ -26,108 +26,90 @@ import harry.model.OpSelectors;
 import harry.operations.CompiledStatement;
 import harry.operations.DeleteHelper;
 import harry.operations.WriteHelper;
-import harry.operations.Query;
-import harry.operations.QueryGenerator;
 import harry.util.BitSet;
 
 public class MutatingRowVisitor implements OperationExecutor
 {
     protected final SchemaSpec schema;
-    protected final OpSelectors.MonotonicClock clock;
-    protected final OpSelectors.DescriptorSelector descriptorSelector;
-    protected final QueryGenerator rangeSelector;
+    protected final OpSelectors.Clock clock;
     protected final MetricReporter metricReporter;
 
     public MutatingRowVisitor(Run run)
     {
         this(run.schemaSpec,
              run.clock,
-             run.descriptorSelector,
-             run.rangeSelector,
              run.metricReporter);
     }
 
     @VisibleForTesting
     public MutatingRowVisitor(SchemaSpec schema,
-                              OpSelectors.MonotonicClock clock,
-                              OpSelectors.DescriptorSelector descriptorSelector,
-                              QueryGenerator rangeSelector,
+                              OpSelectors.Clock clock,
                               MetricReporter metricReporter)
     {
         this.metricReporter = metricReporter;
         this.schema = schema;
         this.clock = clock;
-        this.descriptorSelector = descriptorSelector;
-        this.rangeSelector = rangeSelector;
     }
 
-    public CompiledStatement insert(long lts, long pd, long cd, long opId)
+    public CompiledStatement insert(VisitExecutor.WriteOp op)
     {
         metricReporter.insert();
-        long[] vds = descriptorSelector.vds(pd, cd, lts, opId, OpSelectors.OperationKind.INSERT, schema);
-        return WriteHelper.inflateInsert(schema, pd, cd, vds, null, clock.rts(lts));
+        return WriteHelper.inflateInsert(schema, op.pd(), op.cd(), op.vds(), null, clock.rts(op.lts()));
     }
 
-    public CompiledStatement insertWithStatics(long lts, long pd, long cd, long opId)
+    public CompiledStatement insertWithStatics(VisitExecutor.WriteStaticOp op)
     {
         metricReporter.insert();
-        long[] vds = descriptorSelector.vds(pd, cd, lts, opId, OpSelectors.OperationKind.INSERT_WITH_STATICS, schema);
-        long[] sds = descriptorSelector.sds(pd, cd, lts, opId, OpSelectors.OperationKind.INSERT_WITH_STATICS, schema);
-        return WriteHelper.inflateInsert(schema, pd, cd, vds, sds, clock.rts(lts));
+        return WriteHelper.inflateInsert(schema, op.pd(), op.cd(), op.vds(), op.sds(), clock.rts(op.lts()));
     }
 
-    public CompiledStatement update(long lts, long pd, long cd, long opId)
+    public CompiledStatement update(VisitExecutor.WriteOp op)
     {
         metricReporter.insert();
-        long[] vds = descriptorSelector.vds(pd, cd, lts, opId, OpSelectors.OperationKind.UPDATE, schema);
-        return WriteHelper.inflateUpdate(schema, pd, cd, vds, null, clock.rts(lts));
+        return WriteHelper.inflateUpdate(schema, op.pd(), op.cd(), op.vds(), null, clock.rts(op.lts()));
     }
 
-    public CompiledStatement updateWithStatics(long lts, long pd, long cd, long opId)
+    public CompiledStatement updateWithStatics(VisitExecutor.WriteStaticOp op)
     {
         metricReporter.insert();
-        long[] vds = descriptorSelector.vds(pd, cd, lts, opId, OpSelectors.OperationKind.UPDATE_WITH_STATICS, schema);
-        long[] sds = descriptorSelector.sds(pd, cd, lts, opId, OpSelectors.OperationKind.UPDATE_WITH_STATICS, schema);
-        return WriteHelper.inflateUpdate(schema, pd, cd, vds, sds, clock.rts(lts));
+        return WriteHelper.inflateUpdate(schema, op.pd(), op.cd(), op.vds(), op.sds(), clock.rts(op.lts()));
     }
 
-    public CompiledStatement deleteColumn(long lts, long pd, long cd, long opId)
+    public CompiledStatement deleteColumn(VisitExecutor.DeleteColumnsOp op)
     {
         metricReporter.columnDelete();
-        BitSet columns = descriptorSelector.columnMask(pd, lts, opId, OpSelectors.OperationKind.DELETE_COLUMN);
         BitSet mask = schema.regularColumnsMask();
-        return DeleteHelper.deleteColumn(schema, pd, cd, columns, mask, clock.rts(lts));
+        return DeleteHelper.deleteColumn(schema, op.pd(), op.cd(), op.columns(), mask, clock.rts(op.lts()));
     }
 
-    public CompiledStatement deleteColumnWithStatics(long lts, long pd, long cd, long opId)
+    public CompiledStatement deleteColumnWithStatics(VisitExecutor.DeleteColumnsOp op)
     {
         metricReporter.columnDelete();
-        BitSet columns = descriptorSelector.columnMask(pd, lts, opId, OpSelectors.OperationKind.DELETE_COLUMN_WITH_STATICS);
         BitSet mask = schema.regularAndStaticColumnsMask();
-        return DeleteHelper.deleteColumn(schema, pd, cd, columns, mask, clock.rts(lts));
+        return DeleteHelper.deleteColumn(schema, op.pd(), op.cd(), op.columns(), mask, clock.rts(op.lts()));
     }
 
-    public CompiledStatement deleteRow(long lts, long pd, long cd, long opId)
+    public CompiledStatement deleteRow(VisitExecutor.DeleteRowOp op)
     {
         metricReporter.rowDelete();
-        return DeleteHelper.deleteRow(schema, pd, cd, clock.rts(lts));
+        return DeleteHelper.deleteRow(schema, op.pd(), op.cd(), clock.rts(op.lts()));
     }
 
-    public CompiledStatement deletePartition(long lts, long pd, long opId)
+    public CompiledStatement deletePartition(VisitExecutor.DeleteOp op)
     {
         metricReporter.partitionDelete();
-        return DeleteHelper.delete(schema, pd, clock.rts(lts));
+        return DeleteHelper.delete(schema, op.pd(), clock.rts(op.lts()));
     }
 
-    public CompiledStatement deleteRange(long lts, long pd, long opId)
+    public CompiledStatement deleteRange(VisitExecutor.DeleteOp op)
     {
         metricReporter.rangeDelete();
-        return rangeSelector.inflate(lts, opId, Query.QueryKind.CLUSTERING_RANGE).toDeleteStatement(clock.rts(lts));
+        return op.relations().toDeleteStatement(clock.rts(op.lts()));
     }
 
-    public CompiledStatement deleteSlice(long lts, long pd, long opId)
+    public CompiledStatement deleteSlice(VisitExecutor.DeleteOp op)
     {
         metricReporter.rangeDelete();
-        return rangeSelector.inflate(lts, opId, Query.QueryKind.CLUSTERING_SLICE).toDeleteStatement(clock.rts(lts));
+        return op.relations().toDeleteStatement(clock.rts(op.lts()));
     }
 }

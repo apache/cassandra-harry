@@ -30,7 +30,7 @@ import static junit.framework.TestCase.assertEquals;
 import static junit.framework.TestCase.assertTrue;
 import static junit.framework.TestCase.fail;
 
-public class RandomGeneratorTest
+public class EntropySourceTest
 {
     private static int RUNS = 100000;
 
@@ -76,7 +76,7 @@ public class RandomGeneratorTest
     public void testImmutableRng()
     {
         int size = 5;
-        OpSelectors.Rng rng = new OpSelectors.PCGFast(1);
+        OpSelectors.PureRng rng = new OpSelectors.PCGFast(1);
         for (int stream = 1; stream < RUNS; stream++)
         {
             long[] generated = new long[size];
@@ -99,7 +99,7 @@ public class RandomGeneratorTest
     public void testSequenceNumber()
     {
         int size = 5;
-        OpSelectors.Rng rng = new OpSelectors.PCGFast(1);
+        OpSelectors.PureRng rng = new OpSelectors.PCGFast(1);
         for (int stream = 1; stream < RUNS; stream++)
         {
             for (int i = 0; i < size; i++)
@@ -141,7 +141,7 @@ public class RandomGeneratorTest
     @Test
     public void testIntBetween()
     {
-        RandomGenerator rng = new PcgRSUFast(System.currentTimeMillis(), 0);
+        EntropySource rng = new PcgRSUFast(System.currentTimeMillis(), 0);
 
         int a = 0;
         int b = 50;

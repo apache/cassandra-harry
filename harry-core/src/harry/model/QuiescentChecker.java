@@ -36,7 +36,7 @@ import static harry.generators.DataGenerators.UNSET_DESCR;
 
 public class QuiescentChecker implements Model
 {
-    protected final OpSelectors.MonotonicClock clock;
+    protected final OpSelectors.Clock clock;
 
     protected final DataTracker tracker;
     protected final SystemUnderTest sut;
@@ -50,11 +50,20 @@ public class QuiescentChecker implements Model
 
     public QuiescentChecker(Run run, Reconciler reconciler)
     {
-        this.clock = run.clock;
-        this.sut = run.sut;
+        this(run.clock, run.sut, run.tracker, run.schemaSpec, reconciler);
+    }
+
+    public QuiescentChecker(OpSelectors.Clock clock,
+                            SystemUnderTest sut,
+                            DataTracker tracker,
+                            SchemaSpec schema,
+                            Reconciler reconciler)
+    {
+        this.clock = clock;
+        this.sut = sut;
         this.reconciler = reconciler;
-        this.tracker = run.tracker;
-        this.schema = run.schemaSpec;
+        this.tracker = tracker;
+        this.schema = schema;
     }
 
     public void validate(Query query)
@@ -110,6 +119,7 @@ public class QuiescentChecker implements Model
         Iterator<Reconciler.RowState> expected = expectedRows.iterator();
 
         String trackerState = String.format("Tracker before: %s, Tracker after: %s", trackerBefore, tracker);
+
         // It is possible that we only get a single row in response, and it is equal to static row
         if (partitionState.isEmpty() && partitionState.staticRow() != null && actual.hasNext())
         {
@@ -150,8 +160,13 @@ public class QuiescentChecker implements Model
             ResultSetRow actualRowState = actual.next();
             Reconciler.RowState originalExpectedRowState = expected.next();
             Reconciler.RowState expectedRowState = adjustForSelection(originalExpectedRowState, schema, selection, false);
+
+            if (schema.trackLts)
+                partitionState.compareVisitedLts(actualRowState.visited_lts);
+
             // TODO: this is not necessarily true. It can also be that ordering is incorrect.
             if (actualRowState.cd != UNSET_DESCR && actualRowState.cd != expectedRowState.cd)
+            {
                 throw new ValidationException(trackerState,
                                               partitionState.toString(schema),
                                               toString(actualRows),
@@ -161,6 +176,7 @@ public class QuiescentChecker implements Model
                                               "\nQuery: %s",
                                               expectedRowState.toString(schema),
                                               actualRowState, query.toSelectStatement());
+            }
 
             if (!Arrays.equals(actualRowState.vds, expectedRowState.vds))
                 throw new ValidationException(trackerState,
@@ -182,13 +198,12 @@ public class QuiescentChecker implements Model
                                               "Timestamps in the row state don't match ones predicted by the model:" +
                                               "\nExpected: %s (%s)" +
                                               "\nActual:   %s (%s)." +
-                                              "\nQuery: %s" +
-                                              "\nMax started: %d, Max finished: %d, %d reordered: %s",
+                                              "\nQuery: %s",
                                               Arrays.toString(expectedRowState.lts), expectedRowState.toString(schema),
                                               Arrays.toString(actualRowState.lts), actualRowState,
                                               query.toSelectStatement());
 
-            if (partitionState.staticRow() != null || actualRowState.sds != null || actualRowState.slts != null)
+            if (partitionState.staticRow() != null || actualRowState.hasStaticColumns())
             {
                 Reconciler.RowState expectedStaticRowState = adjustForSelection(partitionState.staticRow(), schema, selection, true);
                 assertStaticRow(partitionState, actualRows, expectedStaticRowState, actualRowState, query, trackerState, schema, isWildcardQuery);

@@ -27,10 +27,10 @@ import harry.operations.DeleteHelper;
 public class HideRowCorruptor implements RowCorruptor
 {
     private final SchemaSpec schema;
-    private final OpSelectors.MonotonicClock clock;
+    private final OpSelectors.Clock clock;
 
     public HideRowCorruptor(SchemaSpec schemaSpec,
-                            OpSelectors.MonotonicClock clock)
+                            OpSelectors.Clock clock)
     {
         this.schema = schemaSpec;
         this.clock = clock;

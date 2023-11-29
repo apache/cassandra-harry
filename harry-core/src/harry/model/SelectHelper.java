@@ -33,6 +33,7 @@ import static harry.generators.DataGenerators.UNSET_DESCR;
 
 public class SelectHelper
 {
+    private static final long[] EMPTY_ARR = new long[]{};
     public static CompiledStatement selectWildcard(SchemaSpec schema, long pd)
     {
         return select(schema, pd, null, Collections.emptyList(), false, true);
@@ -113,6 +114,9 @@ public class SelectHelper
                  .append(")");
             }
         }
+
+        if (schema.trackLts)
+            b.append(", visited_lts");
 
         b.append(" FROM ")
          .append(schema.keyspace)
@@ -259,7 +263,7 @@ public class SelectHelper
         return true;
     }
 
-    public static ResultSetRow resultSetToRow(SchemaSpec schema, OpSelectors.MonotonicClock clock, Object[] result)
+    public static ResultSetRow resultSetToRow(SchemaSpec schema, OpSelectors.Clock clock, Object[] result)
     {
         Object[] partitionKey = new Object[schema.partitionKeys.size()];
         Object[] clusteringKey = new Object[schema.clusteringKeys.size()];
@@ -270,6 +274,18 @@ public class SelectHelper
         System.arraycopy(result, partitionKey.length, clusteringKey, 0, clusteringKey.length);
         System.arraycopy(result, partitionKey.length + clusteringKey.length, staticColumns, 0, staticColumns.length);
         System.arraycopy(result, partitionKey.length + clusteringKey.length + staticColumns.length, regularColumns, 0, regularColumns.length);
+
+
+        List<Long> visited_lts_list;
+        if (schema.trackLts)
+        {
+            visited_lts_list = (List<Long>) result[result.length - 1];
+            visited_lts_list.sort(Long::compare);
+        }
+        else
+        {
+            visited_lts_list = Collections.emptyList();
+        }
 
         long[] slts = new long[schema.staticColumns.size()];
         for (int i = 0; i < slts.length; i++)
@@ -287,24 +303,35 @@ public class SelectHelper
 
         return new ResultSetRow(isDeflatable(partitionKey) ? schema.deflatePartitionKey(partitionKey) : UNSET_DESCR,
                                 isDeflatable(clusteringKey) ? schema.deflateClusteringKey(clusteringKey) : UNSET_DESCR,
-                                schema.staticColumns.isEmpty() ? null : schema.deflateStaticColumns(staticColumns),
-                                schema.staticColumns.isEmpty() ? null : slts,
+                                schema.staticColumns.isEmpty() ? EMPTY_ARR : schema.deflateStaticColumns(staticColumns),
+                                schema.staticColumns.isEmpty() ? EMPTY_ARR : slts,
                                 schema.deflateRegularColumns(regularColumns),
-                                lts);
+                                lts,
+                                visited_lts_list);
     }
 
-    public static List<ResultSetRow> execute(SystemUnderTest sut, OpSelectors.MonotonicClock clock, Query query)
+    public static List<ResultSetRow> execute(SystemUnderTest sut, OpSelectors.Clock clock, Query query)
     {
         return execute(sut, clock, query, query.schemaSpec.allColumnsSet);
     }
 
-    public static List<ResultSetRow> execute(SystemUnderTest sut, OpSelectors.MonotonicClock clock, Query query, Set<ColumnSpec<?>> columns)
+    public static List<ResultSetRow> execute(SystemUnderTest sut, OpSelectors.Clock clock, Query query, Set<ColumnSpec<?>> columns)
     {
         CompiledStatement compiled = query.toSelectStatement(columns, true);
         Object[][] objects = sut.executeIdempotent(compiled.cql(), SystemUnderTest.ConsistencyLevel.QUORUM, compiled.bindings());
         List<ResultSetRow> result = new ArrayList<>();
         for (Object[] obj : objects)
             result.add(resultSetToRow(query.schemaSpec, clock, broadenResult(query.schemaSpec, columns, obj)));
+        return result;
+    }
+
+    public static List<ResultSetRow> execute(SystemUnderTest sut, OpSelectors.Clock clock, CompiledStatement compiled, SchemaSpec schemaSpec)
+    {
+        Set<ColumnSpec<?>> columns = schemaSpec.allColumnsSet;
+        Object[][] objects = sut.executeIdempotent(compiled.cql(), SystemUnderTest.ConsistencyLevel.QUORUM, compiled.bindings());
+        List<ResultSetRow> result = new ArrayList<>();
+        for (Object[] obj : objects)
+            result.add(resultSetToRow(schemaSpec, clock, broadenResult(schemaSpec, columns, obj)));
         return result;
     }
 }

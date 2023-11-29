@@ -35,7 +35,7 @@ import java.util.concurrent.locks.ReentrantLock;
 import org.junit.Assert;
 import org.junit.Test;
 
-import harry.model.clock.ApproximateMonotonicClock;
+import harry.model.clock.ApproximateClock;
 
 public class ApproximateClockTest
 {
@@ -49,7 +49,7 @@ public class ApproximateClockTest
         int concurrency = 5;
         long maxTicks = timeUnit.toMicros(duration)  / (4 * concurrency);
 
-        ApproximateMonotonicClock clock = new ApproximateMonotonicClock(duration, timeUnit);
+        ApproximateClock clock = new ApproximateClock(duration, timeUnit);
 
         ScheduledExecutorService scheduledExecutor = Executors.newScheduledThreadPool(1);
         ExecutorService executor = Executors.newFixedThreadPool(concurrency);
@@ -162,7 +162,7 @@ public class ApproximateClockTest
         int duration = 100;
         int concurrency = 10;
         int cycles = (int) (timeUnit.toMicros(duration) / concurrency / 10);
-        ApproximateMonotonicClock clock = new ApproximateMonotonicClock(duration, timeUnit);
+        ApproximateClock clock = new ApproximateClock(duration, timeUnit);
         AtomicLong l = new AtomicLong(1);
 
         for (int j = 0; j < cycles; j++)

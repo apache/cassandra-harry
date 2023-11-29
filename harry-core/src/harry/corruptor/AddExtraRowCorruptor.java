@@ -38,12 +38,12 @@ public class AddExtraRowCorruptor implements QueryResponseCorruptor
     private static final Logger logger = LoggerFactory.getLogger(AddExtraRowCorruptor.class);
 
     private final SchemaSpec schema;
-    private final OpSelectors.MonotonicClock clock;
+    private final OpSelectors.Clock clock;
     private final DataTracker tracker;
     private final OpSelectors.DescriptorSelector descriptorSelector;
 
     public AddExtraRowCorruptor(SchemaSpec schema,
-                                OpSelectors.MonotonicClock clock,
+                                OpSelectors.Clock clock,
                                 DataTracker tracker,
                                 OpSelectors.DescriptorSelector descriptorSelector)
     {

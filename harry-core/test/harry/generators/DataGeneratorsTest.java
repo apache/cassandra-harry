@@ -39,7 +39,7 @@ import static harry.generators.Bijections.Bijection;
 public class DataGeneratorsTest
 {
     private static final int RUNS = 100;
-    private static final RandomGenerator rand = RandomGenerator.forTests(1);
+    private static final EntropySource rand = EntropySource.forTests(1);
 
     @Test
     public void testSingleTypeRoundTrip()

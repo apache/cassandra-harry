@@ -30,6 +30,7 @@ import org.slf4j.LoggerFactory;
 import harry.concurrent.Uninterruptibles;
 import harry.core.Configuration;
 import harry.core.Run;
+import harry.ddl.SchemaSpec;
 import harry.model.OpSelectors;
 import harry.model.sut.SystemUnderTest;
 import harry.operations.CompiledStatement;
@@ -66,17 +67,53 @@ public class MutatingVisitor extends GeneratingVisitor
         super(run, visitExecutor);
     }
 
+    public static class LtsTrackingVisitExecutor extends MutatingVisitExecutor
+    {
+        public LtsTrackingVisitExecutor(OpSelectors.DescriptorSelector descriptorSelector, DataTracker tracker, SystemUnderTest sut, SchemaSpec schema, OperationExecutor rowVisitor, SystemUnderTest.ConsistencyLevel consistencyLevel)
+        {
+            super(descriptorSelector, tracker, sut, schema, rowVisitor, consistencyLevel);
+            assert schema.trackLts : "LTS Tracking visitor can only be used when tracking LTS in schema";
+        }
+
+        @Override
+        public void afterLts(long lts, long pd)
+        {
+            if (hadVisibleVisit)
+            {
+                StringBuilder sb = new StringBuilder();
+                sb.append("UPDATE ").append(schema.keyspace).append(".").append(schema.table)
+                  .append(" SET visited_lts = visited_lts + [").append(lts).append("] ")
+                  .append("WHERE ");
+                Object[] pk = schema.inflatePartitionKey(pd);
+                for (int i = 0; i < pk.length; i++)
+                {
+                    if (i > 0)
+                        sb.append(" AND ");
+                    sb.append(schema.partitionKeys.get(i).name + " = ?");
+                    bindings.add(pk[i]);
+                }
+                sb.append(";");
+                statements.add(sb.toString());
+            }
+
+            super.afterLts(lts, pd);
+        }
+    }
+
     public static class MutatingVisitExecutor extends VisitExecutor
     {
-        private final List<String> statements = new ArrayList<>();
-        private final List<Object> bindings = new ArrayList<>();
+        protected final List<String> statements = new ArrayList<>();
+        protected final List<Object> bindings = new ArrayList<>();
 
         protected final OpSelectors.DescriptorSelector descriptorSelector;
         protected final DataTracker tracker;
         protected final SystemUnderTest sut;
         protected final OperationExecutor rowVisitor;
         protected final SystemUnderTest.ConsistencyLevel consistencyLevel;
+        protected final SchemaSpec schema;
         private final int maxRetries = 10;
+        // Apart from partition deletion, we register all operations on partition level
+        protected Boolean hadVisibleVisit = null;
 
         public MutatingVisitExecutor(Run run, OperationExecutor rowVisitor)
         {
@@ -85,9 +122,20 @@ public class MutatingVisitor extends GeneratingVisitor
 
         public MutatingVisitExecutor(Run run, OperationExecutor rowVisitor, SystemUnderTest.ConsistencyLevel consistencyLevel)
         {
-            this.descriptorSelector = run.descriptorSelector;
-            this.tracker = run.tracker;
-            this.sut = run.sut;
+            this(run.descriptorSelector, run.tracker, run.sut, run.schemaSpec, rowVisitor, consistencyLevel);
+        }
+
+        public MutatingVisitExecutor(OpSelectors.DescriptorSelector descriptorSelector,
+                                     DataTracker tracker,
+                                     SystemUnderTest sut,
+                                     SchemaSpec schema,
+                                     OperationExecutor rowVisitor,
+                                     SystemUnderTest.ConsistencyLevel consistencyLevel)
+        {
+            this.descriptorSelector = descriptorSelector;
+            this.tracker = tracker;
+            this.sut = sut;
+            this.schema = schema;
             this.rowVisitor = rowVisitor;
             this.consistencyLevel = consistencyLevel;
         }
@@ -116,21 +164,29 @@ public class MutatingVisitor extends GeneratingVisitor
             statements.clear();
             bindings.clear();
 
-            executeWithRetries(lts, pd, new CompiledStatement(query, bindingsArray));
+            CompiledStatement compiledStatement = new CompiledStatement(query, bindingsArray);
+            executeWithRetries(lts, pd, compiledStatement);
             tracker.endModification(lts);
+            hadVisibleVisit = null;
         }
 
         @Override
-        public void operation(long lts, long pd, long cd, long opId, OpSelectors.OperationKind opType)
+        public void operation(Operation operation)
         {
-            CompiledStatement statement = operationInternal(lts, pd, cd, opId, opType);
-            statements.add(statement.cql());
-            Collections.addAll(bindings, statement.bindings());
+            // Partition deletions have highest precedence even in batches, so we have to make
+            // a distinction between "we have not seen any operations yet" and "there was a partition deletion"
+            if (hadVisibleVisit == null)
+                hadVisibleVisit = operation.kind().hasVisibleVisit();
+            else
+                hadVisibleVisit &= operation.kind().hasVisibleVisit();
+
+            operationInternal(operation, rowVisitor.perform(operation));
         }
 
-        protected CompiledStatement operationInternal(long lts, long pd, long cd, long opId, OpSelectors.OperationKind opType)
+        protected void operationInternal(Operation operation, CompiledStatement statement)
         {
-            return rowVisitor.perform(opType, lts, pd, cd, opId);
+            statements.add(statement.cql());
+            Collections.addAll(bindings, statement.bindings());
         }
 
         protected Object[][] executeWithRetries(long lts, long pd, CompiledStatement statement)

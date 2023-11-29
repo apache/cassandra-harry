@@ -34,7 +34,7 @@ public class RecentValidator implements Visitor
     private final OpSelectors.PdSelector pdSelector;
     private final QueryGenerator.TypedQueryGenerator querySelector;
     private final MetricReporter metricReporter;
-    private final OpSelectors.MonotonicClock clock;
+    private final OpSelectors.Clock clock;
 
     private final int partitionCount;
     private final int queries;

@@ -51,8 +51,8 @@ public class LockingDataTracker extends DefaultDataTracker
     private final OpSelectors.PdSelector pdSelector;
     private final SchemaSpec schemaSpec;
 
-    private static Set<Long> readingFrom = new ConcurrentSkipListSet<>();
-    private static Set<Long> writingTo = new ConcurrentSkipListSet<>();
+    private final Set<Long> readingFrom = new ConcurrentSkipListSet<>();
+    private final Set<Long> writingTo = new ConcurrentSkipListSet<>();
 
     public LockingDataTracker(OpSelectors.PdSelector pdSelector, SchemaSpec schemaSpec)
     {
@@ -65,7 +65,7 @@ public class LockingDataTracker extends DefaultDataTracker
     {
         ReadersWritersLock partitionLock = getLockForLts(lts);
         partitionLock.lockForWrite();
-        assert !readingFrom.contains(partitionLock.descriptor) : String.format("Reading from should not have contained %%d%d", partitionLock.descriptor);
+        assert !readingFrom.contains(partitionLock.descriptor) : String.format("Reading from should not have contained %d", partitionLock.descriptor);
         writingTo.add(partitionLock.descriptor);
         super.beginModification(lts);
     }
@@ -75,7 +75,7 @@ public class LockingDataTracker extends DefaultDataTracker
     {
         super.endModification(lts);
         ReadersWritersLock partitionLock = getLockForLts(lts);
-        assert !readingFrom.contains(partitionLock.descriptor) : String.format("Reading from should not have contained %%d%d", partitionLock.descriptor);
+        assert !readingFrom.contains(partitionLock.descriptor) : String.format("Reading from should not have contained %d", partitionLock.descriptor);
         writingTo.remove(partitionLock.descriptor);
         partitionLock.unlockAfterWrite();
     }

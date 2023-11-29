@@ -20,14 +20,9 @@ package harry.generators;
 
 import java.util.HashMap;
 import java.util.Map;
-import java.util.function.BiFunction;
 
 import org.junit.Assert;
 import org.junit.Test;
-
-import harry.generators.PcgRSUFast;
-import harry.generators.RandomGenerator;
-import harry.generators.Surjections;
 
 public class SurjectionsTest
 {
@@ -42,7 +37,7 @@ public class SurjectionsTest
                                                                 "a", "b", "c");
 
         Map<String, Integer> frequencies = new HashMap<>();
-        RandomGenerator rng = new PcgRSUFast(System.currentTimeMillis(), 0);
+        EntropySource rng = new PcgRSUFast(System.currentTimeMillis(), 0);
 
         for (int i = 0; i < RUNS; i++)
         {

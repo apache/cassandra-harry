@@ -51,6 +51,6 @@ public interface RowCorruptor
     interface RowCorruptorFactory
     {
         RowCorruptor create(SchemaSpec schemaSpec,
-                            OpSelectors.MonotonicClock clock);
+                            OpSelectors.Clock clock);
     }
 }

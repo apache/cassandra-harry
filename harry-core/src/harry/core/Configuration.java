@@ -49,7 +49,7 @@ import harry.generators.distribution.Distribution;
 import harry.model.Model;
 import harry.model.OpSelectors;
 import harry.model.QuiescentChecker;
-import harry.model.clock.ApproximateMonotonicClock;
+import harry.model.clock.ApproximateClock;
 import harry.model.sut.SystemUnderTest;
 import harry.runner.LockingDataTracker;
 import harry.runner.DataTracker;
@@ -236,7 +236,7 @@ public class Configuration
 
             long seed = snapshot.seed;
 
-            OpSelectors.Rng rng = new OpSelectors.PCGFast(seed);
+            OpSelectors.PureRng rng = new OpSelectors.PCGFast(seed);
 
             // TODO: validate that operation kind is compatible with schema, due to statics etc
             sut = snapshot.system_under_test.make();
@@ -248,7 +248,7 @@ public class Configuration
             DataTracker tracker = dataTrackerConfiguration.make(pdSelector, schemaSpec);
 
             OpSelectors.DescriptorSelector descriptorSelector = snapshot.clustering_descriptor_selector.make(rng, schemaSpec);
-            OpSelectors.MonotonicClock clock = snapshot.clock.make();
+            OpSelectors.Clock clock = snapshot.clock.make();
 
             MetricReporter metricReporter = snapshot.metric_reporter.make();
 
@@ -513,37 +513,37 @@ public class Configuration
     }
 
     @JsonTypeInfo(use = JsonTypeInfo.Id.NAME, include = JsonTypeInfo.As.WRAPPER_OBJECT)
-    public interface ClockConfiguration extends OpSelectors.MonotonicClockFactory
+    public interface ClockConfiguration extends OpSelectors.ClockFactory
     {
     }
 
     @JsonTypeName("approximate_monotonic")
-    public static class ApproximateMonotonicClockConfiguration implements ClockConfiguration
+    public static class ApproximateClockConfiguration implements ClockConfiguration
     {
         public final int history_size;
         public final int epoch_length;
         public final TimeUnit epoch_time_unit;
 
         @JsonCreator
-        public ApproximateMonotonicClockConfiguration(@JsonProperty("history_size") int history_size,
-                                                      @JsonProperty("epoch_length") int epoch_length,
-                                                      @JsonProperty("epoch_time_unit") TimeUnit epoch_time_unit)
+        public ApproximateClockConfiguration(@JsonProperty("history_size") int history_size,
+                                             @JsonProperty("epoch_length") int epoch_length,
+                                             @JsonProperty("epoch_time_unit") TimeUnit epoch_time_unit)
         {
             this.history_size = history_size;
             this.epoch_length = epoch_length;
             this.epoch_time_unit = epoch_time_unit;
         }
 
-        public OpSelectors.MonotonicClock make()
+        public OpSelectors.Clock make()
         {
-            return new ApproximateMonotonicClock(history_size,
-                                                 epoch_length,
-                                                 epoch_time_unit);
+            return new ApproximateClock(history_size,
+                                        epoch_length,
+                                        epoch_time_unit);
         }
     }
 
     @JsonTypeName("debug_approximate_monotonic")
-    public static class DebugApproximateMonotonicClockConfiguration implements ClockConfiguration
+    public static class DebugApproximateClockConfiguration implements ClockConfiguration
     {
         public final long start_time_micros;
         public final int history_size;
@@ -554,13 +554,13 @@ public class Configuration
         public final TimeUnit epoch_time_unit;
 
         @JsonCreator
-        public DebugApproximateMonotonicClockConfiguration(@JsonProperty("start_time_micros") long start_time_micros,
-                                                           @JsonProperty("history_size") int history_size,
-                                                           @JsonProperty("history") long[] history,
-                                                           @JsonProperty("lts") long lts,
-                                                           @JsonProperty("idx") int idx,
-                                                           @JsonProperty("epoch_period") long epoch_period,
-                                                           @JsonProperty("epoch_time_unit") TimeUnit epoch_time_unit)
+        public DebugApproximateClockConfiguration(@JsonProperty("start_time_micros") long start_time_micros,
+                                                  @JsonProperty("history_size") int history_size,
+                                                  @JsonProperty("history") long[] history,
+                                                  @JsonProperty("lts") long lts,
+                                                  @JsonProperty("idx") int idx,
+                                                  @JsonProperty("epoch_period") long epoch_period,
+                                                  @JsonProperty("epoch_time_unit") TimeUnit epoch_time_unit)
         {
             this.start_time_micros = start_time_micros;
             this.history_size = history_size;
@@ -571,15 +571,15 @@ public class Configuration
             this.epoch_time_unit = epoch_time_unit;
         }
 
-        public OpSelectors.MonotonicClock make()
+        public OpSelectors.Clock make()
         {
-            return ApproximateMonotonicClock.forDebug(start_time_micros,
-                                                      history_size,
-                                                      lts,
-                                                      idx,
-                                                      epoch_period,
-                                                      epoch_time_unit,
-                                                      history);
+            return ApproximateClock.forDebug(start_time_micros,
+                                             history_size,
+                                             lts,
+                                             idx,
+                                             epoch_period,
+                                             epoch_time_unit,
+                                             history);
         }
     }
 
@@ -771,7 +771,7 @@ public class Configuration
             }
         }
 
-        public OpSelectors.PdSelector make(OpSelectors.Rng rng)
+        public OpSelectors.PdSelector make(OpSelectors.PureRng rng)
         {
             return new OpSelectors.DefaultPdSelector(rng, window_size, slide_after_repeats, position_offset, position_window_size);
         }
@@ -918,7 +918,7 @@ public class Configuration
             return columnSelector;
         }
 
-        public OpSelectors.DescriptorSelector make(OpSelectors.Rng rng, SchemaSpec schemaSpec)
+        public OpSelectors.DescriptorSelector make(OpSelectors.PureRng rng, SchemaSpec schemaSpec)
         {
             return new OpSelectors.DefaultDescriptorSelector(rng,
                                                              columnSelector(schemaSpec),
@@ -942,7 +942,7 @@ public class Configuration
             this.fractions = fractions;
         }
 
-        public OpSelectors.DescriptorSelector make(OpSelectors.Rng rng, SchemaSpec schemaSpec)
+        public OpSelectors.DescriptorSelector make(OpSelectors.PureRng rng, SchemaSpec schemaSpec)
         {
             return new OpSelectors.HierarchicalDescriptorSelector(rng,
                                                                   fractions,

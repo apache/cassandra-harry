@@ -298,10 +298,10 @@ public class SimpleReconcilerTest extends IntegrationTestBase
     public static class SyntheticTest // TODO: horrible name
     {
         private static long PD_STREAM = System.nanoTime();
-        private final OpSelectors.Rng rng;
+        private final OpSelectors.PureRng rng;
         private final SchemaSpec schema;
 
-        public SyntheticTest(OpSelectors.Rng rng, SchemaSpec schema)
+        public SyntheticTest(OpSelectors.PureRng rng, SchemaSpec schema)
         {
             this.schema = schema;
             this.rng = rng;

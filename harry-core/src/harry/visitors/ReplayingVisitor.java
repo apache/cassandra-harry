@@ -18,12 +18,8 @@
 
 package harry.visitors;
 
-import java.awt.image.AffineTransformOp;
 import java.util.Arrays;
 import java.util.function.LongSupplier;
-
-import harry.core.Run;
-import harry.model.OpSelectors;
 
 public abstract class ReplayingVisitor extends LtsVisitor
 {
@@ -46,7 +42,7 @@ public abstract class ReplayingVisitor extends LtsVisitor
     {
         beforeLts(visit.lts, visit.pd);
         for (Operation operation : visit.operations)
-            operation(visit.lts, visit.pd, operation.cd, operation.opId, operation.opType);
+            operation(operation);
         afterLts(visit.lts, visit.pd);
     }
 
@@ -71,28 +67,7 @@ public abstract class ReplayingVisitor extends LtsVisitor
                    ", operations=[" + Arrays.toString(operations) +
                                             "]}";
         }
-    }
 
-    public static class Operation
-    {
-        public final long cd;
-        public final long opId;
-        public final OpSelectors.OperationKind opType;
 
-        public Operation(long cd, long opId, OpSelectors.OperationKind opType)
-        {
-            this.cd = cd;
-            this.opId = opId;
-            this.opType = opType;
-        }
-
-        public String toString()
-        {
-            return "Operation{" +
-                   "cd=" + cd +
-                   ", opId=" + opId +
-                   ", opType=" + opType +
-                   '}';
-        }
     }
 }

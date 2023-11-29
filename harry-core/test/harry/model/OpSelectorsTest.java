@@ -40,6 +40,7 @@ import harry.visitors.LtsVisitor;
 import harry.visitors.MutatingVisitor;
 import harry.visitors.OperationExecutor;
 import harry.util.BitSet;
+import harry.visitors.VisitExecutor;
 
 public class OpSelectorsTest
 {
@@ -48,7 +49,7 @@ public class OpSelectorsTest
     @Test
     public void testRowDataDescriptorSupplier()
     {
-        OpSelectors.Rng rng = new OpSelectors.PCGFast(1);
+        OpSelectors.PureRng rng = new OpSelectors.PCGFast(1);
         SchemaSpec schema = new SchemaSpec("ks", "tbl1",
                                            Arrays.asList(ColumnSpec.pk("pk1", ColumnSpec.asciiType),
                                                          ColumnSpec.pk("pk2", ColumnSpec.int64Type)),
@@ -90,7 +91,7 @@ public class OpSelectorsTest
     @Test
     public void pdSelectorSymmetryTest()
     {
-        OpSelectors.Rng rng = new OpSelectors.PCGFast(1);
+        OpSelectors.PureRng rng = new OpSelectors.PCGFast(1);
         Supplier<SchemaSpec> gen = SchemaGenerators.progression(SchemaGenerators.DEFAULT_SWITCH_AFTER);
         SchemaSpec schema = gen.get();
 
@@ -131,7 +132,7 @@ public class OpSelectorsTest
     @Test
     public void pdSelectorTest()
     {
-        OpSelectors.Rng rng = new OpSelectors.PCGFast(1);
+        OpSelectors.PureRng rng = new OpSelectors.PCGFast(1);
         int cycles = 10000;
 
         for (long[] positions : new long[][]{ { 0, Long.MAX_VALUE }, { 100, Long.MAX_VALUE }, { 1000, Long.MAX_VALUE } })
@@ -212,10 +213,10 @@ public class OpSelectorsTest
 
     public void ckSelectorTest(SchemaSpec schema)
     {
-        OpSelectors.Rng rng = new OpSelectors.PCGFast(1);
+        OpSelectors.PureRng rng = new OpSelectors.PCGFast(1);
         OpSelectors.PdSelector pdSelector = new OpSelectors.DefaultPdSelector(rng, 10, 10);
         OpSelectors.DescriptorSelector ckSelector = new OpSelectors.DefaultDescriptorSelector(rng,
-                                                                                              new OpSelectors.ColumnSelectorBuilder().forAll(schema, Surjections.pick(BitSet.allUnset(0))).build(),
+                                                                                              new OpSelectors.ColumnSelectorBuilder().forAll(schema, Surjections.pick(schema.regularColumnsMask())).build(),
                                                                                               OpSelectors.OperationSelector.weighted(Surjections.weights(10, 10, 40, 40),
                                                                                                                                      OpSelectors.OperationKind.DELETE_ROW,
                                                                                                                                      OpSelectors.OperationKind.DELETE_COLUMN,
@@ -247,61 +248,61 @@ public class OpSelectorsTest
         LtsVisitor visitor = new MutatingVisitor(run,
                                                  (r) -> new OperationExecutor()
                                                         {
-                                                            public CompiledStatement insert(long lts, long pd, long cd, long m)
+                                                            public CompiledStatement insert(VisitExecutor.WriteOp op)
                                                             {
-                                                                consumer.accept(pd, cd);
+                                                                consumer.accept(op.pd(), op.cd());
                                                                 return compiledStatement;
                                                             }
 
-                                                            public CompiledStatement update(long lts, long pd, long cd, long opId)
+                                                            public CompiledStatement update(VisitExecutor.WriteOp op)
                                                             {
-                                                                consumer.accept(pd, cd);
+                                                                consumer.accept(op.pd(), op.cd());
                                                                 return compiledStatement;
                                                             }
 
-                                                            public CompiledStatement deleteColumn(long lts, long pd, long cd, long m)
+                                                            public CompiledStatement insertWithStatics(VisitExecutor.WriteStaticOp op)
                                                             {
-                                                                consumer.accept(pd, cd);
+                                                                consumer.accept(op.pd(), op.cd());
                                                                 return compiledStatement;
                                                             }
 
-                                                            public CompiledStatement deleteColumnWithStatics(long lts, long pd, long cd, long opId)
+                                                            public CompiledStatement updateWithStatics(VisitExecutor.WriteStaticOp op)
                                                             {
-                                                                consumer.accept(pd, cd);
+                                                                consumer.accept(op.pd(), op.cd());
                                                                 return compiledStatement;
                                                             }
 
-                                                            public CompiledStatement deleteRow(long lts, long pd, long cd, long m)
+                                                            public CompiledStatement deleteColumn(VisitExecutor.DeleteColumnsOp op)
                                                             {
-                                                                consumer.accept(pd, cd);
+                                                                consumer.accept(op.pd(), op.cd());
                                                                 return compiledStatement;
                                                             }
 
-                                                            public CompiledStatement deletePartition(long lts, long pd, long opId)
+                                                            public CompiledStatement deleteColumnWithStatics(VisitExecutor.DeleteColumnsOp op)
                                                             {
-                                                                // ignore
+                                                                consumer.accept(op.pd(), op.cd());
                                                                 return compiledStatement;
                                                             }
 
-                                                            public CompiledStatement insertWithStatics(long lts, long pd, long cd, long opId)
+                                                            public CompiledStatement deleteRow(VisitExecutor.DeleteRowOp op)
                                                             {
-                                                                consumer.accept(pd, cd);
+                                                                consumer.accept(op.pd(), op.cd());
                                                                 return compiledStatement;
                                                             }
 
-                                                            public CompiledStatement updateWithStatics(long lts, long pd, long cd, long opId)
-                                                            {
-                                                                consumer.accept(pd, cd);
-                                                                return compiledStatement;
-                                                            }
-
-                                                            public CompiledStatement deleteRange(long lts, long pd, long opId)
+                                                            public CompiledStatement deletePartition(VisitExecutor.DeleteOp op)
                                                             {
                                                                 // ignore
                                                                 return compiledStatement;
                                                             }
 
-                                                            public CompiledStatement deleteSlice(long lts, long pd, long opId)
+                                                            public CompiledStatement deleteRange(VisitExecutor.DeleteOp op)
+                                                            {
+                                                                // ignore
+                                                                return compiledStatement;
+                                                            }
+
+                                                            public CompiledStatement deleteSlice(VisitExecutor.DeleteOp op)
                                                             {
                                                                 // ignore
                                                                 return compiledStatement;
@@ -326,7 +327,7 @@ public class OpSelectorsTest
                                            Collections.singletonList(ColumnSpec.regularColumn("v1", ColumnSpec.asciiType)),
                                            Collections.emptyList());
 
-        OpSelectors.Rng rng = new OpSelectors.PCGFast(1);
+        OpSelectors.PureRng rng = new OpSelectors.PCGFast(1);
         OpSelectors.DescriptorSelector ckSelector = new OpSelectors.HierarchicalDescriptorSelector(rng,
                                                                                                    new int[] {10, 20},
                                                                                                    OpSelectors.columnSelectorBuilder().forAll(schema, Surjections.pick(BitSet.allUnset(0))).build(),
@@ -374,7 +375,7 @@ public class OpSelectorsTest
         OpSelectors.OperationSelector selector = OpSelectors.OperationSelector.weighted(Surjections.weights(weights),
         OpSelectors.OperationKind.values());
 
-        OpSelectors.Rng rng = new OpSelectors.PCGFast(1);
+        OpSelectors.PureRng rng = new OpSelectors.PCGFast(1);
         OpSelectors.PdSelector pdSelector = new OpSelectors.DefaultPdSelector(rng, 10, 10);
         OpSelectors.DescriptorSelector descriptorSelector = new OpSelectors.DefaultDescriptorSelector(rng,
                                                                                                       null,

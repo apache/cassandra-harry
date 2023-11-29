@@ -30,9 +30,9 @@ public interface Generator<T>
     // It might be better if every generator has its own independent rng (or even implementation-dependent rng).
     // This way we can have simpler interface: generate a value from the long and invertible iterator does the opposite.
     // More things can be invertible this way. For example, entire primary keys can be invertible.
-    T generate(RandomGenerator rng);
+    T generate(EntropySource rng);
 
-    default List<T> generate(RandomGenerator rng, int n)
+    default List<T> generate(EntropySource rng, int n)
     {
         List<T> res = new ArrayList<>(n);
         for (int i = 0; i < n; i++)
@@ -43,7 +43,7 @@ public interface Generator<T>
     default Surjections.Surjection<T> toSurjection(long streamId)
     {
         return (current) -> {
-            RandomGenerator rng = new PcgRSUFast(current, streamId);
+            EntropySource rng = new PcgRSUFast(current, streamId);
             return generate(rng);
         };
     }
@@ -68,7 +68,7 @@ public interface Generator<T>
         }
     }
 
-    default Supplier<T> bind(RandomGenerator rand)
+    default Supplier<T> bind(EntropySource rand)
     {
         return () -> generate(rand);
     }

@@ -26,8 +26,8 @@ import harry.operations.QueryGenerator;
 
 public class Run
 {
-    public final OpSelectors.Rng rng;
-    public final OpSelectors.MonotonicClock clock;
+    public final OpSelectors.PureRng rng;
+    public final OpSelectors.Clock clock;
     public final OpSelectors.PdSelector pdSelector;
     public final OpSelectors.DescriptorSelector descriptorSelector;
     public final QueryGenerator rangeSelector;
@@ -38,8 +38,8 @@ public class Run
 
     public final MetricReporter metricReporter;
 
-    public Run(OpSelectors.Rng rng,
-               OpSelectors.MonotonicClock clock,
+    public Run(OpSelectors.PureRng rng,
+               OpSelectors.Clock clock,
                OpSelectors.PdSelector pdSelector,
                OpSelectors.DescriptorSelector descriptorSelector,
                SchemaSpec schemaSpec,
@@ -52,8 +52,8 @@ public class Run
              schemaSpec, tracker, sut, metricReporter);
     }
 
-    private Run(OpSelectors.Rng rng,
-                OpSelectors.MonotonicClock clock,
+    private Run(OpSelectors.PureRng rng,
+                OpSelectors.Clock clock,
                 OpSelectors.PdSelector pdSelector,
                 OpSelectors.DescriptorSelector descriptorSelector,
                 QueryGenerator rangeSelector,

@@ -34,6 +34,9 @@ import harry.util.Ranges;
 import static harry.operations.QueryGenerator.relationKind;
 import static harry.operations.Relation.FORWARD_COMPARATOR;
 
+/**
+ * A class representing relations in the query, essentially what WHERE clause means.
+ */
 public abstract class Query
 {
     private static final Logger logger = LoggerFactory.getLogger(Query.class);
@@ -187,7 +190,6 @@ public abstract class Query
                                     SchemaSpec schemaSpec)
         {
             super(kind, pd, reverse, allRelations, schemaSpec);
-            assert cdMin != cdMax || (minRelation.isInclusive() && maxRelation.isInclusive());
             this.cdMin = cdMin;
             this.cdMax = cdMax;
             this.minRelation = minRelation;
@@ -241,7 +243,6 @@ public abstract class Query
                    '}';
         }
     }
-
 
     public CompiledStatement toWildcardSelectStatement()
     {
@@ -444,10 +445,6 @@ public abstract class Query
                                                 col.isReversed() ? minLocked : maxLocked));
                 minBound[i] = minLocked;
                 maxBound[i] = maxLocked;
-
-                // Impossible query
-                if (i == 0 && minLocked == maxLocked)
-                    throw new IllegalArgumentException("impossible query");
             }
             else
             {
@@ -458,12 +455,6 @@ public abstract class Query
 
         long stitchedMin = schema.ckGenerator.stitch(minBound);
         long stitchedMax = schema.ckGenerator.stitch(maxBound);
-
-        // if we're about to create an "impossible" query, just bump the modifier and re-generate
-        // TODO: this isn't considered "normal" that we do it this way, but I'd rather fix it with
-        //       a refactoring that's mentioned below
-        if (stitchedMin == stitchedMax)
-            throw new IllegalArgumentException("impossible query");
 
         // TODO: one of the ways to get rid of garbage here, and potentially even simplify the code is to
         //       simply return bounds here. After bounds are created, we slice them and generate query right

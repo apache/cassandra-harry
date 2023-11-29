@@ -15,14 +15,14 @@
 #   limitations under the License.
 CLONE_REPO=$(if $(CASSANDRA_REPO),$(CASSANDRA_REPO),'git@github.com:apache/cassandra.git')
 
-cassandra-submodule:
-	git clone -b patched-trunk ${CLONE_REPO} cassandra
+cassandra:
+	git clone -b trunk ${CLONE_REPO} cassandra
 
 update-conf:
 	cp cassandra/conf/cassandra.yaml harry-integration/test/conf/cassandra.yaml
 	cp cassandra/conf/cassandra.yaml test/conf/cassandra.yaml
 
-package: cassandra-submodule
+package: cassandra
 	# Build Cassandra
 	./bin/build-cassandra-submodule.sh
 	# Build Harry

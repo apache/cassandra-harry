@@ -18,7 +18,6 @@
 
 package harry.operations;
 
-import java.util.Arrays;
 import java.util.List;
 
 import harry.ddl.ColumnSpec;

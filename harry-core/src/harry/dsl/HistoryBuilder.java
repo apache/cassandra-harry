@@ -19,598 +19,551 @@
 package harry.dsl;
 
 import java.util.*;
-import java.util.function.Consumer;
 import java.util.function.LongSupplier;
 
-import harry.core.Run;
+import harry.core.Configuration;
+import harry.core.MetricReporter;
+import harry.ddl.SchemaSpec;
+import harry.generators.EntropySource;
+import harry.generators.JdkRandomEntropySource;
+import harry.model.Model;
 import harry.model.OpSelectors;
+import harry.model.QuiescentChecker;
+import harry.model.clock.ApproximateClock;
+import harry.model.sut.SystemUnderTest;
+import harry.operations.Query;
+import harry.reconciler.Reconciler;
+import harry.runner.DataTracker;
 import harry.visitors.MutatingRowVisitor;
 import harry.visitors.MutatingVisitor;
 import harry.visitors.ReplayingVisitor;
 import harry.visitors.VisitExecutor;
 
-import static harry.model.OpSelectors.DefaultPdSelector.PARTITION_DESCRIPTOR_STREAM_ID;
-
-// TODO: we could use some sort of compact data structure or file format for navigable operation history
-public class HistoryBuilder implements Iterable<ReplayingVisitor.Visit>
+/**
+ * History builder is a component for a simple yet flexible generation of arbitrary data. You can write queries
+ * _as if_ you were writing them with primitive values (such as 0,1, and using for loops, and alike).
+ *
+ * You can create a history builder like:
+ *
+ *      HistoryBuilder historyBuilder = new HistoryBuilder(seed, maxPartitionSize, 10, schema);
+ *
+ * The core idea is that you use simple-to-remember numbers as placeholders for your values. For partition key,
+ * the value (such as 0,1,2,...) would signify a distinct partition key for a given schema. You can not know in
+ * advance the relative order of two generated partition keys (i.e. how they'd sort).
+ *
+ * For clustering keys, the value 0 signifies the smallest possible-to-generate clustering _for this partition_
+ * (i.e. there may be other values that would sort LT relative to it, but they will never be generated in this
+ * context. Similarly, `maxPartitionSize - 1` is going to be the largest possible-to-generate clustering _for this
+ * partition_). All other values (i.e. between 0 and maxPartitionSize - 1) that will be generated are ordered in
+ * the same way as the numbers you used to generate them. This is done for your convenience and being able to create
+ * complex/interesting RT queries.
+ *
+ * You can also go arbitrarily deep into specifying details of your query. For example, calling
+ *
+ *     historyBuilder.insert();
+ *
+ * Will generate an INSERT query, according to the given schema, for a random partition, random clustering, with
+ * random values. At the same time, calling:
+ *
+ *     historyBuilder.visitPartition(1).insert();
+ *
+ * Will generate an insert for a partition whose partition key is under index 1 (generating other writes prefixed
+ * with `visitPartition(1)` will ensure operations are executed against the same partition). Clustering and
+ * values are still going to be random. Calling:
+ *
+ *     historyBuilder.visitPartition(1).insert(2);
+ *
+ * Will generate an insert for a partition whose partition key is under index 1, and the clustering will be third
+ * largest possible clustering for this partition (remember, 0 is smallest, so 0,1,2 - third). Values inserted into
+ * this row are still going to be random.
+ *
+ * Lastly, calling
+ *
+ *     historyBuilder.visitPartition(1).insert(2, new long[] { 1, 2 });
+ *
+ * Will generate an insert to 1st partition, 2nd row, and the values are going to be taken from the random
+ * streams for the values for corresponding columns.
+ *
+ * Other possible operations are deleteRow, deleteColumns, deleteRowRange, deleteRowSlide, and deletePartition.
+ */
+public class HistoryBuilder implements Iterable<ReplayingVisitor.Visit>, SingleOperationBuilder, BatchOperationBuilder
 {
-    private final Run run;
-    private final List<ReplayingVisitor.Visit> log;
+    protected final SchemaSpec schema;
 
-    private long lts;
-    private final Set<Long> pds = new HashSet<>();
+    protected final OpSelectors.PureRng pureRng;
+    protected final OpSelectors.DescriptorSelector descriptorSelector;
 
-    public Map<Long, NavigableSet<Long>> pdToLtsMap = new HashMap<>();
+    // TODO: would be great to have a very simple B-Tree here
+    protected final Map<Long, ReplayingVisitor.Visit> log;
 
-    private int partitions;
+    // TODO: primitive array with a custom/noncopying growth strat
+    protected final Map<Long, PartitionVisitState> partitionStates = new HashMap<>();
 
-    public HistoryBuilder(Run run)
+    /**
+     * A selector that is going to be used by the model checker.
+     */
+    public final PresetPdSelector presetSelector;
+
+    /**
+     * Default selector will select every partition exactly once.
+     */
+    protected final OpSelectors.DefaultPdSelector defaultSelector;
+    protected final OffsetClock clock;
+    protected final int maxPartitionSize;
+
+    public HistoryBuilder(long seed,
+                          int maxPartitionSize,
+                          int interleaveWindowSize,
+                          SchemaSpec schema)
     {
-        this.run = run;
-        this.log = new ArrayList<>();
-        this.lts = 0;
-        this.partitions = 0;
+        this.maxPartitionSize = maxPartitionSize;
+        this.log = new HashMap<>();
+        this.pureRng = new OpSelectors.PCGFast(seed);
+        // TODO: make clock pluggable
+        this.clock = new OffsetClock(ApproximateClock.START_VALUE,
+                                     interleaveWindowSize,
+                                     new JdkRandomEntropySource(seed));
 
-        assert run.pdSelector instanceof PdSelector;
-        ((PdSelector) run.pdSelector).historyBuilder = this;
+        this.presetSelector = new PresetPdSelector();
+        this.defaultSelector = new OpSelectors.DefaultPdSelector(pureRng, 1, 1);
+        this.schema = schema;
+        this.descriptorSelector = new Configuration.CDSelectorConfigurationBuilder()
+                                  .setOperationsPerLtsDistribution(new Configuration.ConstantDistributionConfig(Integer.MAX_VALUE))
+                                  .setMaxPartitionSize(maxPartitionSize)
+                                  .build()
+                                  .make(pureRng, schema);
     }
 
+    public int size()
+    {
+        return log.size();
+    }
+
+    public OpSelectors.Clock clock()
+    {
+        return clock;
+    }
+    /**
+     * Visited partition descriptors _not_ in the order they were visited
+     */
+    public List<Long> visitedPds()
+    {
+        return new ArrayList<>(partitionStates.keySet());
+    }
+
+    @Override
     public Iterator<ReplayingVisitor.Visit> iterator()
     {
-        return log.iterator();
+        return log.values().iterator();
     }
 
-    public static class PdSelector extends OpSelectors.PdSelector
+    protected SingleOperationVisitBuilder singleOpVisitBuilder()
     {
-        // We can only lazy-initialise it since history builder is created after pd selector
-        private HistoryBuilder historyBuilder;
+        long visitLts = clock.nextLts();
+        return singleOpVisitBuilder(defaultSelector.pd(visitLts, schema), visitLts);
+    }
+
+    protected SingleOperationVisitBuilder singleOpVisitBuilder(long pd, long lts)
+    {
+        PartitionVisitState partitionState = presetSelector.register(lts, pd);
+        return new SingleOperationVisitBuilder(partitionState, lts, pureRng, descriptorSelector, schema, (visit) -> {
+            log.put(visit.lts, visit);
+        });
+    }
+
+    @Override
+    public HistoryBuilder insert()
+    {
+        singleOpVisitBuilder().insert();
+        return this;
+    }
+
+    @Override
+    public HistoryBuilder insert(int rowId)
+    {
+        singleOpVisitBuilder().insert(rowId);
+        return this;
+    }
+
+    @Override
+    public HistoryBuilder insert(int rowId, long[] vds)
+    {
+        singleOpVisitBuilder().insert(rowId, vds);
+        return this;
+    }
+
+    public SingleOperationBuilder insert(int rowIdx, long[] vds, long[] sds)
+    {
+        singleOpVisitBuilder().insert(rowIdx, vds, sds);
+        return this;
+    }
+
+    @Override
+    public HistoryBuilder deletePartition()
+    {
+        singleOpVisitBuilder().deletePartition();
+        return this;
+    }
+
+    @Override
+    public HistoryBuilder deleteRow()
+    {
+        singleOpVisitBuilder().deleteRow();
+        return this;
+    }
+
+    @Override
+    public HistoryBuilder deleteRow(int rowIdx)
+    {
+        singleOpVisitBuilder().deleteRow(rowIdx);
+        return this;
+    }
+
+    @Override
+    public HistoryBuilder deleteColumns()
+    {
+        singleOpVisitBuilder().deleteColumns();
+        return this;
+    }
+
+    @Override
+    public HistoryBuilder deleteRowRange()
+    {
+        singleOpVisitBuilder().deleteRowRange();
+        return this;
+    }
+
+    @Override
+    public HistoryBuilder deleteRowRange(int lowBoundRowIdx, int highBoundRowIdx, boolean isMinEq, boolean isMaxEq)
+    {
+        singleOpVisitBuilder().deleteRowRange(lowBoundRowIdx, highBoundRowIdx, isMinEq, isMaxEq);
+        return this;
+    }
+
+    @Override
+    public HistoryBuilder deleteRowSlice()
+    {
+        singleOpVisitBuilder().deleteRowSlice();
+        return this;
+    }
+
+    @Override
+    public BatchVisitBuilder beginBatch()
+    {
+        long visitLts = clock.nextLts();
+        return batchVisitBuilder(defaultSelector.pd(visitLts, schema), visitLts);
+    }
+
+    /**
+     * Begin batch for a partition descriptor at a specific index.
+     *
+     * Imagine all partition descriptors were longs in an array. Index of a descriptor
+     * is a sequential number of the descriptor in this imaginary array.
+     */
+    @Override
+    public BatchVisitBuilder beginBatch(long pdIdx)
+    {
+        long visitLts = clock.nextLts();
+        return batchVisitBuilder(presetSelector.pdAtPosition(pdIdx), visitLts);
+    }
+
+    protected BatchVisitBuilder batchVisitBuilder(long pd, long lts)
+    {
+        PartitionVisitState partitionState = presetSelector.register(lts, pd);
+        return new BatchVisitBuilder(this, partitionState, lts, pureRng, descriptorSelector, schema, (visit) -> {
+            log.put(visit.lts, visit);
+        });
+    }
+
+    public SingleOperationBuilder visitPartition(long pdIdx)
+    {
+        long visitLts = clock.nextLts();
+        long pd = presetSelector.pdAtPosition(pdIdx);
+        return singleOpVisitBuilder(pd, visitLts);
+    }
+
+    /**
+     * This is an adapter HistoryBuilder is using to reproduce state for the reconciler.
+     *
+     * This class is inherently not thread-safe. The thinking behind this is that you should generate
+     * operations in advance, and only after you have generated them, should you start execution.
+     * If you would like to generate on the fly, you should use default Harry machinery and pure generators,
+     * that walk LTS space without intermediate state. This set of primitives is intended to be used for much
+     * smaller scale testing.
+     */
+    public class PresetPdSelector extends OpSelectors.PdSelector
+    {
+        // TODO: implement a primitive long map?
+        private final Map<Long, Long> ltsToPd = new HashMap<>();
+
+        public PartitionVisitState register(long lts, long pd)
+        {
+            Long prev = ltsToPd.put(lts, pd);
+            if (prev != null)
+                throw new IllegalStateException(String.format("LTS %d. Was registered twice, first with %d, and then with %d", lts,  prev, pd));
+
+            long[] possibleCds = new long[maxPartitionSize];
+            for (int i = 0; i < possibleCds.length; i++)
+                possibleCds[i] = descriptorSelector.cd(pd, 0, i, schema);
+            Arrays.sort(possibleCds);
+
+            // TODO: can we have something more efficient than a tree set here?
+            PartitionVisitState partitionState = partitionStates.computeIfAbsent(pd, (pd_) -> new PartitionVisitState(pd, possibleCds, new TreeSet<>()));
+            partitionState.visitedLts.add(lts);
+            return partitionState;
+        }
 
         protected long pd(long lts)
         {
-            return historyBuilder.log.get((int) lts).pd;
+            return ltsToPd.get(lts);
         }
 
         public long nextLts(long lts)
         {
-            Long next = historyBuilder.pdToLtsMap.get(pd(lts)).higher(lts);
-            if (null == next)
+            long pd = pd(lts);
+            PartitionVisitState partitionState = partitionStates.get(pd);
+            NavigableSet<Long> visitedLts = partitionState.visitedLts.subSet(lts, false, Long.MAX_VALUE, false);
+            if (visitedLts.isEmpty())
                 return -1;
-            return next;
+            else
+                return visitedLts.first();
         }
 
         public long prevLts(long lts)
         {
-            Long prev = historyBuilder.pdToLtsMap.get(pd(lts)).lower(lts);
-            if (null == prev)
+            long pd = pd(lts);
+            PartitionVisitState partitionState = partitionStates.get(pd);
+            NavigableSet<Long> visitedLts = partitionState.visitedLts.descendingSet().subSet(lts, false, 0L, false);
+            if (visitedLts.isEmpty())
                 return -1;
-            return prev;
+            else
+                return visitedLts.first();
         }
 
         public long maxLtsFor(long pd)
         {
-            return historyBuilder.pdToLtsMap.get(pd).last();
-        }
-
-        public long minLtsAt(long position)
-        {
-            return historyBuilder.pdToLtsMap.get(historyBuilder.pd(position)).first();
+            PartitionVisitState partitionState = partitionStates.get(pd);
+            if (partitionState == null)
+                return -1;
+            return partitionState.visitedLts.last();
         }
 
         public long minLtsFor(long pd)
         {
-            return historyBuilder.pdToLtsMap.get(pd).first();
+            PartitionVisitState partitionState = partitionStates.get(pd);
+            if (partitionState == null)
+                return -1;
+            return partitionState.visitedLts.first();
         }
 
-        public long positionFor(long lts)
+        public long pdAtPosition(long pdIdx)
         {
-            return historyBuilder.position(pd(lts));
+            return defaultSelector.pdAtPosition(pdIdx, schema);
+        }
+
+        public Collection<Long> pds()
+        {
+            return partitionStates.keySet();
+        }
+
+        public long minLtsAt(long position)
+        {
+            throw new IllegalArgumentException("not implemented");
         }
 
         public long maxPosition(long maxLts)
         {
-            return historyBuilder.partitions;
+            // since, unlike other PdSelectors, this one is not computational, we can answer which position is the largest just
+            // by tracking the largest position
+            return 0;
         }
     }
 
-    private static abstract class Step
+    public ReplayingVisitor visitor(DataTracker tracker, SystemUnderTest sut)
     {
-        public abstract List<ReplayingVisitor.Operation> build(long pd, long lts, LongSupplier opIdSupplier);
-    }
-
-    private class BatchStep extends Step
-    {
-        private final List<OperationStep> steps;
-
-        protected BatchStep(List<OperationStep> steps)
+        if (schema.trackLts)
         {
-            this.steps = steps;
+            return visitor(new MutatingVisitor.LtsTrackingVisitExecutor(descriptorSelector,
+                                                                        tracker,
+                                                                        sut,
+                                                                        schema,
+                                                                        new MutatingRowVisitor(schema, clock, MetricReporter.NO_OP),
+                                                                        SystemUnderTest.ConsistencyLevel.QUORUM));
         }
-
-        public List<ReplayingVisitor.Operation> build(long pd, long lts, LongSupplier opIdSupplier)
+        else
         {
-            ReplayingVisitor.Operation[] ops = new ReplayingVisitor.Operation[steps.size()];
-            for (int i = 0; i < ops.length; i++)
-            {
-                OperationStep opStep = steps.get(i);
-                long opId = opIdSupplier.getAsLong();
-                long cd = HistoryBuilder.this.cd(pd, lts, opId);
-                ops[i] = op(cd, opId, opStep.opType);
-            }
-
-            return Arrays.asList(ops);
+            return visitor(new MutatingVisitor.MutatingVisitExecutor(descriptorSelector,
+                                                                     tracker,
+                                                                     sut,
+                                                                     schema,
+                                                                     new MutatingRowVisitor(schema, clock, MetricReporter.NO_OP),
+                                                                     SystemUnderTest.ConsistencyLevel.QUORUM));
         }
     }
 
-    private class OperationStep extends Step
+    public Model checker(DataTracker tracker, SystemUnderTest sut)
     {
-        private final OpSelectors.OperationKind opType;
+        return new QuiescentChecker(clock, sut, tracker, schema,
+                                    new Reconciler(presetSelector,
+                                                   schema,
+                                                   this::visitor));
+    }
 
-        protected OperationStep(OpSelectors.OperationKind opType)
-        {
-            this.opType = opType;
-        }
+    public void validate(DataTracker tracker, SystemUnderTest sut, int... partitionIdxs)
+    {
+        validate(checker(tracker, sut), partitionIdxs);
+    }
 
-        public List<ReplayingVisitor.Operation> build(long pd, long lts, LongSupplier opIdSupplier)
+    public void validate(Model model, int... partitionIdxs)
+    {
+        for (int partitionIdx : partitionIdxs)
         {
-            long opId = opIdSupplier.getAsLong();
-            long cd = HistoryBuilder.this.cd(pd, lts, opId);
-            return Arrays.asList(HistoryBuilder.op(cd, opIdSupplier.getAsLong(), opType));
+            long pd = presetSelector.pdAtPosition(partitionIdx);
+            if (presetSelector.minLtsFor(pd) < 0)
+                continue;
+            model.validate(Query.selectPartition(schema, pd, false));
+            model.validate(Query.selectPartition(schema, pd, true));
         }
     }
 
-    public PartitionBuilder nextPartition()
+    public void validateAll(DataTracker tracker, SystemUnderTest sut)
     {
-        long pd = pd(partitions++);
-        return new PartitionBuilder(pd);
-    }
-
-    // Ideally, we'd like to make these more generic
-    private long pd(long position)
-    {
-        long pd = run.schemaSpec.adjustPdEntropy(run.rng.prev(position, PARTITION_DESCRIPTOR_STREAM_ID));
-        pds.add(pd);
-        return pd;
-    }
-
-    private long position(long pd)
-    {
-        return run.rng.next(pd, PARTITION_DESCRIPTOR_STREAM_ID);
-    }
-
-    protected long cd(long pd, long lts, long opId)
-    {
-        return run.descriptorSelector.cd(pd, lts, opId, run.schemaSpec);
-    }
-
-    public class PartitionBuilder implements OperationBuilder<PartitionBuilder>
-    {
-
-        final List<Step> steps = new ArrayList<>();
-        final long pd;
-
-        boolean strictOrder = true;
-        boolean sequentially = true;
-
-        boolean finished = false;
-
-        public PartitionBuilder(long pd)
+        Model model = checker(tracker, sut);
+        for (Long pd : partitionStates.keySet())
         {
-            this.pd = pd;
+            model.validate(Query.selectPartition(schema, pd, false));
+            model.validate(Query.selectPartition(schema, pd, true));
         }
-
-        public BatchBuilder<PartitionBuilder> batch()
-        {
-            return new BatchBuilder<>(this, steps::add);
-        }
-
-        /**
-         * Execute operations listed by users of this PartitionBuilder with same logical timestamp. Namely, as a bach.
-         */
-        public PartitionBuilder simultaneously()
-        {
-            this.sequentially = false;
-            return this;
-        }
-
-        /**
-         * Execute operations listed by users of this PartitionBuilder with monotonically increasing timestamps,
-         * giving each operation its own timestamp. Timestamp order can be determined by `#randomOrder` / `#strictOrder`.
-         */
-        public PartitionBuilder sequentially()
-        {
-            this.sequentially = true;
-            return this;
-        }
-
-        /**
-         * Execute operations listed by users of this PartitionBuilder in random order
-         */
-        public PartitionBuilder randomOrder()
-        {
-            strictOrder = false;
-            return this;
-        }
-
-        /**
-         * Execute operations listed by users of this PartitionBuilder in the order given by the user
-         */
-        public PartitionBuilder strictOrder()
-        {
-            strictOrder = true;
-            return this;
-        }
-
-        public PartitionBuilder partitionDelete()
-        {
-            return step(OpSelectors.OperationKind.DELETE_PARTITION);
-        }
-
-        public PartitionBuilder partitionDeletions(int n)
-        {
-            for (int i = 0; i < n; i++)
-                partitionDelete();
-            return this;
-        }
-
-        public PartitionBuilder update()
-        {
-            return step(OpSelectors.OperationKind.UPDATE);
-        }
-
-        public PartitionBuilder updates(int n)
-        {
-            for (int i = 0; i < n; i++)
-                update();
-            return this;
-        }
-
-        public PartitionBuilder insert()
-        {
-            return step(OpSelectors.OperationKind.INSERT);
-        }
-
-        public PartitionBuilder inserts(int n)
-        {
-            for (int i = 0; i < n; i++)
-                insert();
-            return this;
-        }
-
-        public PartitionBuilder delete()
-        {
-            return step(OpSelectors.OperationKind.DELETE_ROW);
-        }
-
-        public PartitionBuilder deletes(int n)
-        {
-            for (int i = 0; i < n; i++)
-                delete();
-            return this;
-        }
-
-        public PartitionBuilder columnDelete()
-        {
-            return step(OpSelectors.OperationKind.DELETE_COLUMN_WITH_STATICS);
-        }
-
-        public PartitionBuilder columnDeletes(int n)
-        {
-            for (int i = 0; i < n; i++)
-                columnDelete();
-
-            return this;
-        }
-
-        public PartitionBuilder rangeDelete()
-        {
-            return step(OpSelectors.OperationKind.DELETE_RANGE);
-        }
-
-        public PartitionBuilder rangeDeletes(int n)
-        {
-            for (int i = 0; i < n; i++)
-                rangeDelete();
-
-            return this;
-        }
-
-        public PartitionBuilder sliceDelete()
-        {
-            return step(OpSelectors.OperationKind.DELETE_SLICE);
-        }
-
-        public PartitionBuilder sliceDeletes(int n)
-        {
-            for (int i = 0; i < n; i++)
-                sliceDelete();
-
-            return this;
-        }
-
-        public PartitionBuilder partitionBuilder()
-        {
-            return this;
-        }
-
-        public HistoryBuilder finish()
-        {
-            assert !finished;
-            finished = true;
-
-            if (!strictOrder)
-                // TODO: In the future/for large sets we could avoid generating the values and just generate them on the fly:
-                // https://lemire.me/blog/2017/09/18/visiting-all-values-in-an-array-exactly-once-in-random-order/
-                // we could just save the rules for generation, for example
-                Collections.shuffle(steps);
-
-            addSteps(steps);
-            steps.clear();
-            return HistoryBuilder.this;
-        }
-
-        void addSteps(List<Step> steps)
-        {
-            List<ReplayingVisitor.Operation> operations = new ArrayList<>();
-            Counter opId = new Counter();
-            for (Step step : steps)
-            {
-                operations.addAll(step.build(pd, lts, opId::getAndIncrement));
-
-                assert lts == log.size();
-                addToLog(pd, operations);
-                opId.reset();
-            }
-
-            // If we were generating steps for the partition with same LTS, add remaining steps
-            if (!operations.isEmpty())
-            {
-                assert !sequentially;
-                addToLog(pd, operations);
-            }
-        }
-
-        PartitionBuilder step(OpSelectors.OperationKind opType)
-        {
-            steps.add(new OperationStep(opType));
-            return this;
-        }
-    }
-
-    private void addToLog(long pd, List<ReplayingVisitor.Operation> operations)
-    {
-        pdToLtsMap.compute(pd, (ignore, ltss) -> {
-            if (null == ltss)
-                ltss = new TreeSet<>();
-            ltss.add(lts);
-            return ltss;
-        });
-
-        log.add(visit(lts++, pd, operations.toArray(new ReplayingVisitor.Operation[0])));
-        operations.clear();
-    }
-
-    private static class Counter
-    {
-        long i;
-        void reset()
-        {
-            i = 0;
-        }
-
-        long increment()
-        {
-            return i++;
-        }
-
-        long getAndIncrement()
-        {
-            return i++;
-        }
-
-        long get()
-        {
-            return i;
-        }
-    }
-
-    public class BatchBuilder<T extends OperationBuilder<?>> implements OperationBuilder<BatchBuilder<T>>
-    {
-        final T operationBuilder;
-        final List<OperationStep> steps = new ArrayList<>();
-        final Consumer<Step> addStep;
-        boolean strictOrder;
-
-        boolean finished = false;
-        public BatchBuilder(T operationBuilder,
-                            Consumer<Step> addStep)
-        {
-            this.operationBuilder = operationBuilder;
-            this.addStep = addStep;
-        }
-
-        public BatchBuilder<T> randomOrder()
-        {
-            this.strictOrder = false;
-            return this;
-        }
-
-        public BatchBuilder<T> strictOrder()
-        {
-            this.strictOrder = true;
-            return this;
-        }
-
-        public T finish()
-        {
-            assert !finished;
-            finished = true;
-            if (!strictOrder)
-                // TODO
-                Collections.shuffle(steps);
-
-            addStep.accept(new BatchStep(steps));
-            return operationBuilder;
-        }
-
-        public BatchBuilder<T> partitionDelete()
-        {
-            return step(OpSelectors.OperationKind.DELETE_PARTITION);
-        }
-
-        public BatchBuilder<T> partitionDeletions(int n)
-        {
-            for (int i = 0; i < n; i++)
-                partitionDelete();
-            return this;
-        }
-
-        public BatchBuilder<T> update()
-        {
-            return step(OpSelectors.OperationKind.UPDATE_WITH_STATICS);
-        }
-
-        public BatchBuilder<T> updates(int n)
-        {
-            for (int i = 0; i < n; i++)
-                update();
-            return this;
-        }
-
-        public BatchBuilder<T> insert()
-        {
-            return step(OpSelectors.OperationKind.INSERT_WITH_STATICS);
-        }
-
-        BatchBuilder<T> step(OpSelectors.OperationKind opType)
-        {
-            steps.add(new OperationStep(opType));
-            return this;
-        }
-
-        public BatchBuilder<T> inserts(int n)
-        {
-            for (int i = 0; i < n; i++)
-                insert();
-            return this;
-        }
-
-        public BatchBuilder<T> delete()
-        {
-            return step(OpSelectors.OperationKind.DELETE_ROW);
-        }
-
-        public BatchBuilder<T> deletes(int n)
-        {
-            for (int i = 0; i < n; i++)
-                delete();
-            return this;
-        }
-
-        public BatchBuilder<T> columnDelete()
-        {
-            return step(OpSelectors.OperationKind.DELETE_COLUMN_WITH_STATICS);
-        }
-
-        public BatchBuilder<T> columnDeletes(int n)
-        {
-            for (int i = 0; i < n; i++)
-                columnDelete();
-
-            return this;
-        }
-
-        public BatchBuilder<T> rangeDelete()
-        {
-            return step(OpSelectors.OperationKind.DELETE_RANGE);
-        }
-
-        public BatchBuilder<T> rangeDeletes(int n)
-        {
-            for (int i = 0; i < n; i++)
-                rangeDelete();
-            return this;
-        }
-
-        public BatchBuilder<T> sliceDelete()
-        {
-            return step(OpSelectors.OperationKind.DELETE_SLICE);
-        }
-
-        public BatchBuilder<T> sliceDeletes(int n)
-        {
-            for (int i = 0; i < n; i++)
-                sliceDelete();
-            return this;
-        }
-
-        public PartitionBuilder partitionBuilder()
-        {
-            return operationBuilder.partitionBuilder();
-        }
-    }
-
-    public interface OperationBuilder<T extends OperationBuilder<?>>
-    {
-        T randomOrder();
-        T strictOrder();
-        T partitionDelete();
-        T partitionDeletions(int n);
-        T update();
-        T updates(int n);
-        T insert();
-        T inserts(int n);
-        T delete();
-        T deletes(int n);
-        T columnDelete();
-        T columnDeletes(int n);
-        T rangeDelete();
-        T rangeDeletes(int n);
-        T sliceDelete();
-        T sliceDeletes(int n);
-        PartitionBuilder partitionBuilder();
-    }
-
-    public static ReplayingVisitor.Visit visit(long lts, long pd, ReplayingVisitor.Operation... ops)
-    {
-        return new ReplayingVisitor.Visit(lts, pd, ops);
-    }
-
-    public static ReplayingVisitor.Operation op(long cd, long opId, OpSelectors.OperationKind opType)
-    {
-        return new ReplayingVisitor.Operation(cd, opId, opType);
-    }
-
-    public void replayAll(Run run)
-    {
-        visitor(run).replayAll();
-    }
-
-    public ReplayingVisitor visitor(Run run)
-    {
-        return visitor(new MutatingVisitor.MutatingVisitExecutor(run, new MutatingRowVisitor(run)));
     }
 
     public ReplayingVisitor visitor(VisitExecutor executor)
     {
-        return new ReplayingVisitor(executor, run.clock::nextLts)
+        LongIterator replay = clock.replayAll();
+        return new ReplayingVisitor(executor, replay)
         {
             public Visit getVisit(long lts)
             {
-                assert log.size() > lts : String.format("Log: %s, lts: %d", log, lts);
-                return log.get((int) lts);
+                long idx = lts - clock.base;
+                Visit visit = log.get(idx);
+                assert visit != null : String.format("Could not find a visit for LTS %d", lts);
+                return visit;
             }
 
             public void replayAll()
             {
-                long maxLts = HistoryBuilder.this.lts;
-
-                while (true)
-                {
-                    if (run.clock.peek() >= maxLts)
-                        return;
+                while (replay.hasNext())
                     visit();
-                }
             }
         };
     }
+
+    public static interface LongIterator extends LongSupplier
+    {
+        boolean hasNext();
+        long getAsLong();
+    }
+
+    /**
+     * Non-monotonic version of OffsetClock.
+     */
+    public class OffsetClock implements OpSelectors.Clock
+    {
+        private long lowerBound;
+        private long current;
+
+        private final long base;
+        private final long batchSize;
+        private final Set<Long> returned;
+        private final EntropySource entropySource;
+
+        private final List<Long> visitOrder;
+
+        public OffsetClock(long base, long batchSize, EntropySource entropySource)
+        {
+            this.lowerBound = base;
+            this.base = base;
+            this.batchSize = batchSize;
+            this.returned = new HashSet<>();
+            this.entropySource = entropySource;
+            this.visitOrder = new ArrayList<>();
+            this.current = computeNext();
+        }
+
+        /**
+         * Visit Order - related methods
+         */
+        public LongIterator replayAll()
+        {
+            return new LongIterator()
+            {
+                private int visitedUpTo;
+
+                public boolean hasNext()
+                {
+                    return visitedUpTo < visitOrder.size();
+                }
+
+                public long getAsLong()
+                {
+                    return visitOrder.get(visitedUpTo++);
+                }
+            };
+        }
+
+        private long computeNext()
+        {
+            if (returned.size() == batchSize)
+            {
+                returned.clear();
+                lowerBound += batchSize;
+            }
+
+            long generated = entropySource.nextLong(lowerBound, lowerBound + batchSize);
+            while (returned.contains(generated))
+                generated = entropySource.nextLong(lowerBound, lowerBound + batchSize);
+
+            returned.add(generated);
+            return generated;
+        }
+
+        @Override
+        public long rts(long lts)
+        {
+            return base + lts;
+        }
+
+        @Override
+        public long lts(long rts)
+        {
+            return rts - base;
+        }
+
+
+        @Override
+        public long nextLts()
+        {
+            long ret = current;
+            current = computeNext();
+            visitOrder.add(ret);
+            return ret;
+        }
+
+        public long peek()
+        {
+            return current;
+        }
+
+        public Configuration.ClockConfiguration toConfig()
+        {
+            throw new RuntimeException("Not implemented");
+        }
+    }
 }
+
+// TODO: we can implement a pluggable time source via a custom clock, too; the only limitation is that order
+// of timestamps has to be consistent with LTS order
+
+// TODO: we could use some sort of compact data structure or file format for navigable operation history
+// this can have a _huge_ advantage of being able to produce arbitrary patterns, since you can specify history
+// either in a _very_ random way, or in a _very_ predictable way, but still leave a footprint extremely small,
+// since if you do not specify the details, we just produce fully random operations.

@@ -66,7 +66,7 @@ public class AlwaysSamePartitionSelector extends OpSelectors.PdSelector
             this.pd = pd;
         }
 
-        public OpSelectors.PdSelector make(OpSelectors.Rng rng)
+        public OpSelectors.PdSelector make(OpSelectors.PureRng rng)
         {
             return new AlwaysSamePartitionSelector(pd);
         }

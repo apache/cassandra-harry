@@ -22,7 +22,7 @@ public class BooleanGenerator implements Generator<Boolean>
 {
     public static BooleanGenerator INSTANCE = new BooleanGenerator();
 
-    public Boolean generate(RandomGenerator rng)
+    public Boolean generate(EntropySource rng)
     {
         return rng.nextBoolean();
     }

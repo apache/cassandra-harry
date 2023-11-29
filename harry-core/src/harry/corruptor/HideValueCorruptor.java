@@ -18,10 +18,13 @@
 
 package harry.corruptor;
 
+import java.util.HashSet;
+import java.util.Set;
+
 import harry.data.ResultSetRow;
 import harry.ddl.SchemaSpec;
-import harry.generators.PcgRSUFast;
-import harry.generators.RandomGenerator;
+import harry.generators.JdkRandomEntropySource;
+import harry.generators.EntropySource;
 import harry.model.Model;
 import harry.model.OpSelectors;
 import harry.operations.CompiledStatement;
@@ -32,15 +35,15 @@ import harry.util.BitSet;
 public class HideValueCorruptor implements RowCorruptor
 {
     private final SchemaSpec schema;
-    private final OpSelectors.MonotonicClock clock;
-    private final RandomGenerator rng;
+    private final OpSelectors.Clock clock;
+    private final EntropySource rng;
 
     public HideValueCorruptor(SchemaSpec schemaSpec,
-                              OpSelectors.MonotonicClock clock)
+                              OpSelectors.Clock clock)
     {
         this.schema = schemaSpec;
         this.clock = clock;
-        this.rng = new PcgRSUFast(1, 1);
+        this.rng = new JdkRandomEntropySource(1L);
     }
 
     // Can corrupt any row that has at least one written non-null value
@@ -57,13 +60,14 @@ public class HideValueCorruptor implements RowCorruptor
     public CompiledStatement corrupt(ResultSetRow row)
     {
         BitSet mask;
-        if (row.slts != null && rng.nextBoolean())
+        // Corrupt a static row, if it is available and if RNG says so
+        if (row.hasStaticColumns() && rng.nextBoolean())
         {
             int cnt = 0;
             int idx;
             do
             {
-                idx = rng.nextInt(row.slts.length - 1);
+                idx = rng.nextInt(row.slts.length);
                 cnt++;
             }
             while (row.slts[idx] == Model.NO_TIMESTAMP && cnt < 10);
@@ -81,10 +85,14 @@ public class HideValueCorruptor implements RowCorruptor
             }
         }
 
+        Set<Integer> tried = new HashSet<>();
         int idx;
         do
         {
-            idx = rng.nextInt(row.lts.length - 1);
+            if (tried.size() == row.lts.length)
+                throw new IllegalStateException(String.format("Could not corrupt after trying all %s indexes", tried));
+            idx = rng.nextInt(row.lts.length);
+            tried.add(idx);
         }
         while (row.lts[idx] == Model.NO_TIMESTAMP);
 

@@ -45,21 +45,35 @@ public class PartitionState implements Iterable<Reconciler.RowState>
 
     // Collected state
     Reconciler.RowState staticRow;
+
     final NavigableMap<Long, Reconciler.RowState> rows;
 
     public PartitionState(long pd, long debugCd, SchemaSpec schema)
     {
         this.pd = pd;
         this.rows = new TreeMap<>();
-        if (!schema.staticColumns.isEmpty())
-        {
-            staticRow = new Reconciler.RowState(this,
-                                                Reconciler.STATIC_CLUSTERING,
-                                                Reconciler.arr(schema.staticColumns.size(), NIL_DESCR),
-                                                Reconciler.arr(schema.staticColumns.size(), NO_TIMESTAMP));
-        }
+        this.staticRow = new Reconciler.RowState(this,
+                                                 Reconciler.STATIC_CLUSTERING,
+                                                 Reconciler.arr(schema.staticColumns.size(), NIL_DESCR),
+                                                 Reconciler.arr(schema.staticColumns.size(), NO_TIMESTAMP));
         this.debugCd = debugCd;
         this.schema = schema;
+    }
+
+    public void compareVisitedLts(List<Long> actualVisitedLts)
+    {
+        long min = actualVisitedLts.get(0);
+        int predictedIdx = Collections.binarySearch(visitedLts, min);
+        List<Long> predictedSublist = visitedLts.subList(predictedIdx, visitedLts.size());
+        Set<Long> set = new HashSet<>(actualVisitedLts);
+        for (long lts : predictedSublist)
+        {
+            if (!set.contains(lts))
+                throw new IllegalStateException(String.format("Predicted visit to %d, but did not see it in the debug row\n" +
+                                                              "Actual:    %s\n" +
+                                                              "Predicted: %s",
+                                                              lts, actualVisitedLts, predictedSublist));
+        }
     }
 
     public NavigableMap<Long, Reconciler.RowState> rows()
@@ -67,10 +81,9 @@ public class PartitionState implements Iterable<Reconciler.RowState>
         return rows;
     }
 
-    public void writeStaticRow(long[] staticVds, long lts)
+    public void writeStaticRow(long[] sds, long lts)
     {
-        if (staticRow != null)
-            staticRow = updateRowState(staticRow, schema.staticColumns, Reconciler.STATIC_CLUSTERING, staticVds, lts, false);
+        staticRow = updateRowState(staticRow, schema.staticColumns, Reconciler.STATIC_CLUSTERING, sds, lts, false);
     }
 
     public void write(long cd, long[] vds, long lts, boolean writePrimaryKeyLiveness)
@@ -113,6 +126,9 @@ public class PartitionState implements Iterable<Reconciler.RowState>
         return rows.isEmpty();
     }
 
+    /**
+     * Method used to update row state of both static and regular rows.
+     */
     private Reconciler.RowState updateRowState(Reconciler.RowState currentState, List<ColumnSpec<?>> columns, long cd, long[] vds, long lts, boolean writePrimaryKeyLiveness)
     {
         if (currentState == null)
@@ -137,7 +153,7 @@ public class PartitionState implements Iterable<Reconciler.RowState>
         }
         else
         {
-            assert currentState.vds.length == vds.length;
+            assert currentState.vds.length == vds.length : String.format("Vds: %d, sds: %d", currentState.vds.length, vds.length);
             for (int i = 0; i < vds.length; i++)
             {
                 if (vds[i] == UNSET_DESCR)

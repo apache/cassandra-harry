@@ -18,8 +18,6 @@
 
 package harry.operations;
 
-import java.util.Arrays;
-
 public class CompiledStatement
 {
     private final String cql;
@@ -34,6 +32,13 @@ public class CompiledStatement
     public String cql()
     {
         return cql;
+    }
+
+    public CompiledStatement withSchema(String oldKs, String oldTable, String newKs, String newTable)
+    {
+        return new CompiledStatement(cql.replace(oldKs + "." + oldTable,
+                                                 newKs + "." + newTable),
+                                     bindings);
     }
 
     public Object[] bindings()

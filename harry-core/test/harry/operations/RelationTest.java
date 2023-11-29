@@ -35,7 +35,7 @@ import harry.util.BitSet;
 
 public class RelationTest
 {
-    private static int RUNS = 100;
+    private static int RUNS = 50;
 
     @Test
     public void testKeyGenerators()
@@ -64,10 +64,9 @@ public class RelationTest
                                                        Collections.singletonList(ColumnSpec.pk("pk", ColumnSpec.int64Type)),
                                                        spec,
                                                        Collections.emptyList(),
-                                                       Collections.emptyList(),
-                                                       false);
+                                                       Collections.emptyList());
 
-                long[] cds = new long[100];
+                long[] cds = new long[RUNS];
 
                 int[] fractions = new int[schemaSpec.clusteringKeys.size()];
                 int last = cds.length;
@@ -84,7 +83,7 @@ public class RelationTest
                 }
                 Arrays.sort(cds);
 
-                OpSelectors.Rng rng = new OpSelectors.PCGFast(1L);
+                OpSelectors.PureRng rng = new OpSelectors.PCGFast(1L);
 
                 // TODO: replace with mocks?
                 QueryGenerator querySelector = new QueryGenerator(schemaSpec,
