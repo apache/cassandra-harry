@@ -25,6 +25,7 @@ import org.slf4j.LoggerFactory;
 
 import harry.ddl.ColumnSpec;
 import harry.ddl.SchemaSpec;
+import harry.operations.FilteringQuery;
 import harry.operations.Query;
 import harry.util.BitSet;
 import harry.util.Ranges;
@@ -37,7 +38,7 @@ public class PartitionState implements Iterable<Reconciler.RowState>
 {
     private static final Logger logger = LoggerFactory.getLogger(Reconciler.class);
 
-    final long pd;
+    public final long pd;
     final long debugCd;
     final SchemaSpec schema;
     final List<Long> visitedLts = new ArrayList<>();
@@ -56,6 +57,17 @@ public class PartitionState implements Iterable<Reconciler.RowState>
                                                  Reconciler.STATIC_CLUSTERING,
                                                  Reconciler.arr(schema.staticColumns.size(), NIL_DESCR),
                                                  Reconciler.arr(schema.staticColumns.size(), NO_TIMESTAMP));
+        this.debugCd = debugCd;
+        this.schema = schema;
+    }
+
+    private PartitionState(long pd, long debugCd, Reconciler.RowState staticRow, NavigableMap<Long, Reconciler.RowState> rows, SchemaSpec schema)
+    {
+        this.pd = pd;
+        this.rows = rows;
+        this.staticRow = new Reconciler.RowState(this, Reconciler.STATIC_CLUSTERING,
+                                                 Arrays.copyOf(staticRow.vds, staticRow.vds.length),
+                                                 Arrays.copyOf(staticRow.lts, staticRow.lts.length));
         this.debugCd = debugCd;
         this.schema = schema;
     }
@@ -79,6 +91,20 @@ public class PartitionState implements Iterable<Reconciler.RowState>
     public NavigableMap<Long, Reconciler.RowState> rows()
     {
         return rows;
+    }
+
+    public PartitionState filter(FilteringQuery query)
+    {
+        NavigableMap<Long, Reconciler.RowState> rows = new TreeMap<>();
+        for (Long cd : this.rows.keySet())
+        {
+            Reconciler.RowState rowState = this.rows.get(cd);
+            if (query.match(rowState))
+                rows.put(cd, rowState);
+        }
+        PartitionState ps = new PartitionState(pd, debugCd, staticRow, rows, schema);
+        System.out.println("ps.rows.size() = " + ps.rows.size());
+        return ps;
     }
 
     public void writeStaticRow(long[] sds, long lts)
@@ -263,7 +289,7 @@ public class PartitionState implements Iterable<Reconciler.RowState>
         partitionState.staticRow = staticRow;
         // TODO: we could improve this if we could get original descriptors
         for (Reconciler.RowState rowState : rows.values())
-            if (query.match(rowState.cd))
+            if (query.matchCd(rowState.cd))
                 partitionState.rows.put(rowState.cd, rowState);
 
         return partitionState;

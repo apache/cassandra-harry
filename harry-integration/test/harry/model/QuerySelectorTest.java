@@ -107,7 +107,7 @@ public class QuerySelectorTest extends IntegrationTestBase
                         continue;
 
                     boolean expected = matchingClusterings.contains(cd);
-                    boolean actual = query.match(cd);
+                    boolean actual = query.matchCd(cd);
                     Assert.assertEquals(String.format("Mismatch for clustering: %d. Expected: %s. Actual: %s.\nQuery: %s",
                                                       cd, expected, actual, query.toSelectStatement()),
                                         expected,

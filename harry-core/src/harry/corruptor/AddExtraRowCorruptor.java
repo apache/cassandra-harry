@@ -67,7 +67,7 @@ public class AddExtraRowCorruptor implements QueryResponseCorruptor
 
         long attempt = 0;
         long cd = descriptorSelector.randomCd(query.pd, attempt, schema);
-        while (!query.match(cd) || cds.contains(cd))
+        while (!query.matchCd(cd) || cds.contains(cd))
         {
             if (partitionIsFull)
                 // We can't pick from the existing CDs, so let's try to come up with a new one that would match the query

@@ -22,6 +22,7 @@ import java.util.ArrayList;
 import java.util.List;
 
 import harry.ddl.ColumnSpec;
+import harry.generators.DataGenerators;
 
 public class Relation
 {
@@ -41,6 +42,10 @@ public class Relation
 
     public boolean match(long l)
     {
+        // TODO: there are == NULL queries
+        if (l == DataGenerators.NIL_DESCR || l == DataGenerators.UNSET_DESCR)
+            return false;
+
         return kind.match(columnSpec.type.generator()::compare, l, descriptor);
     }
 

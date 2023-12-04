@@ -61,7 +61,7 @@ public abstract class Query
     }
 
     // TODO: pd, values, filtering?
-    public boolean match(long cd)
+    public boolean matchCd(long cd)
     {
         return simpleMatch(this, cd);
     }
@@ -93,7 +93,7 @@ public abstract class Query
             super(kind, pd, reverse, allRelations, schemaSpec);
         }
 
-        public boolean match(long cd)
+        public boolean matchCd(long cd)
         {
             return true;
         }
@@ -131,7 +131,7 @@ public abstract class Query
         }
 
         @Override
-        public boolean match(long cd)
+        public boolean matchCd(long cd)
         {
             return cd == this.cd;
         }
@@ -201,14 +201,14 @@ public abstract class Query
             return new Ranges.Range(cdMin, cdMax, minRelation.isInclusive(), maxRelation.isInclusive(), ts);
         }
 
-        public boolean match(long cd)
+        public boolean matchCd(long cd)
         {
             // TODO: looks like we don't really need comparator here.
             Relation.LongComparator cmp = FORWARD_COMPARATOR;
             boolean res = minRelation.match(cmp, cd, cdMin) && maxRelation.match(cmp, cd, cdMax);
             if (!logger.isDebugEnabled())
                 return res;
-            boolean superRes = super.match(cd);
+            boolean superRes = super.matchCd(cd);
             if (res != superRes)
             {
                 logger.debug("Query did not pass a sanity check.\n{}\n Super call returned: {}, while current call: {}\n" +
