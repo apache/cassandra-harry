@@ -1,0 +1,10 @@
+container run --rm \
+  -u $(id -u):$(id -g) \
+  -m 5G \
+  -v $(pwd)/data:/var/lib/cedardb/data \
+  -e CEDAR_PASSWORD=test \
+  -e BUFFERSIZE=1G \
+  -e parallel=1 \
+  -e WORKMEMSIZE=4G \
+  -p 5432:5432 \
+  cedardb/cedardb

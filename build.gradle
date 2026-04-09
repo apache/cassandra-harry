@@ -1,0 +1,39 @@
+plugins {
+    id 'java-library'
+}
+
+group = 'org.apache.cassandra'
+version = '0.1-SNAPSHOT'
+
+java {
+    sourceCompatibility = JavaVersion.VERSION_21
+    targetCompatibility = JavaVersion.VERSION_21
+}
+
+tasks.withType(JavaCompile).configureEach {
+    options.encoding = 'UTF-8'
+    options.compilerArgs += ['--enable-preview']
+}
+
+tasks.withType(Test).configureEach {
+    jvmArgs '--enable-preview'
+}
+
+tasks.withType(JavaExec).configureEach {
+    jvmArgs '--enable-preview'
+}
+
+repositories {
+    mavenCentral()
+}
+
+dependencies {
+    implementation 'org.slf4j:slf4j-api:1.7.32'
+    implementation 'com.google.guava:guava:32.1.3-jre'
+    implementation 'org.agrona:agrona:1.21.1'
+    implementation 'org.jctools:jctools-core:4.0.1'
+
+    testImplementation 'junit:junit:4.13.2'
+    testRuntimeOnly 'org.slf4j:slf4j-simple:1.7.32'
+}
+
